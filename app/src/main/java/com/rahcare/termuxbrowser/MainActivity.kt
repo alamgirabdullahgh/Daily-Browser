@@ -531,6 +531,18 @@ class MainActivity : Activity() {
         return newTab(site.url, id)
     }
 
+    /** খোলা যেকোনো সাইটকে এক চাপে ওয়ার্কস্পেস বানায় (নাম = সাইটের ডোমেইন) এবং আলাদা লগইনে নতুন ট্যাবে খোলে */
+    private fun makeWorkspace(t: Tab) {
+        val host = (Uri.parse(t.url).host ?: return).removePrefix("www.")
+        val list = Sites.all(this)
+        val site = list.firstOrNull { (Uri.parse(it.url).host ?: "").removePrefix("www.") == host }
+            ?: Site("s${System.currentTimeMillis()}", host, t.url).also { list.add(it); Sites.save(this, list) }
+        refreshHomes()
+        val nt = openSite(site.id) ?: return
+        if (nt !== t) closeTab(t)
+        Toast.makeText(this, "“${site.name}” আলাদা লগইনে খোলা হয়েছে — এখানে নতুন করে লগইন করুন (নাম বদলাতে হোমে ✎)", Toast.LENGTH_LONG).show()
+    }
+
     private fun editSite(site: Site?) {
         val list = Sites.all(this)
         val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
@@ -733,11 +745,13 @@ class MainActivity : Activity() {
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
         m.menu.add(0, 7, 6, "ব্রাউজিং ডেটা মুছুন")
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
+        cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 8 -> startUpdate()
                 9 -> cur?.let { t -> pickHandoff(t) }
+                11 -> cur?.let { t -> makeWorkspace(t) }
                 10 -> { autoSwitch = !autoSwitch; Store.prefs(this).edit().putBoolean("autoswitch", autoSwitch).apply()
                     Toast.makeText(this, if (autoSwitch) "স্বয়ংক্রিয় সুইচ চালু" else "স্বয়ংক্রিয় সুইচ বন্ধ — শুধু প্রস্তাব আসবে", Toast.LENGTH_SHORT).show() }
                 1 -> { newTab(null); openHome() }

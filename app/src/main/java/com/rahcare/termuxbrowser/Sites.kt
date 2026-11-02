@@ -5,19 +5,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
 
-/** একটি ওয়ার্কস্পেস = যেকোনো ওয়েবসাইট + তার নিজস্ব আলাদা ও স্থায়ী লগইন (কুকি/সেশন)। কোডে কোনো সাইটের নাম বসানো নেই — সব ব্যবহারকারী যোগ/বদল/মোছে */
+/** একটি ওয়ার্কস্পেস = যেকোনো ওয়েবসাইট + তার নিজস্ব আলাদা ও স্থায়ী লগইন (কুকি/সেশন)। কোডে কোনো সাইটের নাম নেই — ব্যবহারকারী যোগ/বদল/মোছে */
 data class Site(val id: String, var name: String, var url: String)
 
 object Sites {
     private fun sp(c: Context) = c.getSharedPreferences("sites", Context.MODE_PRIVATE)
 
-    /** শুধু শুরুর তালিকা — সবই বদলানো ও মোছা যায়, নতুন যেকোনো সাইট যোগ করা যায় */
-    private val defaults = listOf(
-        Site("claude", "Claude", "https://claude.ai/new"),
-        Site("chatgpt", "ChatGPT", "https://chatgpt.com/"),
-        Site("gemini", "Gemini", "https://gemini.google.com/app"),
-        Site("grok", "Grok", "https://grok.com/"),
-    )
+    /** শুরুতে তালিকা খালি — কোনো সাইটের নাম আগে থেকে বসানো নেই; ব্যবহারকারী নিজে যেকোনো সাইট যোগ করে */
+    private val defaults = emptyList<Site>()
 
     fun all(c: Context): MutableList<Site> {
         val raw = sp(c).getString("list", null) ?: return defaults.map { it.copy() }.toMutableList()
