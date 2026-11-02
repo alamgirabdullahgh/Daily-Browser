@@ -58,7 +58,7 @@ class MainActivity : Activity() {
         override fun onReceive(c: Context, i: Intent) { scheduleRefresh() }
     }
 
-    private fun statusMark(j: Job) = when (j.status) { "running" -> "⏳ "; "ok" -> "✓ "; else -> "✗ " }
+    private fun statusMark(j: Job) = when (j.status) { "running" -> "⏳ "; "ok" -> "✓ "; "stopped" -> "■ "; else -> "✗ " }
 
     /** লাইভ আপডেট বারবার এলে ২০০ms-এ একবার আঁকা */
     private fun scheduleRefresh() {
@@ -83,6 +83,15 @@ class MainActivity : Activity() {
         syncProgress(); updateBar()
         val now = System.currentTimeMillis()
         if (overlay != null && now - lastOverlay > 1000) showSwitcher()
+    }
+
+    /** শেষ হওয়া সব কাজ মুছে তালিকা পরিষ্কার করে (চলমানগুলো থাকে) */
+    private fun clearFinishedJobs() {
+        val n = Jobs.clearFinished()
+        Jobs.save(this)
+        Toast.makeText(this, if (n > 0) "$n টি শেষ হওয়া কাজ মুছেছে" else "মোছার মতো শেষ হওয়া কাজ নেই", Toast.LENGTH_SHORT).show()
+        if (overlay != null) showSwitcher()
+        scheduleRefresh()
     }
 
     /** কাজের ট্যাব খোলা থাকলে ওপরের প্রগ্রেস বার পেজ-লোডের মতো চলে: শতাংশ জানলে ভরে, নইলে ঘুরতে থাকে */
@@ -432,6 +441,7 @@ class MainActivity : Activity() {
                 else Toast.makeText(this, "Termux স্ক্রিনে চলছে: ${cmd.title}", Toast.LENGTH_SHORT).show()
             }
             "job" -> Jobs.find(id)?.let { openJobTab(it) }
+            "clear" -> clearFinishedJobs()
             "edit" -> edit(Store.all(this).firstOrNull { it.id == id })
         }
     }
@@ -496,7 +506,7 @@ class MainActivity : Activity() {
                 head.addView(TextView(this).apply { text = "✕"; textSize = 17f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#374151"))
                     setOnClickListener { closeTab(t) } }, LinearLayout.LayoutParams(dp(40), dp(36)))
                 card.addView(head)
-                val st = t.jobKey?.let { jk -> Jobs.find(jk)?.let { j -> if (j.status == "running") "চলছে…" else if (j.status == "ok") "সম্পন্ন ✓" else "ব্যর্থ ✗" } }
+                val st = t.jobKey?.let { jk -> Jobs.find(jk)?.let { j -> if (j.status == "running") "চলছে…" else if (j.status == "ok") "সম্পন্ন ✓" else if (j.status == "stopped") "বন্ধ ■" else "ব্যর্থ ✗" } }
                 val th = t.thumb
                 if (th != null && st == null) {
                     card.addView(ImageView(this).apply { setImageBitmap(th); scaleType = ImageView.ScaleType.CENTER_CROP }, LinearLayout.LayoutParams(-1, dp(150)))
@@ -510,10 +520,11 @@ class MainActivity : Activity() {
         }
         col.addView(Button(this).apply { text = "＋ নতুন ট্যাব"; isAllCaps = false; setOnClickListener { newTab(null); openHome() } })
         col.addView(head("Termux-এ ব্যাকগ্রাউন্ডে কাজ (${Jobs.running()} চলছে)"))
+        if (Jobs.list.any { it.status != "running" }) col.addView(Button(this).apply { text = "🗑 শেষ হওয়া কাজ মুছুন"; isAllCaps = false; setOnClickListener { clearFinishedJobs() } })
         if (Jobs.list.isEmpty()) col.addView(TextView(this).apply { text = "এখনো কোনো কমান্ড চালানো হয়নি"; setTextColor(Color.parseColor("#6B7280")); textSize = 13f })
         Jobs.list.asReversed().forEach { j ->
-            val c = when (j.status) { "running" -> "#F59E0B"; "ok" -> "#16A34A"; else -> "#DC2626" }
-            val st = when (j.status) { "running" -> "চলছে…"; "ok" -> "সম্পন্ন"; else -> "ব্যর্থ" }
+            val c = when (j.status) { "running" -> "#F59E0B"; "ok" -> "#16A34A"; "stopped" -> "#6B7280"; else -> "#DC2626" }
+            val st = when (j.status) { "running" -> "চলছে…"; "ok" -> "সম্পন্ন"; "stopped" -> "বন্ধ করা হয়েছে"; else -> "ব্যর্থ" }
             col.addView(TextView(this).apply {
                 text = "●  ${j.title} — $st · ${j.elapsed()} সেকেন্ড"; textSize = 14f; setTextColor(Color.parseColor(c)); background = bg(Color.WHITE, 12)
                 setPadding(dp(14), dp(12), dp(14), dp(12)); layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(6) }
@@ -600,6 +611,15 @@ class MainActivity : Activity() {
             for (i in 0 until jt.length()) Jobs.find(jt.getString(i))?.let { openJobTab(it) }
             keepCur?.let { select(it) }
             Jobs.list.filter { it.status == "running" }.forEach { it.reattach = true; Runner.attach(this, it) }
+            // Termux ১ মিনিটেও সাড়া না দিলে কাজটা আর চলছে না ধরে নিই — নইলে চিরকাল "চলছে…" দেখাত আর ফোরগ্রাউন্ড সার্ভিস/ওয়েকলক ছাড়ত না
+            handler.postDelayed({
+                var changed = false
+                Jobs.list.filter { it.status == "running" && it.reattach }.forEach {
+                    it.status = "fail"; it.end = System.currentTimeMillis(); it.reattach = false
+                    it.out = (it.out + "\n(Termux থেকে সাড়া মেলেনি — কাজটি সম্ভবত আর চলছে না)").trim(); changed = true
+                }
+                if (changed) { Jobs.save(this); scheduleRefresh() }
+            }, 60000L)
             if (Jobs.running() > 0) KeepAliveService.start(this)
         } catch (_: Exception) {}
     }

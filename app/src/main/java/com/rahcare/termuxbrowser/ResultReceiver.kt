@@ -22,7 +22,7 @@ class ResultReceiver : BroadcastReceiver() {
             val live = job.out.isNotBlank() && job.status != "running"
             if (!live) job.out = ""
             if (job.status == "running") {
-                job.status = if (code == 0 && em.isBlank()) "ok" else "fail"
+                job.status = if (em.isNotBlank()) "fail" else Jobs.statusFor(code)
                 job.end = System.currentTimeMillis()
             }
             val extra = buildString {

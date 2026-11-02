@@ -35,7 +35,14 @@ data class Job(val key: String, val title: String, var status: String, var out: 
 }
 
 object Jobs {
-    val list = mutableListOf<Job>()
+    // একাধিক থ্রেড (লাইভ স্ট্রিম, UI, রিসিভার) একসাথে পড়ে/লেখে — সাধারণ তালিকায় ক্র্যাশের ঝুঁকি ছিল
+    val list = java.util.concurrent.CopyOnWriteArrayList<Job>()
+
+    /** exit কোড থেকে অবস্থা: 130/137/143 = ব্যবহারকারী বা সিস্টেম থামিয়েছে (ব্যর্থতা নয়) */
+    fun statusFor(code: Int) = when (code) { 0 -> "ok"; 130, 137, 143 -> "stopped"; else -> "fail" }
+
+    /** শেষ হওয়া সব কাজ মুছে ফেলে (চলমানগুলো থাকে); কয়টা মুছল তা ফেরত দেয় */
+    fun clearFinished(): Int { val n = list.count { it.status != "running" }; list.removeIf { it.status != "running" }; return n }
     fun start(title: String, script: String = ""): Job {
         val j = Job("j${System.nanoTime()}", title, "running", "", System.currentTimeMillis())
         j.script = script
@@ -63,6 +70,9 @@ object Jobs {
             for (i in 0 until a.length()) {
                 val o = a.getJSONObject(i)
                 if (find(o.getString("k")) != null) continue
+                // ২ দিনের বেশি পুরনো শেষ-হওয়া কাজ আর ফেরাই না (তালিকা জমতে না দিতে)
+                val st0 = o.getString("st"); val t0 = o.optLong("e").takeIf { it > 0 } ?: o.getLong("tm")
+                if (st0 != "running" && System.currentTimeMillis() - t0 > 2 * 86400000L) continue
                 val j = Job(o.getString("k"), o.getString("t"), o.getString("st"), o.optString("o"), o.getLong("tm"))
                 j.end = o.optLong("e"); j.script = o.optString("s"); j.refreshPct()
                 list.add(j)

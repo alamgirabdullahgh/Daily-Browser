@@ -13,7 +13,8 @@ import java.net.Socket
 object Live {
     @Volatile private var port = 0
     @Volatile var onUpdate: ((Job) -> Unit)? = null
-    private val exit = Regex("@@EXIT:(-?\\d+)")
+    private val exit = Regex("@@EXIT:(-?\\d+)(?::(\\d+))?")
+    private val gone = Regex("@@GONE:(\\d+)")
 
     @Synchronized private fun ensure(): Int {
         if (port != 0) return port
@@ -58,7 +59,7 @@ object Live {
             "fi\n" +
             "(\n$script\n) >> \"\$L\" 2>&1\n" +
             "c=\$?\n" +
-            "echo \"@@EXIT:\$c\" >> \"\$L\"\n" +
+            "echo \"@@EXIT:\$c:\$(date +%s)\" >> \"\$L\"\n" +
             "if [ -n \"\$FW\" ]; then sleep 2; kill \$FW 2>/dev/null; fi\n" +
             "termux-wake-unlock 2>/dev/null\n" +
             "tail -c 8000 \"\$L\" | sed '/^@@EXIT/d'\n" +
@@ -78,15 +79,18 @@ object Live {
             "if [ ! -f \"\$L\" ]; then echo '@@LOST' >&3; exit 0; fi\n" +
             "if [ -f \"\$P\" ] && kill -0 \"\$(cat \"\$P\")\" 2>/dev/null; then\n" +
             "tail -n +1 -f --pid=\"\$(cat \"\$P\")\" \"\$L\" >&3\n" +
-            "sleep 1; grep '^@@EXIT' \"\$L\" >&3\n" +
-            "else cat \"\$L\" >&3; fi\n" +
+            "sleep 1; if grep -q '^@@EXIT' \"\$L\"; then grep '^@@EXIT' \"\$L\" >&3; else echo \"@@GONE:\$(date +%s)\" >&3; fi\n" +
+            "else cat \"\$L\" >&3; grep -q '^@@EXIT' \"\$L\" || echo \"@@GONE:\$(stat -c %Y \"\$L\" 2>/dev/null || date +%s)\" >&3; fi\n" +
             "exec 3>&-\n"
     }
 
-    private fun finish(job: Job, code: Int) {
-        job.status = if (code == 0) "ok" else "fail"
-        job.end = System.currentTimeMillis()
-        job.out = job.out.trimEnd() + "\n(exit $code)"
+    /** ts = কমান্ড আসলে যখন শেষ হয়েছিল (সেকেন্ড); না থাকলে এখনকার সময়। আবার সংযোগের সময় "এখন" ধরলে সময় ভুল দেখাত */
+    private fun endTime(job: Job, ts: Long?) = if (ts != null && ts > 0) maxOf(ts * 1000, job.time) else System.currentTimeMillis()
+
+    private fun finish(job: Job, code: Int, ts: Long?) {
+        job.status = Jobs.statusFor(code)
+        job.end = endTime(job, ts)
+        job.out = job.out.trimEnd() + "\n(exit $code" + (if (job.status == "stopped") " — থামানো/বন্ধ করা হয়েছে" else "") + ")"
     }
 
     private fun serve(s: Socket) {
@@ -109,7 +113,11 @@ object Live {
                 }
                 exit.find(job.out)?.let { m ->
                     job.out = job.out.replace(m.value, "")
-                    if (job.status == "running") { finish(job, m.groupValues[1].toInt()); done = true }
+                    if (job.status == "running") { finish(job, m.groupValues[1].toInt(), m.groupValues[2].toLongOrNull()); done = true }
+                }
+                gone.find(job.out)?.let { m ->
+                    job.out = job.out.replace(m.value, "").trimEnd() + "\n(প্রক্রিয়া মাঝপথে বন্ধ হয়ে গেছে — Android বা Termux বন্ধ করে দিয়েছে)"
+                    if (job.status == "running") { job.status = "fail"; job.end = endTime(job, m.groupValues[1].toLongOrNull()); done = true }
                 }
                 val now = System.currentTimeMillis()
                 if (done || now - job.lastPush > 150) {
