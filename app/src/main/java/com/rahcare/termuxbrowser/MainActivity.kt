@@ -24,12 +24,17 @@ import android.view.inputmethod.EditorInfo
 import android.webkit.*
 import android.widget.*
 import org.json.JSONArray
+import androidx.webkit.ProfileStore
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import org.json.JSONObject
 
 class Tab(val web: WebView) {
     var title = "নতুন ট্যাব"
     var url = ""
     var jobKey: String? = null // কমান্ডের নিজস্ব ট্যাব হলে কাজের চাবি
+    var site: String? = null   // ওয়ার্কস্পেস হলে তার আইডি (আলাদা লগইন-প্রোফাইলে চলে)
+    var limitAt = 0L           // শেষ কখন "লিমিট শেষ" প্রস্তাব দেখানো হয়েছে
     var thumb: Bitmap? = null  // ট্যাব তালিকার ছোট প্রিভিউ
     val isHome get() = url == Home.BASE || (url.startsWith(Home.BASE) && !url.startsWith(Home.JOB))
 }
@@ -203,6 +208,7 @@ class MainActivity : Activity() {
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         handler.removeCallbacks(updCheck); updCheck.run()
         handler.removeCallbacks(jobSaver); handler.postDelayed(jobSaver, 5000L)
+        handler.removeCallbacks(siteWatcher); handler.postDelayed(siteWatcher, 6000L)
     }
 
     // কোনো সময়ের বাধা নেই: অ্যাপ খুললেই খোঁজে, আর সামনে থাকলে প্রতি ২০ সেকেন্ডে আবার খোঁজে
@@ -240,7 +246,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
-        handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver)
+        handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher)
         try { unregisterReceiver(rx) } catch (_: Exception) {}
         Live.onUpdate = null
         save()
@@ -249,9 +255,22 @@ class MainActivity : Activity() {
     override fun onDestroy() { super.onDestroy(); tabs.forEach { it.web.destroy() } }
 
     // ---------- ট্যাব ----------
-    private fun newTab(url: String?): Tab {
+    private fun newTab(url: String?, site: String? = null): Tab {
         val w = WebView(this)
+        // আলাদা লগইন-প্রোফাইল WebView-এর অন্য কোনো কাজের আগেই বসাতে হয়; না বসলে লগইন মিশে যেত, তাই তখন সাইট লোডই করি না
+        var siteOk: String? = null
+        if (site != null) {
+            siteOk = try {
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                    val pn = Sites.profile(site)
+                    ProfileStore.getInstance().getOrCreateProfile(pn)
+                    WebViewCompat.setProfile(w, pn); site
+                } else null
+            } catch (_: Exception) { null }
+            if (siteOk == null) Toast.makeText(this, "আলাদা লগইন চালু করা যায়নি — Android System WebView আপডেট করুন", Toast.LENGTH_LONG).show()
+        }
         val t = Tab(w)
+        t.site = siteOk
         w.settings.apply {
             javaScriptEnabled = true; domStorageEnabled = true; setSupportMultipleWindows(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
@@ -292,7 +311,7 @@ class MainActivity : Activity() {
             }
             override fun onReceivedTitle(v: WebView, title: String?) { if (!t.isHome && t.jobKey == null && !title.isNullOrBlank()) t.title = title }
             override fun onCreateWindow(v: WebView, d: Boolean, g: Boolean, m: Message): Boolean {
-                val n = newTab(null)
+                val n = newTab(null, t.site)  // পপআপ (যেমন লগইন) একই প্রোফাইলে খুলুক
                 (m.obj as WebView.WebViewTransport).webView = n.web; m.sendToTarget(); return true
             }
             override fun onCloseWindow(v: WebView) { closeTab(t) }
@@ -308,7 +327,7 @@ class MainActivity : Activity() {
             } catch (e: Exception) { Toast.makeText(this, "ডাউনলোড ব্যর্থ", Toast.LENGTH_SHORT).show() }
         }
         tabs.add(t); select(t)
-        if (url != null) w.loadUrl(url)
+        if (url != null && !(site != null && siteOk == null)) w.loadUrl(url)
         return t
     }
 
@@ -456,6 +475,8 @@ class MainActivity : Activity() {
             "job" -> Jobs.find(id)?.let { openJobTab(it) }
             "clear" -> clearFinishedJobs()
             "kill" -> Jobs.find(id)?.let { killJob(it) }
+            "site" -> openSite(id)
+            "siteedit" -> editSite(Sites.all(this).firstOrNull { it.id == id })
             "edit" -> edit(Store.all(this).firstOrNull { it.id == id })
         }
     }
@@ -486,6 +507,109 @@ class MainActivity : Activity() {
             }.setNegativeButton("বাতিল", null)
         if (cmd != null) d.setNeutralButton("মুছুন") { _, _ -> list.removeAll { it.id == cmd.id }; Store.save(this, list); refreshHomes() }
         d.show()
+    }
+
+    // ---------- ওয়ার্কস্পেস (যেকোনো সাইট, আলাদা লগইন) ----------
+    private var limitDialogOpen = false
+
+    /** ওয়ার্কস্পেস খোলে (আগে খোলা থাকলে সেটাতেই যায়); fresh=true হলে নতুন চ্যাট লোড করে */
+    private fun openSite(id: String, fresh: Boolean = false): Tab? {
+        val site = Sites.all(this).firstOrNull { it.id == id } ?: return null
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            AlertDialog.Builder(this).setTitle("আলাদা লগইন চালু করা যাচ্ছে না")
+                .setMessage("এই ফোনের Android System WebView পুরনো। Play Store থেকে \"Android System WebView\" (ও Chrome) আপডেট করে আবার চেষ্টা করুন। নইলে সব সাইটের লগইন মিশে যেত, তাই খোলা হচ্ছে না।")
+                .setPositiveButton("ঠিক আছে", null).show()
+            return null
+        }
+        val ex = tabs.firstOrNull { it.site == id }
+        if (ex != null) { select(ex); if (fresh) ex.web.loadUrl(site.url); return ex }
+        return newTab(site.url, id)
+    }
+
+    private fun editSite(site: Site?) {
+        val list = Sites.all(this)
+        val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
+        val n = EditText(this).apply { hint = "নাম (যেমন Claude)"; setText(site?.name ?: "") }
+        val u = EditText(this).apply { hint = "ওয়েবসাইট (যেমন claude.ai)"; setText(site?.url ?: ""); inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI }
+        l.addView(n); l.addView(u)
+        val d = AlertDialog.Builder(this).setTitle(if (site == null) "নতুন ওয়ার্কস্পেস" else "ওয়ার্কস্পেস সম্পাদনা").setView(l)
+            .setPositiveButton("সেভ") { _, _ ->
+                val name = n.text.toString().trim(); val url = Sites.normalizeUrl(u.text.toString())
+                if (name.isEmpty() || url.isEmpty()) return@setPositiveButton
+                if (site == null) list.add(Site("s${System.currentTimeMillis()}", name, url))
+                else list.firstOrNull { it.id == site.id }?.let { it.name = name; it.url = url }
+                Sites.save(this, list); refreshHomes()
+            }.setNegativeButton("বাতিল", null)
+        if (site != null) d.setNeutralButton("মুছুন") { _, _ ->
+            AlertDialog.Builder(this).setTitle("“${site.name}” মুছবেন?")
+                .setMessage("এই ওয়ার্কস্পেসের লগইন ও সেশনও মুছে যাবে।")
+                .setPositiveButton("মুছুন") { _, _ ->
+                    tabs.filter { it.site == site.id }.forEach { closeTab(it) }
+                    list.removeAll { it.id == site.id }; Sites.save(this, list)
+                    try { ProfileStore.getInstance().deleteProfile(Sites.profile(site.id)) } catch (_: Exception) {}
+                    refreshHomes()
+                }.setNegativeButton("না", null).show()
+        }
+        d.show()
+    }
+
+    /** সামনের ওয়ার্কস্পেস ট্যাবে "লিমিট শেষ" ধরনের লেখা এসেছে কিনা প্রতি ৬ সেকেন্ডে দেখে (যেকোনো সাইটে একই নিয়ম); পেলে শুধু প্রস্তাব দেয়, নিজে থেকে কিছু করে না */
+    private val siteWatcher = object : Runnable {
+        override fun run() {
+            val t = cur
+            if (t != null && t.site != null && overlay == null && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
+                t.web.evaluateJavascript(Sites.LIMIT_JS) { raw ->
+                    val hit = Sites.unquote(raw)
+                    if (hit.isNotBlank() && t === cur && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) { t.limitAt = System.currentTimeMillis(); askSwitch(t, hit) }
+                }
+            }
+            handler.postDelayed(this, 6000L)
+        }
+    }
+
+    private fun askSwitch(t: Tab, hit: String) {
+        val list = Sites.all(this)
+        val from = list.firstOrNull { it.id == t.site }?.name ?: "এই সাইট"
+        val nx = Sites.next(list, t.site) ?: return
+        limitDialogOpen = true
+        AlertDialog.Builder(this).setTitle("লিমিট শেষ মনে হচ্ছে")
+            .setMessage("$from-এ পাওয়া গেছে: “$hit”\n\n${nx.name}-এ যাবেন? এই চ্যাটের শেষ অংশ কপি হয়ে নতুন চ্যাটের ঘরে বসানোর চেষ্টা হবে — পাঠানোর আগে আপনি দেখে নিতে পারবেন।")
+            .setPositiveButton("${nx.name}-এ যান") { _, _ -> handoff(t, nx) }
+            .setNeutralButton("অন্যটি বেছে নিন") { _, _ -> pickHandoff(t) }
+            .setNegativeButton("না", null)
+            .setOnDismissListener { limitDialogOpen = false }.show()
+    }
+
+    /** এই চ্যাট কোন ওয়ার্কস্পেসে নেবেন তা বেছে নেওয়ার তালিকা */
+    private fun pickHandoff(t: Tab) {
+        val others = Sites.all(this).filter { it.id != t.site }
+        if (others.isEmpty()) { Toast.makeText(this, "আর কোনো ওয়ার্কস্পেস নেই — হোম থেকে নতুন যোগ করুন", Toast.LENGTH_LONG).show(); return }
+        AlertDialog.Builder(this).setTitle("এই চ্যাট কোথায় নেবেন?")
+            .setItems(others.map { it.name }.toTypedArray()) { _, i -> handoff(t, others[i]) }
+            .setNegativeButton("বাতিল", null).show()
+    }
+
+    /** চলতি চ্যাটের শেষ অংশ ক্লিপবোর্ডে কপি করে অন্য ওয়ার্কস্পেসের নতুন চ্যাটে খুলে ইনপুট ঘরে বসানোর চেষ্টা করে (কখনও নিজে পাঠায় না) */
+    private fun handoff(from: Tab, to: Site) {
+        val fromName = Sites.all(this).firstOrNull { it.id == from.site }?.name ?: "আগের সাইট"
+        from.web.evaluateJavascript(Sites.EXTRACT_JS) { raw ->
+            val chat = Sites.unquote(raw).trim()
+            val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat)
+            if (payload.isNotEmpty()) (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("chat", payload))
+            val tab = openSite(to.id, true)
+            if (tab != null) {
+                if (payload.isEmpty()) Toast.makeText(this, "কপি করার মতো লেখা পাওয়া যায়নি — শুধু ${to.name} খোলা হয়েছে", Toast.LENGTH_LONG).show()
+                else { Toast.makeText(this, "চ্যাট কপি হয়েছে — ${to.name}-এর ঘরে বসানোর চেষ্টা চলছে (না বসলে পেস্ট করুন)", Toast.LENGTH_LONG).show(); fillInput(tab, payload, 0) }
+            }
+        }
+    }
+
+    private fun fillInput(t: Tab, text: String, n: Int) {
+        if (n >= 5) return
+        handler.postDelayed({
+            if (!tabs.contains(t)) return@postDelayed
+            t.web.evaluateJavascript(Sites.fillJs(text)) { r -> if (r == null || !r.contains("ok")) fillInput(t, text, n + 1) }
+        }, 4000L)
     }
 
     private fun refreshHomes() { tabs.filter { it.isHome }.forEach { loadHome(it) } }
@@ -561,9 +685,11 @@ class MainActivity : Activity() {
         m.menu.add(0, 5, 4, "Termux সেটআপ ও অবস্থা")
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
         m.menu.add(0, 7, 6, "ব্রাউজিং ডেটা মুছুন")
+        cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 8 -> startUpdate()
+                9 -> cur?.let { t -> pickHandoff(t) }
                 1 -> { newTab(null); openHome() }
                 2 -> cur?.let { t -> if (t.isHome) loadHome(t) else t.web.reload() }
                 3 -> { desktop = !desktop; Store.prefs(this).edit().putBoolean("desktop", desktop).apply()
@@ -601,18 +727,22 @@ class MainActivity : Activity() {
         val a = JSONArray()
         val keep = tabs.filter { it.jobKey == null }
         keep.forEach { a.put(if (it.isHome || it.url.isBlank()) "home" else it.url) }
+        val sa = JSONArray(); keep.forEach { sa.put(it.site ?: "") }
         val jt = JSONArray(); tabs.forEach { t -> t.jobKey?.let { jt.put(it) } }
-        Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", maxOf(0, keep.indexOf(cur))).putString("jobtabs", jt.toString()).apply()
+        Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", maxOf(0, keep.indexOf(cur))).putString("jobtabs", jt.toString()).putString("tabsite", sa.toString()).apply()
         Jobs.save(this)
     }
 
     private fun restore() {
         try {
             val a = JSONArray(Store.prefs(this).getString("tabs", "[]"))
+            val sa = JSONArray(Store.prefs(this).getString("tabsite", "[]"))
             for (i in 0 until a.length()) {
                 val u = a.getString(i)
-                val t = newTab(null)
-                if (u == "home") loadHome(t) else t.web.loadUrl(u)
+                val sid = sa.optString(i, "").ifBlank { null }
+                val t = newTab(null, sid)
+                // ওয়ার্কস্পেস ট্যাবের আলাদা প্রোফাইল ফিরিয়ে আনা না গেলে সাইট লোড করি না (লগইন মিশে যেত)
+                if (u == "home" || (sid != null && t.site == null)) loadHome(t) else t.web.loadUrl(u)
             }
             val c = Store.prefs(this).getInt("cur", 0)
             if (tabs.isNotEmpty()) select(tabs[c.coerceIn(0, tabs.size - 1)])

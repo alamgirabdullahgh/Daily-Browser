@@ -39,3 +39,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
+dependencies {
+    // আলাদা লগইন-প্রোফাইল (Multi-Profile API) — প্রতিটি ওয়ার্কস্পেসের কুকি/সেশন আলাদা রাখে
+    implementation("androidx.webkit:webkit:1.12.1")
+}

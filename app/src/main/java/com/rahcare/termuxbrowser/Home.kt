@@ -86,6 +86,10 @@ draw();
             "<div class=card><a class=run href='termux://run/${d.id}'>${esc(d.title)}</a>" +
                 "<a class=ed href='termux://edit/${d.id}'>✎</a></div>"
         }
+        val siteCards = Sites.all(c).joinToString("") { s ->
+            "<div class=card><a class=run href='termux://site/${s.id}'>${esc(s.name)}</a>" +
+                "<a class=ed href='termux://siteedit/${s.id}'>✎</a></div>"
+        }
         val warn = if (ready) "" else
             "<div class=warn><b>সেটআপ দরকার</b><br>Termux (F-Droid) ইনস্টল করুন → Termux-এ চালান:<br><code>mkdir -p ~/.termux && echo 'allow-external-apps=true' >> ~/.termux/termux.properties</code><br>Termux রিস্টার্ট করুন, তারপর ⋮ মেনু › অ্যাপ অনুমতি থেকে \"Run commands in Termux environment\" দিন।</div>"
         return """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
@@ -106,6 +110,8 @@ pre{background:#111827;color:#d1fae5;border-radius:8px;padding:8px;font-size:11.
 </style></head><body>
 <h1>Termux Browser</h1><div class=m>কমান্ডে চাপলে নতুন ট্যাবে কাজ চলবে — সেখানেই লাইভ আউটপুট, সময় আর প্রগ্রেস দেখা যাবে।</div>
 $warn
+<h2>🌐 ওয়ার্কস্পেস</h2><div class=m>যেকোনো সাইট যোগ করা যায়। প্রতিটির লগইন আলাদা ও স্থায়ী। কোনোটার লিমিট শেষ হলে পরেরটায় যাওয়ার প্রস্তাব আসে, আর চ্যাটের শেষ অংশ সাথে যায়।</div>
+<div class=g style='margin-top:8px'>$siteCards</div><a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
 <h2>কমান্ড</h2><div class=g>$cards</div><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a>
 <h2>চলমান ও শেষ হওয়া কাজ <a class=clr href='termux://clear/all'>🗑 শেষ হওয়া মুছুন</a></h2><div id=jobs>${jobsHtml()}</div>
 </body></html>"""
