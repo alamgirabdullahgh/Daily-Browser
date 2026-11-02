@@ -85,6 +85,19 @@ class MainActivity : Activity() {
         if (overlay != null && now - lastOverlay > 1000) showSwitcher()
     }
 
+    /** চলমান (বা আটকে থাকা) কাজ জোর করে থামায়: Termux-এ প্রক্রিয়া মারে, তালিকায় "বন্ধ করা হয়েছে" দেখায় */
+    private fun killJob(j: Job) {
+        AlertDialog.Builder(this).setTitle("কাজ থামাবেন?")
+            .setMessage("“${j.title}” Termux-এ থামানো হবে। এরপর তালিকা থেকে 🗑 দিয়ে মুছতে পারবেন।")
+            .setPositiveButton("থামান") { _, _ ->
+                Runner.kill(this, j)
+                j.status = "stopped"; j.end = System.currentTimeMillis(); j.reattach = false
+                j.out = (j.out + "\n(আপনি থামিয়েছেন)").trim()
+                Jobs.save(this); scheduleRefresh()
+            }
+            .setNegativeButton("না", null).show()
+    }
+
     /** শেষ হওয়া সব কাজ মুছে তালিকা পরিষ্কার করে (চলমানগুলো থাকে) */
     private fun clearFinishedJobs() {
         val n = Jobs.clearFinished()
@@ -442,6 +455,7 @@ class MainActivity : Activity() {
             }
             "job" -> Jobs.find(id)?.let { openJobTab(it) }
             "clear" -> clearFinishedJobs()
+            "kill" -> Jobs.find(id)?.let { killJob(it) }
             "edit" -> edit(Store.all(this).firstOrNull { it.id == id })
         }
     }

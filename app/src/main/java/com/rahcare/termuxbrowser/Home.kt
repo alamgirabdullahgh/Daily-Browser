@@ -29,9 +29,10 @@ object Home {
                 else -> "<div class=mb><i class=ind></i></div>"
             }
             val last = j.lastLine()
-            "<a class=job href='termux://job/${j.key}'><b><span class=dot style='background:$dot'></span>${esc(j.title)}</b> " +
+            "<div class=jw><a class='job${if (j.status == "running") " r" else ""}' href='termux://job/${j.key}'><b><span class=dot style='background:$dot'></span>${esc(j.title)}</b> " +
                 "<span class=m>${mark(j)} · ${j.elapsed()} সেকেন্ড</span>$bar" +
-                (if (last.isNotBlank()) "<div class=ll>${esc(last)}</div>" else "") + "</a>"
+                (if (last.isNotBlank()) "<div class=ll>${esc(last)}</div>" else "") + "</a>" +
+                (if (j.status == "running") "<a class=kl href='termux://kill/${j.key}'>⏹ থামান</a>" else "") + "</div>"
         } + more
     }
 
@@ -99,7 +100,7 @@ code{background:#fde68a;padding:2px 4px;border-radius:4px;word-break:break-all;f
 .ed{position:absolute;top:0;right:0;padding:5px 8px;color:#9ca3af;text-decoration:none;font-size:12px}
 .add{display:block;text-align:center;padding:12px;background:#111827;color:#fff;border-radius:14px;text-decoration:none;margin-top:4px}
 .job{display:block;text-decoration:none;color:inherit;background:#fff;border-radius:12px;padding:10px 12px;margin-bottom:8px}
-.mb{height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden;margin:7px 0 2px}.mb i{display:block;height:100%;background:#2563eb}.mb i.ind{width:30%;animation:mv 1.1s ease-in-out infinite}.mb i.okb{width:100%;background:#16a34a}.mb i.fb{width:100%;background:#dc2626}.mb i.sb{width:100%;background:#9ca3af}.clr{float:right;font-size:12px;font-weight:600;color:#dc2626;text-decoration:none}@keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
+.mb{height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden;margin:7px 0 2px}.mb i{display:block;height:100%;background:#2563eb}.mb i.ind{width:30%;animation:mv 1.1s ease-in-out infinite}.mb i.okb{width:100%;background:#16a34a}.mb i.fb{width:100%;background:#dc2626}.mb i.sb{width:100%;background:#9ca3af}.jw{position:relative}.job.r{padding-right:92px}.kl{position:absolute;right:10px;top:9px;font-size:12px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:4px 9px;text-decoration:none}.clr{float:right;font-size:12px;font-weight:600;color:#dc2626;text-decoration:none}@keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
 .ll{color:#6b7280;font:11.5px monospace;margin-top:4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
 pre{background:#111827;color:#d1fae5;border-radius:8px;padding:8px;font-size:11.5px;white-space:pre-wrap;word-break:break-all;margin:8px 0 0;max-height:220px;overflow:auto}
 </style></head><body>

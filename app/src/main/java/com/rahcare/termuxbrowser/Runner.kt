@@ -34,6 +34,23 @@ object Runner {
         try { if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) } catch (_: Exception) {}
     }
 
+    /** চলমান কাজের প্রক্রিয়া (ও তার সব সন্তান-প্রক্রিয়া, যেমন আটকে থাকা apt) Termux-এ থামায় */
+    fun kill(c: Context, job: Job) {
+        if (!installed(c) || !hasPermission(c)) return
+        val k = job.key
+        val script = "P=\"\$HOME/.tb/$k.pid\"\n" +
+            "kt() { for c in \$(pgrep -P \"\$1\" 2>/dev/null); do kt \"\$c\"; done; kill -9 \"\$1\" 2>/dev/null; }\n" +
+            "[ -f \"\$P\" ] && kt \"\$(cat \"\$P\")\"\n" +
+            "rm -f \"\$P\"; termux-wake-unlock 2>/dev/null\n" +
+            "echo \"@@EXIT:143:\$(date +%s)\" >> \"\$HOME/.tb/$k.log\"\n"
+        val i = Intent(ACTION).setClassName(TERMUX, SERVICE)
+        i.putExtra("com.termux.RUN_COMMAND_PATH", BASH)
+        i.putExtra("com.termux.RUN_COMMAND_WORKDIR", HOME)
+        i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+        i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", script))
+        try { if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) } catch (_: Exception) {}
+    }
+
     fun run(c: Context, cmd: Cmd): Pair<Job?, String?> {
         if (!installed(c)) return Pair(null, "Termux ইনস্টল করা নেই (F-Droid থেকে ইনস্টল করুন)")
         if (!hasPermission(c)) return Pair(null, "Termux-এর RUN_COMMAND অনুমতি দেওয়া নেই")
