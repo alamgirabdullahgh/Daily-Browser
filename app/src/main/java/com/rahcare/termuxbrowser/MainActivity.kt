@@ -34,7 +34,8 @@ class Tab(val web: WebView) {
     var url = ""
     var jobKey: String? = null // কমান্ডের নিজস্ব ট্যাব হলে কাজের চাবি
     var site: String? = null   // ওয়ার্কস্পেস হলে তার আইডি (আলাদা লগইন-প্রোফাইলে চলে)
-    var limitAt = 0L           // শেষ কখন "লিমিট শেষ" প্রস্তাব দেখানো হয়েছে
+    var limitAt = 0L           // শেষ কখন "লিমিট শেষ" ধরা পড়েছে
+    var limitHits = 0          // পরপর কয়বার লিমিটের লেখা দেখা গেছে (ভুল শনাক্ত এড়াতে ২ বার লাগে)
     var thumb: Bitmap? = null  // ট্যাব তালিকার ছোট প্রিভিউ
     val isHome get() = url == Home.BASE || (url.startsWith(Home.BASE) && !url.startsWith(Home.JOB))
 }
@@ -132,6 +133,7 @@ class MainActivity : Activity() {
         window.statusBarColor = Color.WHITE
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         desktop = Store.prefs(this).getBoolean("desktop", false)
+        autoSwitch = Store.prefs(this).getBoolean("autoswitch", true)
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
         val bar = LinearLayout(this).apply {
@@ -511,6 +513,9 @@ class MainActivity : Activity() {
 
     // ---------- ওয়ার্কস্পেস (যেকোনো সাইট, আলাদা লগইন) ----------
     private var limitDialogOpen = false
+    private var autoSwitch = true
+    /** যে ওয়ার্কস্পেসের লিমিট শেষ হয়েছে সেটা কতক্ষণ আবার বাছা হবে না (ওয়ার্কস্পেস-আইডি → সময়) */
+    private val siteLimited = HashMap<String, Long>()
 
     /** ওয়ার্কস্পেস খোলে (আগে খোলা থাকলে সেটাতেই যায়); fresh=true হলে নতুন চ্যাট লোড করে */
     private fun openSite(id: String, fresh: Boolean = false): Tab? {
@@ -553,27 +558,53 @@ class MainActivity : Activity() {
         d.show()
     }
 
-    /** সামনের ওয়ার্কস্পেস ট্যাবে "লিমিট শেষ" ধরনের লেখা এসেছে কিনা প্রতি ৬ সেকেন্ডে দেখে (যেকোনো সাইটে একই নিয়ম); পেলে শুধু প্রস্তাব দেয়, নিজে থেকে কিছু করে না */
+    /** সামনের ওয়ার্কস্পেস ট্যাবে "লিমিট শেষ" ধরনের লেখা এসেছে কিনা প্রতি ৬ সেকেন্ডে দেখে (যেকোনো সাইটে একই নিয়ম)।
+     *  ভুল শনাক্ত এড়াতে পরপর ২ বার দেখা যেতে হয় এবং একই ট্যাবে ১০ মিনিটে একবারের বেশি চলে না */
     private val siteWatcher = object : Runnable {
         override fun run() {
             val t = cur
             if (t != null && t.site != null && overlay == null && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
                 t.web.evaluateJavascript(Sites.LIMIT_JS) { raw ->
                     val hit = Sites.unquote(raw)
-                    if (hit.isNotBlank() && t === cur && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) { t.limitAt = System.currentTimeMillis(); askSwitch(t, hit) }
+                    if (hit.isBlank() || t !== cur) t.limitHits = 0
+                    else {
+                        t.limitHits++
+                        if (t.limitHits >= 2 && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
+                            t.limitHits = 0; t.limitAt = System.currentTimeMillis(); onLimit(t, hit)
+                        }
+                    }
                 }
             }
             handler.postDelayed(this, 6000L)
         }
     }
 
-    private fun askSwitch(t: Tab, hit: String) {
-        val list = Sites.all(this)
-        val from = list.firstOrNull { it.id == t.site }?.name ?: "এই সাইট"
-        val nx = Sites.next(list, t.site) ?: return
+    /** তালিকায় এর পরের সেই ওয়ার্কস্পেস যার লিমিট সম্প্রতি শেষ হয়নি; না থাকলে null (দুটো সাইটের মধ্যে অনন্ত দৌড় এড়ায়) */
+    private fun nextAvailable(list: List<Site>, id: String?): Site? {
+        if (list.size < 2) return null
+        val i = list.indexOfFirst { it.id == id }; val now = System.currentTimeMillis()
+        for (k in 1 until list.size) {
+            val s = list[((i + k) % list.size + list.size) % list.size]
+            if ((siteLimited[s.id] ?: 0L) < now) return s
+        }
+        return null
+    }
+
+    private fun onLimit(t: Tab, hit: String) {
+        t.site?.let { siteLimited[it] = System.currentTimeMillis() + 5 * 3600 * 1000L }
+        val nx = nextAvailable(Sites.all(this), t.site)
+        if (nx == null) { Toast.makeText(this, "সব ওয়ার্কস্পেসের লিমিট শেষ মনে হচ্ছে — পরে আবার চেষ্টা করুন", Toast.LENGTH_LONG).show(); return }
+        if (autoSwitch) {
+            Toast.makeText(this, "লিমিট শেষ (“$hit”) — ${nx.name}-এ নেওয়া হচ্ছে", Toast.LENGTH_LONG).show()
+            handoff(t, nx, true)
+        } else askSwitch(t, hit, nx)
+    }
+
+    private fun askSwitch(t: Tab, hit: String, nx: Site) {
+        val from = Sites.all(this).firstOrNull { it.id == t.site }?.name ?: "এই সাইট"
         limitDialogOpen = true
         AlertDialog.Builder(this).setTitle("লিমিট শেষ মনে হচ্ছে")
-            .setMessage("$from-এ পাওয়া গেছে: “$hit”\n\n${nx.name}-এ যাবেন? এই চ্যাটের শেষ অংশ কপি হয়ে নতুন চ্যাটের ঘরে বসানোর চেষ্টা হবে — পাঠানোর আগে আপনি দেখে নিতে পারবেন।")
+            .setMessage("$from-এ পাওয়া গেছে: “$hit”\n\n${nx.name}-এ যাবেন? এই চ্যাটের শেষ অংশ কপি হয়ে নতুন চ্যাটের ঘরে বসানোর চেষ্টা হবে।")
             .setPositiveButton("${nx.name}-এ যান") { _, _ -> handoff(t, nx) }
             .setNeutralButton("অন্যটি বেছে নিন") { _, _ -> pickHandoff(t) }
             .setNegativeButton("না", null)
@@ -589,8 +620,9 @@ class MainActivity : Activity() {
             .setNegativeButton("বাতিল", null).show()
     }
 
-    /** চলতি চ্যাটের শেষ অংশ ক্লিপবোর্ডে কপি করে অন্য ওয়ার্কস্পেসের নতুন চ্যাটে খুলে ইনপুট ঘরে বসানোর চেষ্টা করে (কখনও নিজে পাঠায় না) */
-    private fun handoff(from: Tab, to: Site) {
+    /** চলতি চ্যাটের শেষ অংশ ক্লিপবোর্ডে কপি করে অন্য ওয়ার্কস্পেসের নতুন চ্যাটে খুলে ইনপুট ঘরে বসায়।
+     *  send=true (স্বয়ংক্রিয় সুইচ) হলে নিজেই পাঠিয়ে দেয়; হাতে বেছে নিলে শুধু বসায়, পাঠায় না। আগের ট্যাব খোলা থাকে */
+    private fun handoff(from: Tab, to: Site, send: Boolean = false) {
         val fromName = Sites.all(this).firstOrNull { it.id == from.site }?.name ?: "আগের সাইট"
         from.web.evaluateJavascript(Sites.EXTRACT_JS) { raw ->
             val chat = Sites.unquote(raw).trim()
@@ -599,17 +631,32 @@ class MainActivity : Activity() {
             val tab = openSite(to.id, true)
             if (tab != null) {
                 if (payload.isEmpty()) Toast.makeText(this, "কপি করার মতো লেখা পাওয়া যায়নি — শুধু ${to.name} খোলা হয়েছে", Toast.LENGTH_LONG).show()
-                else { Toast.makeText(this, "চ্যাট কপি হয়েছে — ${to.name}-এর ঘরে বসানোর চেষ্টা চলছে (না বসলে পেস্ট করুন)", Toast.LENGTH_LONG).show(); fillInput(tab, payload, 0) }
+                else {
+                    if (!send) Toast.makeText(this, "চ্যাট কপি হয়েছে — ${to.name}-এর ঘরে বসানোর চেষ্টা চলছে (না বসলে পেস্ট করুন)", Toast.LENGTH_LONG).show()
+                    fillInput(tab, payload, 0, send)
+                }
             }
         }
     }
 
-    private fun fillInput(t: Tab, text: String, n: Int) {
-        if (n >= 5) return
+    private fun fillInput(t: Tab, text: String, n: Int, send: Boolean) {
+        if (n >= 6) { if (send) Toast.makeText(this, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান", Toast.LENGTH_LONG).show(); return }
         handler.postDelayed({
             if (!tabs.contains(t)) return@postDelayed
-            t.web.evaluateJavascript(Sites.fillJs(text)) { r -> if (r == null || !r.contains("ok")) fillInput(t, text, n + 1) }
+            t.web.evaluateJavascript(Sites.fillJs(text)) { r ->
+                if (r == null || !r.contains("ok")) fillInput(t, text, n + 1, send)
+                else if (send) sendInput(t, 0)
+            }
         }, 4000L)
+    }
+
+    /** বসানো লেখা পাঠায়: বোতাম চেপে, না পেলে Enter দিয়ে (সাইটভেদে বোতাম তৈরি হতে একটু সময় লাগে, তাই কয়েকবার চেষ্টা) */
+    private fun sendInput(t: Tab, n: Int) {
+        if (n >= 3) return
+        handler.postDelayed({
+            if (!tabs.contains(t)) return@postDelayed
+            t.web.evaluateJavascript(Sites.SEND_JS) { r -> if (r == null || r.contains("no") || r.contains("err")) sendInput(t, n + 1) }
+        }, 1500L)
     }
 
     private fun refreshHomes() { tabs.filter { it.isHome }.forEach { loadHome(it) } }
@@ -686,10 +733,13 @@ class MainActivity : Activity() {
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
         m.menu.add(0, 7, 6, "ব্রাউজিং ডেটা মুছুন")
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
+        m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 8 -> startUpdate()
                 9 -> cur?.let { t -> pickHandoff(t) }
+                10 -> { autoSwitch = !autoSwitch; Store.prefs(this).edit().putBoolean("autoswitch", autoSwitch).apply()
+                    Toast.makeText(this, if (autoSwitch) "স্বয়ংক্রিয় সুইচ চালু" else "স্বয়ংক্রিয় সুইচ বন্ধ — শুধু প্রস্তাব আসবে", Toast.LENGTH_SHORT).show() }
                 1 -> { newTab(null); openHome() }
                 2 -> cur?.let { t -> if (t.isHome) loadHome(t) else t.web.reload() }
                 3 -> { desktop = !desktop; Store.prefs(this).edit().putBoolean("desktop", desktop).apply()

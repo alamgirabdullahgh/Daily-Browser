@@ -57,9 +57,12 @@ object Sites {
     /** প্রথম দৃশ্যমান ইনপুট ঘরে লেখা বসায় (পাঠায় না); বসলে "ok" */
     fun fillJs(text: String) = """(function(txt){try{var els=document.querySelectorAll('textarea,[contenteditable="true"],div[role="textbox"],input[type="text"]');var el=null;for(var i=0;i<els.length;i++){var r=els[i].getBoundingClientRect();if(r.width>0&&r.height>0){el=els[i];break}}if(!el)return 'no';el.focus();if(el.tagName==='TEXTAREA'||el.tagName==='INPUT'){var d=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value');d.set.call(el,txt);el.dispatchEvent(new Event('input',{bubbles:true}))}else{document.execCommand('selectAll',false,null);document.execCommand('insertText',false,txt)}return 'ok'}catch(e){return 'err'}})(${JSONObject.quote(text)})"""
 
+    /** পাঠানোর বোতাম খুঁজে চাপে (না পেলে Enter চাপ দেয়); "clicked"/"enter"/"no" */
+    const val SEND_JS = """(function(){try{var b=null,c=document.querySelectorAll('button,[role="button"]');for(var i=0;i<c.length;i++){var e=c[i],l=((e.getAttribute('aria-label')||'')+' '+(e.getAttribute('data-testid')||'')+' '+(e.type||'')).toLowerCase();var r=e.getBoundingClientRect();if(r.width>0&&r.height>0&&!e.disabled&&e.getAttribute('aria-disabled')!=='true'&&(l.indexOf('send')>=0||l.indexOf('submit')>=0||l.indexOf('পাঠ')>=0)){b=e;break}}if(b){b.click();return 'clicked'}var el=document.activeElement;if(el){var o={key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true};el.dispatchEvent(new KeyboardEvent('keydown',o));el.dispatchEvent(new KeyboardEvent('keyup',o));return 'enter'}return 'no'}catch(e){return 'err'}})()"""
+
     /** evaluateJavascript-এর ফল (JSON-স্ট্রিং) থেকে সাধারণ লেখা */
     fun unquote(raw: String?): String = try { (JSONTokener(raw ?: "").nextValue() as? String) ?: "" } catch (_: Exception) { "" }
 
     fun handoffText(from: String, chat: String) =
-        "[এটা আগের কথোপকথন ($from থেকে নেওয়া)। এটা পড়ে কাজ যেখানে থেমেছিল সেখান থেকেই চালিয়ে যাও। আগে ২-৩ লাইনে বলো তুমি কী বুঝলে, তারপর আমার পরের কথার অপেক্ষা করো।]\n\n$chat"
+        "[এটা আগের কথোপকথন ($from থেকে নেওয়া)। এটা পড়ে কাজ যেখানে থেমেছিল সেখান থেকেই চালিয়ে যাও। আমার সর্বশেষ প্রশ্নের উত্তর যদি না পেয়ে থাকি, সেটারই উত্তর দাও।]\n\n$chat"
 }
