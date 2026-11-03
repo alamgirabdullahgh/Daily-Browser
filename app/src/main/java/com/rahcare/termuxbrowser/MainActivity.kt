@@ -59,6 +59,9 @@ class MainActivity : Activity() {
     private var updBusy = false
     private var pendingInstall = false
     private lateinit var banner: TextView
+    private lateinit var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    private var fileCb: ValueCallback<Array<Uri>>? = null     // ওয়েবসাইটের "ফাইল বাছুন" অনুরোধ
+    private var pendingWebPerm: PermissionRequest? = null     // ক্যামেরা/মাইকের অনুরোধ (Android অনুমতির অপেক্ষায়)
 
     private val rx = object : BroadcastReceiver() {
         override fun onReceive(c: Context, i: Intent) { scheduleRefresh() }
@@ -155,6 +158,7 @@ class MainActivity : Activity() {
             setOnFocusChangeListener { v, f -> if (f) (v as EditText).post { v.selectAll() } }
         }
         bar.addView(address, LinearLayout.LayoutParams(0, dp(40), 1f))
+        bar.addView(icon("↻", 24f) { reloadCur() })
         bar.addView(icon("＋", 24f) { newTab(null); openHome() })
         runBox = TextView(this).apply {
             textSize = 12f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; setTextColor(Color.WHITE)
@@ -183,12 +187,55 @@ class MainActivity : Activity() {
         }
         root.addView(banner, LinearLayout.LayoutParams(-1, -2))
         content = FrameLayout(this)
-        root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
+        // টেনে রিফ্রেশ: শুধু সাধারণ ওয়েবপেজে, পেজ একদম ওপরে থাকলে। চ্যাট-ওয়ার্কস্পেসে বন্ধ (ভেতরের স্ক্রলে ভুলে রিলোড হয়ে লেখা হারাত) — সেখানে ↻ বোতাম আছে
+        swipe = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this).apply {
+            addView(content, ViewGroup.LayoutParams(-1, -1))
+            setOnChildScrollUpCallback { _, _ -> val t = cur; t == null || t.site != null || t.jobKey != null || overlay != null || t.web.scrollY > 0 }
+            setOnRefreshListener { reloadCur(); handler.postDelayed({ isRefreshing = false }, 1500L) }
+        }
+        root.addView(swipe, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
         restore()
         if (tabs.isEmpty()) { newTab(null); openHome() }
         handleIntent(intent)
+    }
+
+    /** ↻ বোতাম/টেনে রিফ্রেশ/মেনু — সব একই কাজ */
+    private fun reloadCur() {
+        val t = cur ?: return
+        when {
+            t.isHome -> loadHome(t)
+            t.jobKey != null -> scheduleRefresh()
+            else -> t.web.reload()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(rc: Int, res: Int, data: Intent?) {
+        super.onActivityResult(rc, res, data)
+        if (rc == 4711) { fileCb?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data)); fileCb = null }
+    }
+
+    /** ওয়েবসাইট ক্যামেরা/মাইক চাইলে: আগে ব্যবহারকারীকে জিজ্ঞেস, তারপর Android-এর অনুমতি, তারপর সাইটকে দেওয়া */
+    private fun askWebPermission(r: PermissionRequest) {
+        val need = mutableListOf<String>(); val names = mutableListOf<String>()
+        r.resources.forEach {
+            when (it) {
+                PermissionRequest.RESOURCE_VIDEO_CAPTURE -> { need.add(android.Manifest.permission.CAMERA); names.add("ক্যামেরা") }
+                PermissionRequest.RESOURCE_AUDIO_CAPTURE -> { need.add(android.Manifest.permission.RECORD_AUDIO); names.add("মাইক্রোফোন") }
+            }
+        }
+        if (need.isEmpty()) { r.deny(); return }
+        AlertDialog.Builder(this).setTitle("অনুমতি চাইছে")
+            .setMessage("${r.origin.host ?: r.origin} এই সাইটটি ${names.joinToString(" ও ")} ব্যবহার করতে চায়। দেবেন?")
+            .setPositiveButton("দিন") { _, _ ->
+                val missing = need.filter { checkSelfPermission(it) != android.content.pm.PackageManager.PERMISSION_GRANTED }
+                if (missing.isEmpty()) r.grant(r.resources)
+                else { pendingWebPerm = r; requestPermissions(missing.toTypedArray(), 4712) }
+            }
+            .setNegativeButton("না") { _, _ -> r.deny() }
+            .setOnCancelListener { r.deny() }.show()
     }
 
     override fun onNewIntent(i: Intent) { super.onNewIntent(i); handleIntent(i) }
@@ -304,7 +351,7 @@ class MainActivity : Activity() {
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
-                if (t === cur) updateBar()
+                if (t === cur) { updateBar(); swipe.isRefreshing = false }
             }
         }
         w.webChromeClient = object : WebChromeClient() {
@@ -317,6 +364,15 @@ class MainActivity : Activity() {
                 (m.obj as WebView.WebViewTransport).webView = n.web; m.sendToTarget(); return true
             }
             override fun onCloseWindow(v: WebView) { closeTab(t) }
+            // ছবি/অডিও/ভিডিও/যেকোনো ফাইল আপলোড: ফোনের ফাইল-বাছাইয়ের পর্দা খোলে (accept ও একাধিক-নির্বাচন সাইটের চাওয়া অনুযায়ী)
+            override fun onShowFileChooser(v: WebView, cb: ValueCallback<Array<Uri>>, p: FileChooserParams): Boolean {
+                fileCb?.onReceiveValue(null); fileCb = cb
+                return try { startActivityForResult(p.createIntent(), 4711); true }
+                catch (_: Exception) { fileCb = null; Toast.makeText(this@MainActivity, "ফাইল বাছাইয়ের অ্যাপ পাওয়া যায়নি", Toast.LENGTH_LONG).show(); false }
+            }
+            // ক্যামেরা/মাইক চাইলে ব্যবহারকারীকে জিজ্ঞেস করে তবেই (সাইটকে নিজে থেকে দেওয়া হয় না)
+            override fun onPermissionRequest(r: PermissionRequest) { handler.post { askWebPermission(r) } }
+            override fun onPermissionRequestCanceled(r: PermissionRequest) { if (pendingWebPerm === r) pendingWebPerm = null }
         }
         w.setDownloadListener { u, ua, cd, mime, _ ->
             try {
@@ -451,6 +507,13 @@ class MainActivity : Activity() {
 
     override fun onRequestPermissionsResult(rc: Int, p: Array<out String>, g: IntArray) {
         super.onRequestPermissionsResult(rc, p, g)
+        if (rc == 4712) {
+            val r = pendingWebPerm; pendingWebPerm = null
+            if (r != null) {
+                if (g.isNotEmpty() && g.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }) r.grant(r.resources)
+                else { r.deny(); Toast.makeText(this, "অনুমতি পাওয়া যায়নি: ⋮ › অ্যাপ অনুমতি থেকে ক্যামেরা/মাইক দিন", Toast.LENGTH_LONG).show() }
+            }
+        }
         if (rc == 77) {
             cur?.let { if (it.isHome) loadHome(it) }
             if (g.isNotEmpty() && g[0] != android.content.pm.PackageManager.PERMISSION_GRANTED)
@@ -739,6 +802,7 @@ class MainActivity : Activity() {
         if (upd != null) m.menu.add(0, 8, 0, "⬆ অ্যাপ আপডেট করুন")
         m.menu.add(0, 1, 0, "নতুন ট্যাব")
         m.menu.add(0, 2, 1, "রিলোড")
+        if (cur?.web?.canGoForward() == true) m.menu.add(0, 12, 1, "এগিয়ে যান →")
         m.menu.add(0, 3, 2, "ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = desktop }
         m.menu.add(0, 4, 3, "Termux কমান্ড ম্যানেজ")
         m.menu.add(0, 5, 4, "Termux সেটআপ ও অবস্থা")
@@ -755,7 +819,8 @@ class MainActivity : Activity() {
                 10 -> { autoSwitch = !autoSwitch; Store.prefs(this).edit().putBoolean("autoswitch", autoSwitch).apply()
                     Toast.makeText(this, if (autoSwitch) "স্বয়ংক্রিয় সুইচ চালু" else "স্বয়ংক্রিয় সুইচ বন্ধ — শুধু প্রস্তাব আসবে", Toast.LENGTH_SHORT).show() }
                 1 -> { newTab(null); openHome() }
-                2 -> cur?.let { t -> if (t.isHome) loadHome(t) else t.web.reload() }
+                2 -> reloadCur()
+                12 -> cur?.web?.goForward()
                 3 -> { desktop = !desktop; Store.prefs(this).edit().putBoolean("desktop", desktop).apply()
                     tabs.forEach { t -> applyDesktop(t) }; cur?.let { t -> if (!t.isHome) t.web.reload() } }
                 4 -> manage()
