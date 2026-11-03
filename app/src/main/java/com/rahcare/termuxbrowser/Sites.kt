@@ -44,7 +44,7 @@ object Sites {
     }
 
     /** পাতার শেষ অংশে "লিমিট শেষ" ধরনের বাক্য খোঁজে; পেলে মিলে যাওয়া লেখা ফেরত দেয়, নইলে খালি। যেকোনো সাইটে একই নিয়ম */
-    const val LIMIT_JS = """(function(){try{var t=(document.body&&document.body.innerText)||'';t=t.slice(-3000);var re=/(you['’]?ve|you have)\s+(reached|hit|exceeded)[^.\n]{0,60}\b(limit|quota|cap)\b|\b(usage|message|rate)\s+limit\s+(reached|exceeded)|reached\s+(the|your|our)\s+[^.\n]{0,30}limit|too many (requests|messages)|limit (reached|exceeded)|free plan limit/i;var m=t.match(re);return m?m[0]:''}catch(e){return ''}})()"""
+    const val LIMIT_JS = """(function(){try{var t=(document.body&&document.body.innerText)||'';var L=t.split('\n').slice(-80);var re=/(you['’]?ve|you have|you['’]?re|you are)\s+(reached|hit|exceeded|out of|used (up )?all)[^.\n]{0,60}\b(limit|quota|cap|messages?|usage|requests?|credits)\b|\b(usage|message|rate|daily|weekly|hourly|free plan|plan)\s+(limit|cap|quota)s?\b[^.\n]{0,40}\b(reached|exceeded|hit|resets?|until)\b|\b(limit|quota)\s+(reached|exceeded|will reset|resets?)|\blimit\b[^.\n]{0,40}\bresets?\b|\bresets?\b[^.\n]{0,25}\blimit\b|reached\s+(the|your|our)\s+[^.\n]{0,30}limit|too many (requests|messages)|(out of|no more)\s+(free\s+)?(messages|usage|credits|requests)|লিমিট\s*(শেষ|পূর্ণ)|সীমা\s*(শেষ|অতিক্রম)/i;for(var i=L.length-1;i>=0;i--){var s=L[i].trim();if(s.length>3&&s.length<=180&&re.test(s))return s}return ''}catch(e){return ''}})()"""
 
     /** চলতি চ্যাটের শেষ অংশের লেখা (main অংশ, না পেলে পুরো পাতা) */
     const val EXTRACT_JS = """(function(){try{var r=document.querySelector('main')||document.body;var t=(r.innerText||'').replace(/\n{3,}/g,'\n\n').trim();return t.slice(-6000)}catch(e){return ''}})()"""

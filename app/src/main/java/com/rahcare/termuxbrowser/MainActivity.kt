@@ -313,7 +313,7 @@ class MainActivity : Activity() {
                 if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
                     val pn = Sites.profile(site)
                     ProfileStore.getInstance().getOrCreateProfile(pn)
-                    WebViewCompat.setProfile(w, pn); site
+                    WebViewCompat.setProfile(w, pn); githubPull(site); site
                 } else null
             } catch (_: Exception) { null }
             if (siteOk == null) Toast.makeText(this, "আলাদা লগইন চালু করা যায়নি — Android System WebView আপডেট করুন", Toast.LENGTH_LONG).show()
@@ -351,6 +351,7 @@ class MainActivity : Activity() {
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
+                t.site?.let { sid -> if ((Uri.parse(u).host ?: "").endsWith("github.com")) githubPush(sid) }
                 if (t === cur) { updateBar(); swipe.isRefreshing = false }
             }
         }
@@ -732,6 +733,35 @@ class MainActivity : Activity() {
             if (!tabs.contains(t)) return@postDelayed
             t.web.evaluateJavascript(Sites.SEND_JS) { r -> if (r == null || r.contains("no") || r.contains("err")) sendInput(t, n + 1) }
         }, 1500L)
+    }
+
+    // ---------- GitHub লগইন সব ওয়ার্কস্পেসে এক (শুধু এই ফোনের ভেতরে, ওয়ার্কস্পেসগুলোর মধ্যে) ----------
+    private fun ghProfile(id: String) = try { ProfileStore.getInstance().getProfile(Sites.profile(id)) } catch (_: Exception) { null }
+
+    /** এই ওয়ার্কস্পেসে GitHub-এ লগইন থাকলে তার কুকি, নইলে null */
+    private fun ghCookies(id: String): String? = try {
+        ghProfile(id)?.cookieManager?.getCookie("https://github.com")?.takeIf { it.contains("logged_in=yes") }
+    } catch (_: Exception) { null }
+
+    private fun ghCopy(raw: String, toId: String) {
+        try {
+            val cm = ghProfile(toId)?.cookieManager ?: return
+            raw.split(";").map { it.trim() }.filter { it.contains("=") }
+                .forEach { cm.setCookie("https://github.com", "$it; Path=/; Secure; HttpOnly") }
+            cm.flush()
+        } catch (_: Exception) {}
+    }
+
+    /** কোনো ওয়ার্কস্পেসে GitHub লগইন হলে, যেগুলোতে লগইন নেই সেগুলোতে কপি করে (আগের লগইন কখনো মোছে/বদলায় না) */
+    private fun githubPush(fromId: String) {
+        val raw = ghCookies(fromId) ?: return
+        Sites.all(this).filter { it.id != fromId && ghCookies(it.id) == null }.forEach { ghCopy(raw, it.id) }
+    }
+
+    /** নতুন খোলা ওয়ার্কস্পেসে GitHub লগইন না থাকলে অন্য কোনো ওয়ার্কস্পেস থেকে নেয় */
+    private fun githubPull(toId: String) {
+        if (ghCookies(toId) != null) return
+        for (s in Sites.all(this)) { if (s.id == toId) continue; val raw = ghCookies(s.id) ?: continue; ghCopy(raw, toId); return }
     }
 
     private fun refreshHomes() { tabs.filter { it.isHome }.forEach { loadHome(it) } }
