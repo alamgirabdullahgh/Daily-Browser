@@ -19,6 +19,18 @@ object Runner {
         c.packageManager.getPackageInfo(TERMUX, 0); true
     } catch (_: PackageManager.NameNotFoundException) { false }
 
+    /** Termux-এ একবার চালাতে হয় এমন সেটআপ কমান্ড (allow-external-apps চালু করে সেটিংস রিলোড করে) */
+    const val SETUP_CMD = "mkdir -p ~/.termux && { grep -qs '^allow-external-apps=true' ~/.termux/termux.properties || echo 'allow-external-apps=true' >> ~/.termux/termux.properties; }; termux-reload-settings"
+
+    /** Termux অ্যাপ খোলে; না পেলে false */
+    fun openTermux(c: Context): Boolean = try {
+        val i = c.packageManager.getLaunchIntentForPackage(TERMUX)
+        if (i == null) false else { i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); c.startActivity(i); true }
+    } catch (_: Exception) { false }
+
+    /** Termux থেকে অন্তত একবার সাড়া পাওয়া গেছে (কোনো কাজ সফল হয়েছে) — মানে সংযোগ ঠিক আছে */
+    fun verified(c: Context) = Store.prefs(c).getBoolean("termux_ok", false) || Jobs.list.any { it.status == "ok" }
+
     fun hasPermission(c: Context) =
         c.checkSelfPermission("com.termux.permission.RUN_COMMAND") == PackageManager.PERMISSION_GRANTED
 

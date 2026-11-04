@@ -90,8 +90,11 @@ draw();
             "<div class=card><a class=run href='termux://site/${s.id}'>${esc(s.name)}</a>" +
                 "<a class=ed href='termux://siteedit/${s.id}'>✎</a></div>"
         }
-        val warn = if (ready) "" else
-            "<div class=warn><b>সেটআপ দরকার</b><br>Termux (F-Droid) ইনস্টল করুন → Termux-এ চালান:<br><code>mkdir -p ~/.termux && echo 'allow-external-apps=true' >> ~/.termux/termux.properties</code><br>Termux রিস্টার্ট করুন, তারপর ⋮ মেনু › অ্যাপ অনুমতি থেকে \"Run commands in Termux environment\" দিন।</div>"
+        val setupBtn = "<a class=add href='termux://setup'>⚡ এক চাপে সেটআপ (কমান্ড কপি + Termux খোলা)</a>"
+        val warn = if (ready && Runner.verified(c)) "" else if (ready)
+            "<div class=warn><b>Termux সংযোগ বাকি</b><br>নিচের বোতামে চাপলে কমান্ড কপি হয়ে Termux খুলবে — সেখানে স্ক্রিন লম্বা চেপে Paste করে Enter চাপুন। এরপর যেকোনো কমান্ড চালালেই সংযোগ নিশ্চিত হবে।$setupBtn</div>"
+        else
+            "<div class=warn><b>সেটআপ দরকার</b><br>Termux (F-Droid) ইনস্টল করুন, তারপর ⋮ মেনু › অ্যাপ অনুমতি থেকে \"Run commands in Termux environment\" দিন, এরপর নিচের বোতামে চাপুন।$setupBtn</div>"
         return """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <style>
 body{font-family:system-ui,sans-serif;margin:0;padding:14px;background:#f3f4f6;color:#111827}

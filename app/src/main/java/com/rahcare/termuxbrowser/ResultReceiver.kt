@@ -18,6 +18,8 @@ class ResultReceiver : BroadcastReceiver() {
             val err = b.getString("stderr", "") ?: ""
             val code = b.getInt("exitCode", -1)
             val em = b.getString("errmsg", "") ?: ""
+            // Termux ফলাফল ফেরত পাঠিয়েছে = সংযোগ কাজ করছে; এরপর সেটআপের তাগিদ আর দেখানো হয় না
+            if (em.isBlank()) Store.prefs(c).edit().putBoolean("termux_ok", true).apply()
             // লাইভ স্ট্রিম শেষ পর্যন্ত না পৌঁছলে (অ্যাপ মিনিমাইজ ছিল) চূড়ান্ত আউটপুট এখান থেকে নিই
             val live = job.out.isNotBlank() && job.status != "running"
             if (!live) job.out = ""

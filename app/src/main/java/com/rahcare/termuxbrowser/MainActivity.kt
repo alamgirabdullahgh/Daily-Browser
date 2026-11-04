@@ -254,6 +254,7 @@ class MainActivity : Activity() {
         scheduleRefresh()
         askRunPermission()
         askBackgroundSetup()
+        handler.postDelayed({ if (!isFinishing) offerTermuxSetup() }, 2000L)
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         handler.removeCallbacks(updCheck); updCheck.run()
         handler.removeCallbacks(jobSaver); handler.postDelayed(jobSaver, 5000L)
@@ -351,7 +352,7 @@ class MainActivity : Activity() {
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
-                t.site?.let { sid -> if ((Uri.parse(u).host ?: "").endsWith("github.com")) githubPush(sid) }
+                t.site?.let { sid -> if ((Uri.parse(u).host ?: "").endsWith("github.com")) githubPush(sid) else detectEmail(t, sid, true) }
                 if (t === cur) { updateBar(); swipe.isRefreshing = false }
             }
         }
@@ -490,6 +491,28 @@ class MainActivity : Activity() {
         try { requestPermissions(arrayOf("com.termux.permission.RUN_COMMAND"), 77) } catch (_: Exception) {}
     }
 
+    private var termuxSetupAsked = false
+
+    /** সেটআপ কমান্ড ক্লিপবোর্ডে কপি করে Termux খোলে — ব্যবহারকারী শুধু Paste করে Enter চাপবে (Termux অন্য অ্যাপকে নিজের ফোল্ডারে লিখতে দেয় না, তাই এটুকু হাতে করতে হয়) */
+    private fun setupTermux() {
+        if (!Runner.installed(this)) { Toast.makeText(this, "আগে F-Droid থেকে Termux ইনস্টল করুন", Toast.LENGTH_LONG).show(); return }
+        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("termux-setup", Runner.SETUP_CMD))
+        Toast.makeText(this, "কমান্ড কপি হয়েছে — Termux-এ স্ক্রিন লম্বা চেপে Paste করে Enter চাপুন", Toast.LENGTH_LONG).show()
+        if (!Runner.openTermux(this)) Toast.makeText(this, "Termux খোলা যায়নি — নিজে খুলে Paste করুন", Toast.LENGTH_LONG).show()
+    }
+
+    /** Termux ইনস্টল ও অনুমতি আছে অথচ এখনো সংযোগ নিশ্চিত হয়নি — অ্যাপ চালুর সময় একবার এক-চাপের সেটআপ প্রস্তাব করে */
+    private fun offerTermuxSetup() {
+        val sp = Store.prefs(this)
+        if (termuxSetupAsked || !Runner.installed(this) || !Runner.hasPermission(this) || Runner.verified(this) || sp.getBoolean("termux_nomore", false)) return
+        termuxSetupAsked = true
+        AlertDialog.Builder(this).setTitle("Termux-এর সাথে সংযোগ")
+            .setMessage("একবার এই ধাপ সারলেই Termux সব সময়ের জন্য সংযুক্ত থাকবে:\n১. নিচের বোতামে চাপুন — কমান্ড কপি হয়ে Termux খুলবে\n২. Termux-এ স্ক্রিন লম্বা চেপে Paste করে Enter চাপুন\n৩. কাজ না হলে Termux পুরো বন্ধ করে আবার খুলুন\n\nএরপর এখান থেকে যেকোনো কমান্ড চালালেই সংযোগ নিশ্চিত হবে, আর এই বার্তা আসবে না।")
+            .setPositiveButton("⚡ এক চাপে সেটআপ") { _, _ -> setupTermux() }
+            .setNegativeButton("পরে", null)
+            .setNeutralButton("আর দেখাবেন না") { _, _ -> sp.edit().putBoolean("termux_nomore", true).apply() }.show()
+    }
+
     /** AutoReply-এর মতো: নোটিফিকেশন অনুমতি + ব্যাটারি সীমাবদ্ধতা তুলে নেওয়া, যাতে ব্যাকগ্রাউন্ডে কাজ না থামে */
     private fun askBackgroundSetup() {
         if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
@@ -527,6 +550,7 @@ class MainActivity : Activity() {
         val kind = u.host ?: ""
         val id = segs.lastOrNull() ?: ""
         when (kind) {
+            "setup" -> setupTermux()
             "run" -> {
                 val cmd = Store.all(this).firstOrNull { it.id == id }
                 if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
@@ -581,6 +605,38 @@ class MainActivity : Activity() {
     /** যে ওয়ার্কস্পেসের লিমিট শেষ হয়েছে সেটা কতক্ষণ আবার বাছা হবে না (ওয়ার্কস্পেস-আইডি → সময়) */
     private val siteLimited = HashMap<String, Long>()
 
+    // ---------- ওয়ার্কস্পেসের নাম = লগইন করা জিমেইল ----------
+    private val emailOk = HashSet<String>()                 // এই চালুতে যে ওয়ার্কস্পেসের ইমেইল পাওয়া গেছে
+    private val emailTries = HashMap<String, Int>()         // চেষ্টার সংখ্যা (লগইন না থাকলে অকারণে বারবার না ডাকতে)
+    private val emailLast = HashMap<String, Long>()         // শেষ চেষ্টার সময়
+
+    private fun autoName(id: String) = Store.prefs(this).getBoolean("autoname_$id", true)
+
+    /** ওয়ার্কস্পেসে লগইন করা অ্যাকাউন্টের ইমেইল সাইটের নিজের API থেকে পড়ে ওয়ার্কস্পেসের নাম বসায়।
+     *  ব্যবহারকারী হাতে নাম দিলে (autoname=false) বা ইমেইল আগেই পাওয়া গেলে কিছু করে না */
+    private fun detectEmail(t: Tab, sid: String, force: Boolean) {
+        if (!autoName(sid) || emailOk.contains(sid)) return
+        val now = System.currentTimeMillis()
+        val n = emailTries[sid] ?: 0
+        if (n >= 25 || (!force && now - (emailLast[sid] ?: 0L) < 20000L) || now - (emailLast[sid] ?: 0L) < 4000L) return
+        emailTries[sid] = n + 1; emailLast[sid] = now
+        t.web.evaluateJavascript(Sites.EMAIL_JS, null)
+        handler.postDelayed({
+            if (!tabs.contains(t)) return@postDelayed
+            t.web.evaluateJavascript(Sites.EMAIL_READ_JS) { raw ->
+                val em = Sites.unquote(raw).trim()
+                if (em.contains("@") && em.length < 120) applyEmail(sid, em)
+            }
+        }, 3000L)
+    }
+
+    private fun applyEmail(sid: String, em: String) {
+        emailOk.add(sid)
+        val list = Sites.all(this)
+        val s = list.firstOrNull { it.id == sid } ?: return
+        if (s.name != em) { s.name = em; Sites.save(this, list); refreshHomes() }
+    }
+
     /** ওয়ার্কস্পেস খোলে (আগে খোলা থাকলে সেটাতেই যায়); fresh=true হলে নতুন চ্যাট লোড করে */
     private fun openSite(id: String, fresh: Boolean = false, url: String? = null): Tab? {
         val site = Sites.all(this).firstOrNull { it.id == id } ?: return null
@@ -610,15 +666,25 @@ class MainActivity : Activity() {
     private fun editSite(site: Site?) {
         val list = Sites.all(this)
         val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
-        val n = EditText(this).apply { hint = "নাম (যেমন Claude)"; setText(site?.name ?: "") }
+        val n = EditText(this).apply { hint = "নাম (খালি রাখলে লগইন করা জিমেইল নিজে বসবে)"; setText(site?.name ?: "") }
         val u = EditText(this).apply { hint = "ওয়েবসাইট (যেমন claude.ai)"; setText(site?.url ?: ""); inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI }
         l.addView(n); l.addView(u)
         val d = AlertDialog.Builder(this).setTitle(if (site == null) "নতুন ওয়ার্কস্পেস" else "ওয়ার্কস্পেস সম্পাদনা").setView(l)
             .setPositiveButton("সেভ") { _, _ ->
-                val name = n.text.toString().trim(); val url = Sites.normalizeUrl(u.text.toString())
-                if (name.isEmpty() || url.isEmpty()) return@setPositiveButton
-                if (site == null) list.add(Site("s${System.currentTimeMillis()}", name, url))
-                else list.firstOrNull { it.id == site.id }?.let { it.name = name; it.url = url }
+                val typed = n.text.toString().trim(); val url = Sites.normalizeUrl(u.text.toString())
+                if (url.isEmpty()) return@setPositiveButton
+                val sp = Store.prefs(this)
+                if (site == null) {
+                    val id = "s${System.currentTimeMillis()}"
+                    val host = (Uri.parse(url).host ?: url).removePrefix("www.")
+                    list.add(Site(id, typed.ifEmpty { host }, url))
+                    sp.edit().putBoolean("autoname_$id", typed.isEmpty()).apply()
+                } else list.firstOrNull { it.id == site.id }?.let { s ->
+                    // নতুন নাম লিখলে সেটাই থাকবে (আর জিমেইল বসবে না); খালি রাখলে আবার জিমেইল বসবে
+                    if (typed.isNotEmpty() && typed != s.name) { s.name = typed; sp.edit().putBoolean("autoname_${s.id}", false).apply() }
+                    else if (typed.isEmpty()) { sp.edit().putBoolean("autoname_${s.id}", true).apply(); emailOk.remove(s.id); emailTries.remove(s.id) }
+                    s.url = url
+                }
                 Sites.save(this, list); refreshHomes()
             }.setNegativeButton("বাতিল", null)
         if (site != null) d.setNeutralButton("মুছুন") { _, _ ->
@@ -639,6 +705,7 @@ class MainActivity : Activity() {
     private val siteWatcher = object : Runnable {
         override fun run() {
             val t = cur
+            if (t != null && t.site != null && overlay == null) detectEmail(t, t.site!!, false)
             if (t != null && t.site != null && overlay == null && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
                 t.web.evaluateJavascript(Sites.LIMIT_JS) { raw ->
                     val hit = Sites.unquote(raw)
@@ -902,9 +969,11 @@ class MainActivity : Activity() {
         val msg = buildString {
             append(if (Runner.installed(this@MainActivity)) "✓ Termux ইনস্টল আছে\n" else "✗ Termux ইনস্টল নেই (F-Droid থেকে নিন)\n")
             append(if (Runner.hasPermission(this@MainActivity)) "✓ RUN_COMMAND অনুমতি আছে\n\n" else "✗ RUN_COMMAND অনুমতি নেই (⋮ › অ্যাপ অনুমতি)\n\n")
-            append("Termux-এ একবার চালান:\nmkdir -p ~/.termux && echo 'allow-external-apps=true' >> ~/.termux/termux.properties\nতারপর Termux রিস্টার্ট করুন।\n\nTermux-এ ওয়েব সার্ভার চালালে (যেমন code-server) এখানে localhost:পোর্ট লিখে ব্রাউজারেই ব্যবহার করুন।")
+            append(if (Runner.verified(this@MainActivity)) "✓ Termux থেকে সাড়া পাওয়া গেছে — সংযোগ ঠিক আছে\n\n" else "✗ এখনো সংযোগ নিশ্চিত হয়নি — নিচের \"এক চাপে সেটআপ\" চাপুন, Termux-এ Paste করে Enter দিন, তারপর যেকোনো কমান্ড চালান\n\n")
+            append("Termux-এ ওয়েব সার্ভার চালালে (যেমন code-server) এখানে localhost:পোর্ট লিখে ব্রাউজারেই ব্যবহার করুন।")
         }
-        AlertDialog.Builder(this).setTitle("Termux অবস্থা").setMessage(msg).setPositiveButton("ঠিক আছে", null).show()
+        AlertDialog.Builder(this).setTitle("Termux অবস্থা").setMessage(msg).setPositiveButton("ঠিক আছে", null)
+            .setNeutralButton("⚡ এক চাপে সেটআপ") { _, _ -> setupTermux() }.show()
     }
 
     // ---------- সেশন ----------

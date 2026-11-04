@@ -77,6 +77,10 @@ object Sites {
     fun handoffUrl(fromUrl: String?, to: Site): String =
         if (isCodeHandoff(fromUrl, to)) "https://" + (Uri.parse(to.url).host ?: "") + "/code" else to.url
 
+    /** লগইন করা অ্যাকাউন্টের ইমেইল ওই সাইটের নিজের (একই ডোমেইনের) API থেকে আনতে শুরু করে; ফল window.__tbEmail-এ বসে (কিছুক্ষণ পর EMAIL_READ_JS দিয়ে পড়তে হয়) */
+    const val EMAIL_JS = """(function(){try{window.__tbEmail='';var ep=['/api/account','/api/bootstrap','/api/auth/session','/api/me','/api/user','/api/users/me','/api/v1/me'];var re=/"(?:email_address|email|emailAddress|user_email)"\s*:\s*"([^"@\s\\]+@[^"\s\\]+\.[^"\s\\]+)"/;var go=function(i){if(i>=ep.length||window.__tbEmail)return;fetch(ep[i],{credentials:'include',headers:{'Accept':'application/json'}}).then(function(r){return r.ok?r.text():''}).then(function(t){var m=re.exec(t||'');if(m)window.__tbEmail=m[1];else go(i+1)}).catch(function(){go(i+1)})};go(0);return 'started'}catch(e){return 'err'}})()"""
+    const val EMAIL_READ_JS = """(function(){try{return window.__tbEmail||''}catch(e){return ''}})()"""
+
     /** পাতায় থাকা প্রথম GitHub রিপোর লিংক থেকে "মালিক/রিপো" বের করে (সেটিংসে রিপো না দেওয়া থাকলে চেষ্টা করে); না পেলে খালি */
     const val REPO_JS = """(function(){try{var bad=['settings','apps','login','orgs','marketplace','features','topics','sponsors','notifications'];var a=document.querySelectorAll('a[href*="github.com/"]');for(var i=0;i<a.length;i++){var m=(a[i].href||'').match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)/);if(m&&bad.indexOf(m[1])<0)return m[1]+'/'+m[2]}return ''}catch(e){return ''}})()"""
 }
