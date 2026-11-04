@@ -1,6 +1,7 @@
 package com.rahcare.termuxbrowser
 
 import android.content.Context
+import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
@@ -58,6 +59,24 @@ object Sites {
     /** evaluateJavascript-এর ফল (JSON-স্ট্রিং) থেকে সাধারণ লেখা */
     fun unquote(raw: String?): String = try { (JSONTokener(raw ?: "").nextValue() as? String) ?: "" } catch (_: Exception) { "" }
 
-    fun handoffText(from: String, chat: String) =
-        "[এটা আগের কথোপকথন ($from থেকে নেওয়া)। এটা পড়ে কাজ যেখানে থেমেছিল সেখান থেকেই চালিয়ে যাও। আমার সর্বশেষ প্রশ্নের উত্তর যদি না পেয়ে থাকি, সেটারই উত্তর দাও।]\n\n$chat"
+    /** repo খালি না হলে (Claude Code চ্যাট) হ্যান্ডঅফের লেখায় রিপোর নাম যায়, যাতে নতুন সেশন নিজেই রিপোটা যোগ করে নেয় */
+    fun handoffText(from: String, chat: String, repo: String = ""): String {
+        val head = "[এটা আগের কথোপকথন ($from থেকে নেওয়া)। এটা পড়ে কাজ যেখানে থেমেছিল সেখান থেকেই চালিয়ে যাও। আমার সর্বশেষ প্রশ্নের উত্তর যদি না পেয়ে থাকি, সেটারই উত্তর দাও।]"
+        val gh = if (repo.isBlank()) "" else "\n[GitHub রিপো: $repo — এই সেশনে রিপোটা যোগ (add_repo) করে ক্লোন করে নাও, তারপর কাজ চালাও।]"
+        return "$head$gh\n\n$chat"
+    }
+
+    /** আগের ট্যাবটা Claude Code চ্যাট (ঠিকানার পথ /code দিয়ে শুরু) এবং গন্তব্য একই সাইটের (যেমন claude.ai) অন্য ওয়ার্কস্পেস কিনা */
+    fun isCodeHandoff(fromUrl: String?, to: Site): Boolean = try {
+        val f = Uri.parse(fromUrl ?: ""); val t = Uri.parse(to.url)
+        val fh = (f.host ?: "").removePrefix("www."); val th = (t.host ?: "").removePrefix("www.")
+        fh.isNotEmpty() && fh == th && (f.path ?: "").startsWith("/code")
+    } catch (_: Exception) { false }
+
+    /** গন্তব্যে খোলার ঠিকানা: Claude Code চ্যাট হলে ওই সাইটের /code, নইলে ওয়ার্কস্পেসের নিজের ঠিকানা */
+    fun handoffUrl(fromUrl: String?, to: Site): String =
+        if (isCodeHandoff(fromUrl, to)) "https://" + (Uri.parse(to.url).host ?: "") + "/code" else to.url
+
+    /** পাতায় থাকা প্রথম GitHub রিপোর লিংক থেকে "মালিক/রিপো" বের করে (সেটিংসে রিপো না দেওয়া থাকলে চেষ্টা করে); না পেলে খালি */
+    const val REPO_JS = """(function(){try{var bad=['settings','apps','login','orgs','marketplace','features','topics','sponsors','notifications'];var a=document.querySelectorAll('a[href*="github.com/"]');for(var i=0;i<a.length;i++){var m=(a[i].href||'').match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)/);if(m&&bad.indexOf(m[1])<0)return m[1]+'/'+m[2]}return ''}catch(e){return ''}})()"""
 }

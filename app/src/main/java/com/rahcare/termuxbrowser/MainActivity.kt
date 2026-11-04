@@ -582,7 +582,7 @@ class MainActivity : Activity() {
     private val siteLimited = HashMap<String, Long>()
 
     /** ওয়ার্কস্পেস খোলে (আগে খোলা থাকলে সেটাতেই যায়); fresh=true হলে নতুন চ্যাট লোড করে */
-    private fun openSite(id: String, fresh: Boolean = false): Tab? {
+    private fun openSite(id: String, fresh: Boolean = false, url: String? = null): Tab? {
         val site = Sites.all(this).firstOrNull { it.id == id } ?: return null
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
             AlertDialog.Builder(this).setTitle("আলাদা লগইন চালু করা যাচ্ছে না")
@@ -591,8 +591,8 @@ class MainActivity : Activity() {
             return null
         }
         val ex = tabs.firstOrNull { it.site == id }
-        if (ex != null) { select(ex); if (fresh) ex.web.loadUrl(site.url); return ex }
-        return newTab(site.url, id)
+        if (ex != null) { select(ex); if (fresh) ex.web.loadUrl(url ?: site.url); return ex }
+        return newTab(url ?: site.url, id)
     }
 
     /** খোলা যেকোনো সাইটকে এক চাপে ওয়ার্কস্পেস বানায় (নাম = সাইটের ডোমেইন) এবং আলাদা লগইনে নতুন ট্যাবে খোলে */
@@ -700,19 +700,43 @@ class MainActivity : Activity() {
      *  send=true (স্বয়ংক্রিয় সুইচ) হলে নিজেই পাঠিয়ে দেয়; হাতে বেছে নিলে শুধু বসায়, পাঠায় না। আগের ট্যাব খোলা থাকে */
     private fun handoff(from: Tab, to: Site, send: Boolean = false) {
         val fromName = Sites.all(this).firstOrNull { it.id == from.site }?.name ?: "আগের সাইট"
+        // আগের ট্যাব Claude Code চ্যাট হলে গন্তব্যেও সাধারণ চ্যাট নয়, Claude Code (/code) পেজ খোলে এবং রিপোর নাম সাথে পাঠায়
+        val fromUrl = from.web.url ?: from.url
+        val isCode = Sites.isCodeHandoff(fromUrl, to)
+        val destUrl = Sites.handoffUrl(fromUrl, to)
         from.web.evaluateJavascript(Sites.EXTRACT_JS) { raw ->
             val chat = Sites.unquote(raw).trim()
-            val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat)
-            if (payload.isNotEmpty()) (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("chat", payload))
-            val tab = openSite(to.id, true)
-            if (tab != null) {
-                if (payload.isEmpty()) Toast.makeText(this, "কপি করার মতো লেখা পাওয়া যায়নি — শুধু ${to.name} খোলা হয়েছে", Toast.LENGTH_LONG).show()
-                else {
-                    if (!send) Toast.makeText(this, "চ্যাট কপি হয়েছে — ${to.name}-এর ঘরে বসানোর চেষ্টা চলছে (না বসলে পেস্ট করুন)", Toast.LENGTH_LONG).show()
-                    fillInput(tab, payload, 0, send)
+            fun proceed(repo: String) {
+                val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat, repo)
+                if (payload.isNotEmpty()) (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("chat", payload))
+                val tab = openSite(to.id, true, destUrl)
+                if (tab != null) {
+                    if (payload.isEmpty()) Toast.makeText(this, "কপি করার মতো লেখা পাওয়া যায়নি — শুধু ${to.name} খোলা হয়েছে", Toast.LENGTH_LONG).show()
+                    else {
+                        if (!send) Toast.makeText(this, "চ্যাট কপি হয়েছে — ${to.name}-এর ঘরে বসানোর চেষ্টা চলছে (না বসলে পেস্ট করুন)", Toast.LENGTH_LONG).show()
+                        fillInput(tab, payload, 0, send)
+                    }
                 }
             }
+            if (!isCode) proceed("")
+            else {
+                // রিপো: মেনু থেকে দেওয়া থাকলে সেটা, নইলে আগের পাতার GitHub লিংক থেকে খুঁজে নেয়
+                val saved = Store.prefs(this).getString("gitrepo", "")?.trim().orEmpty()
+                if (saved.isNotEmpty()) proceed(saved)
+                else from.web.evaluateJavascript(Sites.REPO_JS) { r -> proceed(Sites.unquote(r).trim()) }
+            }
         }
+    }
+
+    /** মেনু থেকে ডিফল্ট GitHub রিপো (মালিক/রিপো) সেট করা — Claude Code হ্যান্ডঅফে এটাই সাথে যায় */
+    private fun editRepo() {
+        val e = EditText(this).apply { hint = "মালিক/রিপো (যেমন name/project)"; setText(Store.prefs(this@MainActivity).getString("gitrepo", "") ?: "") }
+        val l = LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(e) }
+        AlertDialog.Builder(this).setTitle("ডিফল্ট GitHub রিপো")
+            .setMessage("Claude Code চ্যাট অন্য ওয়ার্কস্পেসে নিলে এই রিপোর নাম চ্যাটের সাথে যাবে, নতুন সেশন নিজেই রিপো যোগ করে নেবে। খালি রাখলে পাতার GitHub লিংক থেকে খুঁজে নেওয়া হবে। কোনো টোকেন বা পাসওয়ার্ড এখানে দেবেন না।")
+            .setView(l)
+            .setPositiveButton("সেভ") { _, _ -> Store.prefs(this).edit().putString("gitrepo", e.text.toString().trim().removePrefix("https://github.com/").trim('/')).apply() }
+            .setNegativeButton("বাতিল", null).show()
     }
 
     private fun fillInput(t: Tab, text: String, n: Int, send: Boolean) {
@@ -841,8 +865,10 @@ class MainActivity : Activity() {
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
         cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
+        m.menu.add(0, 13, 8, "🔗 ডিফল্ট GitHub রিপো (Claude Code)")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
+                13 -> editRepo()
                 8 -> startUpdate()
                 9 -> cur?.let { t -> pickHandoff(t) }
                 11 -> cur?.let { t -> makeWorkspace(t) }
