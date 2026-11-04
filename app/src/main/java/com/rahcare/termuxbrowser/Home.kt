@@ -91,6 +91,9 @@ draw();
                 "<a class=ed href='termux://siteedit/${s.id}'>✎</a></div>"
         }
         val setupBtn = "<a class=add href='termux://setup'>⚡ এক চাপে সেটআপ (কমান্ড কপি + Termux খোলা)</a>"
+        val bm = Bookmarks.all(c).take(12)
+        val bmSection = if (bm.isEmpty()) "" else "<h2>⭐ বুকমার্ক</h2><div class=g>" + bm.joinToString("") { b ->
+            "<div class=card><a class=run href=\"${esc(b.second)}\">${esc(b.first.take(30))}</a></div>" } + "</div>"
         val warn = if (ready && Runner.verified(c)) "" else if (ready)
             "<div class=warn><b>Termux সংযোগ বাকি</b><br>নিচের বোতামে চাপলে কমান্ড কপি হয়ে Termux খুলবে — সেখানে স্ক্রিন লম্বা চেপে Paste করে Enter চাপুন। এরপর যেকোনো কমান্ড চালালেই সংযোগ নিশ্চিত হবে।$setupBtn</div>"
         else
@@ -113,7 +116,7 @@ pre{background:#111827;color:#d1fae5;border-radius:8px;padding:8px;font-size:11.
 </style></head><body>
 <h1>Termux Browser</h1><div class=m>কমান্ডে চাপলে নতুন ট্যাবে কাজ চলবে — সেখানেই লাইভ আউটপুট, সময় আর প্রগ্রেস দেখা যাবে।</div>
 $warn
-<h2>🌐 ওয়ার্কস্পেস</h2><div class=m>যেকোনো সাইট যোগ করা যায়। প্রতিটির লগইন আলাদা ও স্থায়ী। কোনোটার লিমিট শেষ হলে নিজে থেকেই পরেরটায় চলে যায়, চ্যাটের শেষ অংশ সাথে নিয়ে পাঠিয়ে দেয় (⋮ মেনু থেকে বন্ধ করা যায়)।</div>
+$bmSection<h2>🌐 ওয়ার্কস্পেস</h2><div class=m>যেকোনো সাইট যোগ করা যায়। প্রতিটির লগইন আলাদা ও স্থায়ী। কোনোটার লিমিট শেষ হলে নিজে থেকেই পরেরটায় চলে যায়, চ্যাটের শেষ অংশ সাথে নিয়ে পাঠিয়ে দেয় (⋮ মেনু থেকে বন্ধ করা যায়)।</div>
 ${if (siteCards.isEmpty()) "<div class=warn style='margin-top:8px'>এখনো কোনো ওয়ার্কস্পেস নেই। যেকোনো সাইট খুলে <b>⋮ › 🌐 এই সাইটকে ওয়ার্কস্পেস বানান</b> চাপুন, অথবা নিচের ＋ দিয়ে ঠিকানা লিখে যোগ করুন।</div>" else "<div class=g style='margin-top:8px'>$siteCards</div>"}<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
 <h2>কমান্ড</h2><div class=g>$cards</div><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a>
 <h2>চলমান ও শেষ হওয়া কাজ <a class=clr href='termux://clear/all'>🗑 শেষ হওয়া মুছুন</a></h2><div id=jobs>${jobsHtml()}</div>

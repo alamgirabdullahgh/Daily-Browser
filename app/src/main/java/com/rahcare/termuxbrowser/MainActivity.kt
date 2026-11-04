@@ -37,6 +37,8 @@ class Tab(val web: WebView) {
     var limitAt = 0L           // শেষ কখন "লিমিট শেষ" ধরা পড়েছে
     var limitHits = 0          // পরপর কয়বার লিমিটের লেখা দেখা গেছে (ভুল শনাক্ত এড়াতে ২ বার লাগে)
     var thumb: Bitmap? = null  // ট্যাব তালিকার ছোট প্রিভিউ
+    var incognito = false      // ইনকগনিটো ট্যাব (সাময়িক আলাদা প্রোফাইল, ইতিহাস নেই)
+    var profileName: String? = null  // ইনকগনিটো প্রোফাইলের নাম
     val isHome get() = url == Home.BASE || (url.startsWith(Home.BASE) && !url.startsWith(Home.JOB))
 }
 
@@ -186,6 +188,25 @@ class MainActivity : Activity() {
             setPadding(dp(12), dp(10), dp(12), dp(10)); visibility = View.GONE; setOnClickListener { startUpdate() }
         }
         root.addView(banner, LinearLayout.LayoutParams(-1, -2))
+        findBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(Color.parseColor("#F3F4F6")); setPadding(dp(8), dp(2), dp(4), dp(2)); visibility = View.GONE
+        }
+        findInput = EditText(this).apply {
+            hint = "পেজে খুঁজুন"; setSingleLine(); textSize = 14f
+            addTextChangedListener(object : android.text.TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+                override fun afterTextChanged(s: android.text.Editable?) { runFind(s?.toString() ?: "") }
+            })
+        }
+        findCount = TextView(this).apply { textSize = 12f; setTextColor(Color.parseColor("#6B7280")); setPadding(dp(6), 0, dp(6), 0) }
+        findBar.addView(findInput, LinearLayout.LayoutParams(0, dp(44), 1f))
+        findBar.addView(findCount)
+        findBar.addView(icon("▲", 16f) { cur?.web?.findNext(false) })
+        findBar.addView(icon("▼", 16f) { cur?.web?.findNext(true) })
+        findBar.addView(icon("✕", 18f) { closeFind() })
+        root.addView(findBar, LinearLayout.LayoutParams(-1, -2))
         content = FrameLayout(this)
         // টেনে রিফ্রেশ: শুধু সাধারণ ওয়েবপেজে, পেজ একদম ওপরে থাকলে। চ্যাট-ওয়ার্কস্পেসে বন্ধ (ভেতরের স্ক্রলে ভুলে রিলোড হয়ে লেখা হারাত) — সেখানে ↻ বোতাম আছে
         swipe = androidx.swiperefreshlayout.widget.SwipeRefreshLayout(this).apply {
@@ -196,6 +217,11 @@ class MainActivity : Activity() {
         root.addView(swipe, LinearLayout.LayoutParams(-1, 0, 1f))
         setContentView(root)
 
+        // আগের চালুর ইনকগনিটো প্রোফাইল (অ্যাপ হঠাৎ বন্ধ হলে থেকে যেতে পারে) মুছে দিই
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE))
+                ProfileStore.getInstance().allProfileNames.filter { it.startsWith("incog_") }.forEach { try { ProfileStore.getInstance().deleteProfile(it) } catch (_: Exception) {} }
+        } catch (_: Exception) {}
         restore()
         if (tabs.isEmpty()) { newTab(null); openHome() }
         handleIntent(intent)
@@ -241,6 +267,8 @@ class MainActivity : Activity() {
     override fun onNewIntent(i: Intent) { super.onNewIntent(i); handleIntent(i) }
     private fun handleIntent(i: Intent?) {
         val u = i?.data?.toString() ?: return
+        i?.data = null   // আবার চালু হলে একই লিংক দ্বিতীয়বার না খোলার জন্য
+        if (!(u.startsWith("http://") || u.startsWith("https://"))) return
         newTab(null); go(u)
     }
 
@@ -305,7 +333,7 @@ class MainActivity : Activity() {
     override fun onDestroy() { super.onDestroy(); tabs.forEach { it.web.destroy() } }
 
     // ---------- ট্যাব ----------
-    private fun newTab(url: String?, site: String? = null): Tab {
+    private fun newTab(url: String?, site: String? = null, incognito: Boolean = false, reuseProfile: String? = null): Tab {
         val w = WebView(this)
         // আলাদা লগইন-প্রোফাইল WebView-এর অন্য কোনো কাজের আগেই বসাতে হয়; না বসলে লগইন মিশে যেত, তাই তখন সাইট লোডই করি না
         var siteOk: String? = null
@@ -319,15 +347,29 @@ class MainActivity : Activity() {
             } catch (_: Exception) { null }
             if (siteOk == null) Toast.makeText(this, "আলাদা লগইন চালু করা যায়নি — Android System WebView আপডেট করুন", Toast.LENGTH_LONG).show()
         }
+        var incName: String? = null
+        if (incognito) {
+            incName = try {
+                if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+                    val nm = reuseProfile ?: ("incog_" + System.nanoTime())
+                    ProfileStore.getInstance().getOrCreateProfile(nm); WebViewCompat.setProfile(w, nm); nm
+                } else null
+            } catch (_: Exception) { null }
+        }
         val t = Tab(w)
         t.site = siteOk
+        t.profileName = incName
+        t.incognito = incName != null
+        if (t.incognito) t.title = "🕶 ইনকগনিটো"
         w.settings.apply {
             javaScriptEnabled = true; domStorageEnabled = true; setSupportMultipleWindows(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             builtInZoomControls = true; displayZoomControls = false
             useWideViewPort = true; loadWithOverviewMode = true
         }
-        applyDesktop(t)
+        applyDesktop(t); applyView(t)
+        w.setFindListener { idx, n, _ -> if (t === cur) findCount.text = if (n == 0) "০" else "${idx + 1}/$n" }
+        w.setOnLongClickListener { _ -> handleLongPress(t) }
         w.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                 val u = r.url
@@ -349,10 +391,24 @@ class MainActivity : Activity() {
                 // শুধু নিজের ফোনের ওয়েব-টার্মিনালের জন্য পাসওয়ার্ড দিই
                 if (host == "127.0.0.1") h.proceed("tb", webPw()) else h.cancel()
             }
+            // সংযোগ/DNS/SSL ত্রুটিতে Chrome-এর মতো ত্রুটির পাতা (আবার চেষ্টার লিংকসহ)
+            override fun onReceivedError(v: WebView, r: WebResourceRequest, e: WebResourceError) {
+                if (!r.isForMainFrame) return
+                val c = e.errorCode
+                if (c == WebViewClient.ERROR_HOST_LOOKUP || c == WebViewClient.ERROR_CONNECT || c == WebViewClient.ERROR_TIMEOUT || c == WebViewClient.ERROR_IO || c == WebViewClient.ERROR_FAILED_SSL_HANDSHAKE) {
+                    val u = r.url.toString()
+                    v.loadDataWithBaseURL(u, Browse.errorHtml(u, e.description.toString()), "text/html", "utf-8", u)
+                }
+            }
+            override fun onReceivedSslError(v: WebView, h: SslErrorHandler, e: SslError) {
+                h.cancel()
+                if (e.url == v.url) v.loadDataWithBaseURL(e.url, Browse.errorHtml(e.url, "সংযোগ নিরাপদ নয় (SSL): সাইটের সার্টিফিকেট যাচাই করা যায়নি"), "text/html", "utf-8", e.url)
+            }
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
                 t.site?.let { sid -> if ((Uri.parse(u).host ?: "").endsWith("github.com")) githubPush(sid) else detectEmail(t, sid, true) }
+                if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
                 if (t === cur) { updateBar(); swipe.isRefreshing = false }
             }
         }
@@ -362,7 +418,7 @@ class MainActivity : Activity() {
             }
             override fun onReceivedTitle(v: WebView, title: String?) { if (!t.isHome && t.jobKey == null && !title.isNullOrBlank()) t.title = title }
             override fun onCreateWindow(v: WebView, d: Boolean, g: Boolean, m: Message): Boolean {
-                val n = newTab(null, t.site)  // পপআপ (যেমন লগইন) একই প্রোফাইলে খুলুক
+                val n = newTab(null, t.site, t.incognito, t.profileName)  // পপআপ (যেমন লগইন) একই প্রোফাইলে খুলুক
                 (m.obj as WebView.WebViewTransport).webView = n.web; m.sendToTarget(); return true
             }
             override fun onCloseWindow(v: WebView) { closeTab(t) }
@@ -375,19 +431,16 @@ class MainActivity : Activity() {
             // ক্যামেরা/মাইক চাইলে ব্যবহারকারীকে জিজ্ঞেস করে তবেই (সাইটকে নিজে থেকে দেওয়া হয় না)
             override fun onPermissionRequest(r: PermissionRequest) { handler.post { askWebPermission(r) } }
             override fun onPermissionRequestCanceled(r: PermissionRequest) { if (pendingWebPerm === r) pendingWebPerm = null }
+            override fun onJsAlert(v: WebView, url: String?, message: String?, r: JsResult): Boolean = jsAlert(url, message, r)
+            override fun onJsConfirm(v: WebView, url: String?, message: String?, r: JsResult): Boolean = jsConfirm(url, message, r)
+            override fun onJsPrompt(v: WebView, url: String?, message: String?, defaultValue: String?, r: JsPromptResult): Boolean = jsPrompt(url, message, defaultValue, r)
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) { showFullscreen(view, callback) }
+            override fun onHideCustomView() { hideFullscreen() }
+            override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) { handler.post { askGeo(origin, callback) } }
         }
-        w.setDownloadListener { u, ua, cd, mime, _ ->
-            try {
-                val rq = DownloadManager.Request(Uri.parse(u)).setMimeType(mime)
-                    .addRequestHeader("User-Agent", ua)
-                    .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                    .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(u, cd, mime))
-                (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(rq)
-                Toast.makeText(this, "ডাউনলোড শুরু হয়েছে", Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) { Toast.makeText(this, "ডাউনলোড ব্যর্থ", Toast.LENGTH_SHORT).show() }
-        }
+        w.setDownloadListener { u, ua, cd, mime, _ -> enqueueDownload(t, u, ua, cd, mime) }
         tabs.add(t); select(t)
-        if (url != null && !(site != null && siteOk == null)) w.loadUrl(url)
+        if (url != null && !(site != null && siteOk == null) && !(incognito && !t.incognito)) w.loadUrl(url)
         return t
     }
 
@@ -422,6 +475,7 @@ class MainActivity : Activity() {
     private fun closeTab(t: Tab) {
         val i = tabs.indexOf(t); if (i < 0) return
         tabs.remove(t); t.web.destroy()
+        t.profileName?.let { pn -> if (tabs.none { o -> o.profileName == pn }) try { ProfileStore.getInstance().deleteProfile(pn) } catch (_: Exception) {} }
         if (tabs.isEmpty()) { newTab(null); openHome(); return }
         if (cur === t) select(tabs[minOf(i, tabs.size - 1)]) else updateBar()
         if (overlay != null) showSwitcher()
@@ -430,7 +484,7 @@ class MainActivity : Activity() {
     private fun updateBar() {
         countBox.text = tabs.size.toString()
         val t = cur ?: return
-        if (!address.hasFocus()) address.setText(if (t.isHome) "" else if (t.jobKey != null) "⚙ " + t.title else t.url)
+        if (!address.hasFocus()) address.setText(if (t.isHome || t.url == "about:blank") "" else if (t.jobKey != null) "⚙ " + t.title else t.url)
         address.hint = if (t.isHome) "Termux হোম — সার্চ বা ঠিকানা লিখুন" else "সার্চ বা ঠিকানা লিখুন"
     }
 
@@ -538,6 +592,10 @@ class MainActivity : Activity() {
                 else { r.deny(); Toast.makeText(this, "অনুমতি পাওয়া যায়নি: ⋮ › অ্যাপ অনুমতি থেকে ক্যামেরা/মাইক দিন", Toast.LENGTH_LONG).show() }
             }
         }
+        if (rc == 4713) {
+            val gp = pendingGeo; pendingGeo = null
+            gp?.second?.invoke(gp.first, g.isNotEmpty() && g.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }, false)
+        }
         if (rc == 77) {
             cur?.let { if (it.isHome) loadHome(it) }
             if (g.isNotEmpty() && g[0] != android.content.pm.PackageManager.PERMISSION_GRANTED)
@@ -604,6 +662,213 @@ class MainActivity : Activity() {
     private var autoSwitch = true
     /** যে ওয়ার্কস্পেসের লিমিট শেষ হয়েছে সেটা কতক্ষণ আবার বাছা হবে না (ওয়ার্কস্পেস-আইডি → সময়) */
     private val siteLimited = HashMap<String, Long>()
+
+    // ---------- ব্রাউজারের সাধারণ ফিচার (Chrome-এর মতো) ----------
+    private var customView: View? = null
+    private var customCb: WebChromeClient.CustomViewCallback? = null
+    private var pendingGeo: Pair<String, GeolocationPermissions.Callback>? = null
+    private lateinit var findBar: LinearLayout
+    private lateinit var findInput: EditText
+    private lateinit var findCount: TextView
+
+    /** সেভ করা লেখার আকার ট্যাবে প্রয়োগ করে */
+    private fun applyView(t: Tab) {
+        try { t.web.settings.textZoom = Store.prefs(this).getInt("textzoom", 100) } catch (_: Exception) {}
+    }
+
+    private fun urlOk(t: Tab?) = t != null && !t.isHome && t.jobKey == null && t.url.startsWith("http")
+
+    /** চলতি ট্যাবে (কাজের ট্যাব হলে নতুন ট্যাবে) ঠিকানা খোলে */
+    private fun openUrl(u: String) {
+        val t = cur
+        if (t == null || t.jobKey != null) newTab(u) else t.web.loadUrl(u)
+    }
+
+    // JS alert/confirm/prompt: না দেখালে অনেক সাইটের লগইন/ফর্ম ঠিকমতো চলে না
+    private fun jsAlert(url: String?, msg: String?, r: JsResult): Boolean = try {
+        AlertDialog.Builder(this).setTitle(Uri.parse(url ?: "").host ?: "পেজ").setMessage(msg ?: "")
+            .setPositiveButton("ঠিক আছে") { _, _ -> r.confirm() }.setOnCancelListener { r.cancel() }.show(); true
+    } catch (_: Exception) { r.cancel(); true }
+
+    private fun jsConfirm(url: String?, msg: String?, r: JsResult): Boolean = try {
+        AlertDialog.Builder(this).setTitle(Uri.parse(url ?: "").host ?: "পেজ").setMessage(msg ?: "")
+            .setPositiveButton("ঠিক আছে") { _, _ -> r.confirm() }.setNegativeButton("বাতিল") { _, _ -> r.cancel() }
+            .setOnCancelListener { r.cancel() }.show(); true
+    } catch (_: Exception) { r.cancel(); true }
+
+    private fun jsPrompt(url: String?, msg: String?, def: String?, r: JsPromptResult): Boolean = try {
+        val e = EditText(this).apply { setText(def ?: ""); setSingleLine() }
+        val l = LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(e) }
+        AlertDialog.Builder(this).setTitle(Uri.parse(url ?: "").host ?: "পেজ").setMessage(msg ?: "").setView(l)
+            .setPositiveButton("ঠিক আছে") { _, _ -> r.confirm(e.text.toString()) }
+            .setNegativeButton("বাতিল") { _, _ -> r.cancel() }.setOnCancelListener { r.cancel() }.show(); true
+    } catch (_: Exception) { r.cancel(); true }
+
+    // পূর্ণ-পর্দা ভিডিও (YouTube ইত্যাদি)
+    private fun showFullscreen(v: View, cb: WebChromeClient.CustomViewCallback) {
+        if (customView != null) { cb.onCustomViewHidden(); return }
+        customView = v; customCb = cb
+        v.setBackgroundColor(Color.BLACK)
+        (window.decorView as ViewGroup).addView(v, ViewGroup.LayoutParams(-1, -1))
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
+
+    private fun hideFullscreen() {
+        val v = customView ?: return
+        (window.decorView as ViewGroup).removeView(v)
+        customView = null
+        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        customCb?.onCustomViewHidden(); customCb = null
+    }
+
+    // সাইট অবস্থান চাইলে: আগে ব্যবহারকারীকে জিজ্ঞেস, তারপর Android-এর অনুমতি
+    private fun askGeo(origin: String, cb: GeolocationPermissions.Callback) {
+        AlertDialog.Builder(this).setTitle("অবস্থান জানতে চায়")
+            .setMessage("${Uri.parse(origin).host ?: origin} আপনার অবস্থান জানতে চায়। দেবেন?")
+            .setPositiveButton("দিন") { _, _ ->
+                if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) cb.invoke(origin, true, false)
+                else { pendingGeo = Pair(origin, cb); requestPermissions(arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION, android.Manifest.permission.ACCESS_COARSE_LOCATION), 4713) }
+            }
+            .setNegativeButton("না") { _, _ -> cb.invoke(origin, false, false) }
+            .setOnCancelListener { cb.invoke(origin, false, false) }.show()
+    }
+
+    // লিংক/ছবিতে লম্বা চাপ: Chrome-এর মতো মেনু
+    private fun handleLongPress(t: Tab): Boolean {
+        val h = t.web.hitTestResult
+        when (h.type) {
+            WebView.HitTestResult.SRC_ANCHOR_TYPE, WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE -> {
+                val msg = Message.obtain(object : android.os.Handler(android.os.Looper.getMainLooper()) {
+                    override fun handleMessage(m: Message) { linkMenu(t, m.data?.getString("url") ?: h.extra, m.data?.getString("src")) }
+                })
+                t.web.requestFocusNodeHref(msg); return true
+            }
+            WebView.HitTestResult.IMAGE_TYPE -> { linkMenu(t, null, h.extra); return true }
+        }
+        return false
+    }
+
+    private fun linkMenu(t: Tab, link: String?, img: String?) {
+        val items = mutableListOf<Pair<String, () -> Unit>>()
+        if (!link.isNullOrBlank()) {
+            items.add(Pair("নতুন ট্যাবে খুলুন") { newTab(link, t.site, t.incognito, t.profileName) })
+            items.add(Pair("লিংক কপি করুন") { copyText(link) })
+            items.add(Pair("লিংক শেয়ার করুন") { shareText(link) })
+        }
+        if (!img.isNullOrBlank()) {
+            items.add(Pair("ছবি ডাউনলোড করুন") { enqueueDownload(t, img, t.web.settings.userAgentString, null, null) })
+            items.add(Pair("ছবি নতুন ট্যাবে খুলুন") { newTab(img, t.site, t.incognito, t.profileName) })
+        }
+        if (items.isEmpty()) return
+        AlertDialog.Builder(this).setTitle((link ?: img ?: "").take(80))
+            .setItems(items.map { it.first }.toTypedArray()) { _, i -> items[i].second() }.show()
+    }
+
+    private fun copyText(s: String) {
+        (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("link", s))
+        Toast.makeText(this, "কপি হয়েছে", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun shareText(s: String, subject: String? = null) {
+        val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, s)
+        if (subject != null) i.putExtra(Intent.EXTRA_SUBJECT, subject)
+        try { startActivity(Intent.createChooser(i, "শেয়ার করুন")) } catch (_: Exception) {}
+    }
+
+    /** ওয়ার্কস্পেস/ইনকগনিটো প্রোফাইলের কুকি (লগইন করা সাইট থেকে ডাউনলোডে লাগে) */
+    private fun cookiesFor(t: Tab?, u: String): String? = try {
+        val sid = t?.site; val pn = t?.profileName
+        val cm: CookieManager = (if (sid != null) ghProfile(sid)?.cookieManager
+            else if (pn != null) ProfileStore.getInstance().getProfile(pn)?.cookieManager else null) ?: CookieManager.getInstance()
+        cm.getCookie(u)
+    } catch (_: Exception) { null }
+
+    /** ডাউনলোড: ফোনের পাবলিক Downloads ফোল্ডারে (না পারলে অ্যাপের নিজস্ব ফোল্ডারে), লগইন-কুকিসহ */
+    private fun enqueueDownload(t: Tab?, u: String, ua: String?, cd: String?, mime: String?) {
+        if (u.startsWith("blob:") || u.startsWith("data:")) { Toast.makeText(this, "এই ধরনের (blob/data) ডাউনলোড এখনো সমর্থিত নয়", Toast.LENGTH_LONG).show(); return }
+        try {
+            val name = URLUtil.guessFileName(u, cd, mime)
+            val ck = cookiesFor(t, u)
+            fun build(pub: Boolean): DownloadManager.Request {
+                val rq = DownloadManager.Request(Uri.parse(u))
+                if (!mime.isNullOrBlank()) rq.setMimeType(mime)
+                if (!ua.isNullOrBlank()) rq.addRequestHeader("User-Agent", ua)
+                if (!ck.isNullOrBlank()) rq.addRequestHeader("Cookie", ck)
+                rq.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                if (pub) rq.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+                else rq.setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, name)
+                return rq
+            }
+            val dm = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+            try { dm.enqueue(build(true)) } catch (_: Exception) { dm.enqueue(build(false)) }
+            Toast.makeText(this, "ডাউনলোড শুরু হয়েছে: $name", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) { Toast.makeText(this, "ডাউনলোড ব্যর্থ", Toast.LENGTH_SHORT).show() }
+    }
+
+    // পেজে খুঁজুন
+    private fun showFind() {
+        findBar.visibility = View.VISIBLE; findInput.requestFocus()
+        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showSoftInput(findInput, 0)
+    }
+
+    private fun closeFind() {
+        cur?.web?.clearMatches(); findBar.visibility = View.GONE; findCount.text = ""
+        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(findInput.windowToken, 0)
+    }
+
+    private fun runFind(q: String) {
+        val w = cur?.web ?: return
+        if (q.isEmpty()) { w.clearMatches(); findCount.text = "" } else w.findAllAsync(q)
+    }
+
+    // বুকমার্ক ও ইতিহাস
+    private fun showBookmarks() {
+        val l = Bookmarks.all(this)
+        if (l.isEmpty()) { Toast.makeText(this, "এখনো কোনো বুকমার্ক নেই — ⋮ › ☆ চেপে যোগ করুন", Toast.LENGTH_LONG).show(); return }
+        AlertDialog.Builder(this).setTitle("বুকমার্ক")
+            .setItems(l.map { it.first.take(40) + "\n" + it.second.take(60) }.toTypedArray()) { _, i -> openUrl(l[i].second) }
+            .setNeutralButton("মুছুন…") { _, _ ->
+                AlertDialog.Builder(this).setTitle("কোনটা মুছবেন?")
+                    .setItems(l.map { it.first.take(50) }.toTypedArray()) { _, i -> Bookmarks.remove(this, l[i].second); refreshHomes(); Toast.makeText(this, "মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show() }
+                    .setNegativeButton("বাতিল", null).show()
+            }.setNegativeButton("বন্ধ", null).show()
+    }
+
+    private fun showHistory() {
+        val l = History.all(this).take(150)
+        if (l.isEmpty()) { Toast.makeText(this, "ইতিহাস খালি", Toast.LENGTH_SHORT).show(); return }
+        AlertDialog.Builder(this).setTitle("ইতিহাস")
+            .setItems(l.map { it.first.take(40) + "\n" + it.second.take(60) }.toTypedArray()) { _, i -> openUrl(l[i].second) }
+            .setNeutralButton("সব মুছুন") { _, _ -> History.clear(this); Toast.makeText(this, "ইতিহাস মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show() }
+            .setNegativeButton("বন্ধ", null).show()
+    }
+
+    private fun printCur() {
+        val t = cur ?: return
+        try {
+            val pm = getSystemService(PRINT_SERVICE) as android.print.PrintManager
+            val n = t.title.ifBlank { "page" }
+            pm.print(n, t.web.createPrintDocumentAdapter(n), android.print.PrintAttributes.Builder().build())
+        } catch (_: Exception) { Toast.makeText(this, "প্রিন্ট চালু করা যায়নি", Toast.LENGTH_SHORT).show() }
+    }
+
+    /** ইনকগনিটো: আলাদা সাময়িক প্রোফাইল — কুকি/লগইন/ক্যাশ আলাদা, ট্যাব বন্ধ করলে মুছে যায়, ইতিহাসে আসে না */
+    private fun newIncognito() {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
+            Toast.makeText(this, "এই ফোনের WebView পুরনো — Play Store থেকে Android System WebView আপডেট করুন", Toast.LENGTH_LONG).show(); return
+        }
+        val t = newTab(null, null, true)
+        if (t.incognito) t.web.loadDataWithBaseURL("about:blank", Browse.incognitoHtml(), "text/html", "utf-8", null)
+    }
+
+    private fun pickTextSize() {
+        val opts = arrayOf("৮০%", "১০০% (সাধারণ)", "১২০%", "১৫০%", "২০০%"); val vals = intArrayOf(80, 100, 120, 150, 200)
+        AlertDialog.Builder(this).setTitle("লেখার আকার").setItems(opts) { _, i ->
+            Store.prefs(this).edit().putInt("textzoom", vals[i]).apply(); tabs.forEach { applyView(it) }
+        }.show()
+    }
 
     // ---------- ওয়ার্কস্পেসের নাম = লগইন করা জিমেইল ----------
     private val emailOk = HashSet<String>()                 // এই চালুতে যে ওয়ার্কস্পেসের ইমেইল পাওয়া গেছে
@@ -933,9 +1198,36 @@ class MainActivity : Activity() {
         cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
         m.menu.add(0, 13, 8, "🔗 ডিফল্ট GitHub রিপো (Claude Code)")
+        val ct = cur
+        if (urlOk(ct)) {
+            m.menu.add(0, 20, 1, if (Bookmarks.has(this, ct!!.url)) "★ বুকমার্ক সরান" else "☆ বুকমার্ক যোগ করুন")
+            m.menu.add(0, 23, 1, "🔎 পেজে খুঁজুন")
+            m.menu.add(0, 24, 1, "↗ শেয়ার করুন")
+            m.menu.add(0, 25, 1, "🔗 লিংক কপি")
+            m.menu.add(0, 26, 1, "🖨 প্রিন্ট / PDF সেভ")
+        }
+        m.menu.add(0, 21, 2, "📚 বুকমার্ক তালিকা")
+        m.menu.add(0, 22, 2, "🕘 ইতিহাস")
+        m.menu.add(0, 27, 2, "🕶 নতুন ইনকগনিটো ট্যাব")
+        m.menu.add(0, 29, 2, "🔠 লেখার আকার")
+        m.menu.add(0, 30, 2, "⬇ ডাউনলোড তালিকা")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 13 -> editRepo()
+                20 -> cur?.let { t ->
+                    if (Bookmarks.has(this, t.url)) { Bookmarks.remove(this, t.url); Toast.makeText(this, "বুকমার্ক সরানো হয়েছে", Toast.LENGTH_SHORT).show() }
+                    else { Bookmarks.add(this, t.title, t.url); Toast.makeText(this, "বুকমার্ক যোগ হয়েছে", Toast.LENGTH_SHORT).show() }
+                    refreshHomes()
+                }
+                21 -> showBookmarks()
+                22 -> showHistory()
+                23 -> showFind()
+                24 -> cur?.let { t -> shareText(t.url, t.title) }
+                25 -> cur?.let { t -> copyText(t.url) }
+                26 -> printCur()
+                27 -> newIncognito()
+                29 -> pickTextSize()
+                30 -> try { startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
                 8 -> startUpdate()
                 9 -> cur?.let { t -> pickHandoff(t) }
                 11 -> cur?.let { t -> makeWorkspace(t) }
@@ -979,7 +1271,7 @@ class MainActivity : Activity() {
     // ---------- সেশন ----------
     private fun save() {
         val a = JSONArray()
-        val keep = tabs.filter { it.jobKey == null }
+        val keep = tabs.filter { it.jobKey == null && !it.incognito }
         keep.forEach { a.put(if (it.isHome || it.url.isBlank()) "home" else it.url) }
         val sa = JSONArray(); keep.forEach { sa.put(it.site ?: "") }
         val jt = JSONArray(); tabs.forEach { t -> t.jobKey?.let { jt.put(it) } }
@@ -1030,6 +1322,8 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         val t = cur
         when {
+            customView != null -> hideFullscreen()
+            findBar.visibility == View.VISIBLE -> closeFind()
             overlay != null -> hideSwitcher()
             t != null && t.web.canGoBack() -> t.web.goBack()
             t != null && !t.isHome -> loadHome(t)
