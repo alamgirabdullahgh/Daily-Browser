@@ -970,21 +970,26 @@ class MainActivity : Activity() {
      *  ভুল শনাক্ত এড়াতে পরপর ২ বার দেখা যেতে হয় এবং একই ট্যাবে ১০ মিনিটে একবারের বেশি চলে না */
     private val siteWatcher = object : Runnable {
         override fun run() {
-            val t = cur
-            if (t != null && t.site != null && overlay == null) detectEmail(t, t.site!!, false)
-            if (t != null && t.site != null && overlay == null && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
-                t.web.evaluateJavascript(Sites.LIMIT_JS) { raw ->
-                    val hit = Sites.unquote(raw)
-                    if (hit.isBlank() || t !== cur) t.limitHits = 0
-                    else {
-                        t.limitHits++
-                        if (t.limitHits >= 2 && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
-                            t.limitHits = 0; t.limitAt = System.currentTimeMillis(); onLimit(t, hit)
+            // কোনো ত্রুটি হলেও নিজেকে আবার নির্ধারণ করে — নইলে একবার ব্যর্থ হলে ওয়াচার চিরতরে থেমে যেত
+            try {
+                val t = cur
+                if (t != null && t.site != null && overlay == null) detectEmail(t, t.site!!, false)
+                if (t != null && t.site != null && overlay == null && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
+                    t.web.evaluateJavascript(Sites.LIMIT_JS) { raw ->
+                        val hit = Sites.unquote(raw)
+                        if (hit.isBlank() || t !== cur) t.limitHits = 0
+                        else {
+                            t.limitHits++
+                            if (t.limitHits >= 2 && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
+                                t.limitHits = 0; t.limitAt = System.currentTimeMillis(); onLimit(t, hit)
+                            }
                         }
                     }
                 }
+            } catch (_: Exception) {
+            } finally {
+                handler.postDelayed(this, 6000L)
             }
-            handler.postDelayed(this, 6000L)
         }
     }
 
@@ -1197,6 +1202,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 7, 6, "ব্রাউজিং ডেটা মুছুন")
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
         cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
+        cur?.takeIf { it.site != null }?.let { m.menu.add(0, 14, 9, "🔍 লিমিট শনাক্তকরণ পরীক্ষা") }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
         m.menu.add(0, 13, 8, "🔗 ডিফল্ট GitHub রিপো (Claude Code)")
         val ct = cur
@@ -1231,6 +1237,8 @@ class MainActivity : Activity() {
                 30 -> try { startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
                 8 -> startUpdate()
                 9 -> cur?.let { t -> pickHandoff(t) }
+                14 -> cur?.let { t -> t.web.evaluateJavascript(Sites.LIMIT_DEBUG_JS) { raw ->
+                    AlertDialog.Builder(this).setTitle("লিমিট শনাক্তকরণ").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 11 -> cur?.let { t -> makeWorkspace(t) }
                 10 -> { autoSwitch = !autoSwitch; Store.prefs(this).edit().putBoolean("autoswitch", autoSwitch).apply()
                     Toast.makeText(this, if (autoSwitch) "স্বয়ংক্রিয় সুইচ চালু" else "স্বয়ংক্রিয় সুইচ বন্ধ — শুধু প্রস্তাব আসবে", Toast.LENGTH_SHORT).show() }

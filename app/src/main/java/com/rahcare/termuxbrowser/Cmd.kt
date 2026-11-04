@@ -112,6 +112,11 @@ object Store {
             "pkg install -y ttyd && { pkill -x ttyd 2>/dev/null; nohup setsid ttyd -W -i 127.0.0.1 -p 7681 -c tb:@@WEBPW@@ bash -l >/dev/null 2>&1 & sleep 2; echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; }"),
         Cmd("d13", "⏹ আটকে থাকা প্যাকেজ কাজ থামান",
             "pkill -x apt 2>/dev/null; pkill -x apt-get 2>/dev/null; pkill -x dpkg 2>/dev/null; sleep 1; dpkg --configure -a --force-confold 2>&1 | tail -5; echo 'থামানো হয়েছে — এখন নতুন কমান্ড চালাতে পারেন'"),
+        // ধীর/আটকে যাওয়া মিরর থেকে Termux-এর ডিফল্ট (Cloudflare) মিররে ফেরায়। আগে পৌঁছানো যায় কিনা যাচাই করে, পুরনো ফাইলের কপি রাখে
+        Cmd("d14", "🔄 মিরর ডিফল্টে ফেরান (আপডেট ধীর হলে)",
+            "U=https://packages-cf.termux.dev/apt/termux-main; S=\$PREFIX/etc/apt/sources.list\n" +
+            "if curl -fsI --max-time 20 \"\$U/dists/stable/InRelease\" >/dev/null 2>&1; then cp \"\$S\" \"\$S.bak\" 2>/dev/null; echo \"deb \$U stable main\" > \"\$S\"; echo 'মিরর ডিফল্টে ফেরানো হয়েছে'; pkg update -y; " +
+            "else echo 'ডিফল্ট মিরর এখন পৌঁছানো যাচ্ছে না — Termux-এ termux-change-repo চালিয়ে অন্য মিরর বাছুন'; exit 1; fi"),
         Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -f openbox; pkill -f tint2; pkill -f termux-x11; echo বন্ধ হয়েছে"),
     )
 
