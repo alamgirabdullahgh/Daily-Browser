@@ -1090,11 +1090,13 @@ class MainActivity : Activity() {
 
     /** বসানো লেখা পাঠায়: বোতাম চেপে, না পেলে Enter দিয়ে (সাইটভেদে বোতাম তৈরি হতে একটু সময় লাগে, তাই কয়েকবার চেষ্টা) */
     private fun sendInput(t: Tab, n: Int) {
-        if (n >= 3) return
+        // বসানোর পর পাঠানোর বোতাম চালু হতে সময় লাগে (লেখা লম্বা হলে আরও) — তাই চালু বোতাম পাওয়া পর্যন্ত ১২ বার চেষ্টা; শেষে Enter
+        if (n > 12) return
         handler.postDelayed({
             if (!tabs.contains(t)) return@postDelayed
-            t.web.evaluateJavascript(Sites.SEND_JS) { r -> if (r == null || r.contains("no") || r.contains("err")) sendInput(t, n + 1) }
-        }, 1500L)
+            val js = if (n == 12) Sites.ENTER_JS else Sites.SEND_JS
+            t.web.evaluateJavascript(js) { r -> if (r == null || !r.contains("clicked") && !r.contains("enter")) sendInput(t, n + 1) }
+        }, if (n == 0) 2500L else 1500L)
     }
 
     // ---------- GitHub লগইন সব ওয়ার্কস্পেসে এক (শুধু এই ফোনের ভেতরে, ওয়ার্কস্পেসগুলোর মধ্যে) ----------
