@@ -223,6 +223,11 @@ class MainActivity : Activity() {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE))
                 ProfileStore.getInstance().allProfileNames.filter { it.startsWith("incog_") }.forEach { try { ProfileStore.getInstance().deleteProfile(it) } catch (_: Exception) {} }
         } catch (_: Exception) {}
+        // একবারের পরিষ্কার: আগের স্বয়ংক্রিয় কপিতে মিশে যাওয়া পুরনো GitHub লগইন মুছে দিই, যাতে প্রতিটি জায়গায় নতুন করে ঠিক অ্যাকাউন্টে লগইন করা যায়
+        if (!Store.prefs(this).getBoolean("gh_reset_v1", false)) {
+            ghClearAll(); Store.prefs(this).edit().putBoolean("gh_reset_v1", true).apply()
+            Toast.makeText(this, "GitHub লগইন রিসেট হয়েছে — প্রতিটি ওয়ার্কস্পেসে নিজের অ্যাকাউন্টে লগইন করুন", Toast.LENGTH_LONG).show()
+        }
         restore()
         if (tabs.isEmpty()) { newTab(null); openHome() }
         handleIntent(intent)
@@ -343,7 +348,7 @@ class MainActivity : Activity() {
                 if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
                     val pn = Sites.profile(site)
                     ProfileStore.getInstance().getOrCreateProfile(pn)
-                    WebViewCompat.setProfile(w, pn); githubPull(site); site
+                    WebViewCompat.setProfile(w, pn); site
                 } else null
             } catch (_: Exception) { null }
             if (siteOk == null) Toast.makeText(this, "আলাদা লগইন চালু করা যায়নি — Android System WebView আপডেট করুন", Toast.LENGTH_LONG).show()
@@ -408,7 +413,7 @@ class MainActivity : Activity() {
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
-                t.site?.let { sid -> if ((Uri.parse(u).host ?: "").endsWith("github.com")) githubPush(sid) else detectEmail(t, sid, true) }
+                t.site?.let { sid -> if (!(Uri.parse(u).host ?: "").endsWith("github.com")) detectEmail(t, sid, true) }
                 if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
                 if (t === cur) { updateBar(); swipe.isRefreshing = false }
             }
@@ -1099,33 +1104,72 @@ class MainActivity : Activity() {
         }, if (n == 0) 2500L else 1500L)
     }
 
-    // ---------- GitHub লগইন সব ওয়ার্কস্পেসে এক (শুধু এই ফোনের ভেতরে, ওয়ার্কস্পেসগুলোর মধ্যে) ----------
-    private fun ghProfile(id: String) = try { ProfileStore.getInstance().getProfile(Sites.profile(id)) } catch (_: Exception) { null }
-
-    /** এই ওয়ার্কস্পেসে GitHub-এ লগইন থাকলে তার কুকি, নইলে null */
-    private fun ghCookies(id: String): String? = try {
-        ghProfile(id)?.cookieManager?.getCookie("https://github.com")?.takeIf { it.contains("logged_in=yes") }
+    // ---------- GitHub লগইন: প্রতিটি ওয়ার্কস্পেসে আলাদা। নিজে থেকে কখনো কপি হয় না (আগে হতো, তাই লগআউটের পর পুরনো অ্যাকাউন্ট ফিরে আসত) ----------
+    private fun ghProfile(id: String, create: Boolean = false) = try {
+        if (create) ProfileStore.getInstance().getOrCreateProfile(Sites.profile(id)) else ProfileStore.getInstance().getProfile(Sites.profile(id))
     } catch (_: Exception) { null }
 
-    private fun ghCopy(raw: String, toId: String) {
+    /** id = ওয়ার্কস্পেস; null = সাধারণ (ওয়ার্কস্পেস নয় এমন) ট্যাবের প্রোফাইল */
+    private fun ghManager(id: String?, create: Boolean = false): CookieManager? = try {
+        if (id == null) CookieManager.getInstance() else ghProfile(id, create)?.cookieManager
+    } catch (_: Exception) { null }
+
+    /** এখানে GitHub-এ লগইন থাকলে তার কুকি-স্ট্রিং, নইলে null */
+    private fun ghCookies(id: String?): String? = try {
+        ghManager(id)?.getCookie("https://github.com")?.takeIf { it.contains("logged_in=yes") }
+    } catch (_: Exception) { null }
+
+    /** GitHub-এর সব কুকি মুছে ফেলে (লগআউট)। Claude ইত্যাদি অন্য সাইটের লগইন অক্ষত থাকে */
+    private fun ghClear(id: String?) {
         try {
-            val cm = ghProfile(toId)?.cookieManager ?: return
-            raw.split(";").map { it.trim() }.filter { it.contains("=") }
-                .forEach { cm.setCookie("https://github.com", "$it; Path=/; Secure; HttpOnly") }
+            val cm = ghManager(id) ?: return
+            val raw = cm.getCookie("https://github.com") ?: return
+            val names = raw.split(";").map { it.trim().substringBefore("=") }.filter { it.isNotEmpty() }
+            for (n in names) for (attr in listOf("", "; Domain=github.com", "; Domain=.github.com"))
+                cm.setCookie("https://github.com", "$n=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Path=/; Secure$attr")
             cm.flush()
         } catch (_: Exception) {}
     }
 
-    /** কোনো ওয়ার্কস্পেসে GitHub লগইন হলে, যেগুলোতে লগইন নেই সেগুলোতে কপি করে (আগের লগইন কখনো মোছে/বদলায় না) */
-    private fun githubPush(fromId: String) {
-        val raw = ghCookies(fromId) ?: return
-        Sites.all(this).filter { it.id != fromId && ghCookies(it.id) == null }.forEach { ghCopy(raw, it.id) }
+    private fun ghClearAll() {
+        ghClear(null); Sites.all(this).forEach { ghClear(it.id) }
     }
 
-    /** নতুন খোলা ওয়ার্কস্পেসে GitHub লগইন না থাকলে অন্য কোনো ওয়ার্কস্পেস থেকে নেয় */
-    private fun githubPull(toId: String) {
-        if (ghCookies(toId) != null) return
-        for (s in Sites.all(this)) { if (s.id == toId) continue; val raw = ghCookies(s.id) ?: continue; ghCopy(raw, toId); return }
+    /** আগে গন্তব্যের পুরনো GitHub কুকি মুছে, তারপর নতুনগুলো বসায় (দুই অ্যাকাউন্টের কুকি মিশে যাওয়া এড়াতে) */
+    private fun ghCopy(raw: String, toId: String) {
+        try {
+            val cm = ghManager(toId, true) ?: return
+            ghClear(toId)
+            raw.split(";").map { it.trim() }.filter { it.contains("=") }
+                .forEach { cm.setCookie("https://github.com", "$it; Path=/; Secure; HttpOnly; Max-Age=1209600") }
+            cm.flush()
+        } catch (_: Exception) {}
+    }
+
+    /** হাতে বেছে: বর্তমান জায়গার GitHub লগইন অন্য কোন কোন ওয়ার্কস্পেসে কপি হবে */
+    private fun ghShareDialog(srcId: String?) {
+        val raw = ghCookies(srcId)
+        if (raw == null) { Toast.makeText(this, "এখানে GitHub-এ লগইন নেই — আগে লগইন করুন", Toast.LENGTH_LONG).show(); return }
+        val targets = Sites.all(this).filter { it.id != srcId }
+        if (targets.isEmpty()) { Toast.makeText(this, "কপি করার মতো অন্য ওয়ার্কস্পেস নেই", Toast.LENGTH_SHORT).show(); return }
+        val checked = BooleanArray(targets.size)
+        AlertDialog.Builder(this).setTitle("এই GitHub লগইন কোথায় কপি করবেন?")
+            .setMultiChoiceItems(targets.map { it.name }.toTypedArray(), checked) { _, i, b -> checked[i] = b }
+            .setPositiveButton("কপি করুন") { _, _ ->
+                var n = 0
+                targets.forEachIndexed { i, s -> if (checked[i]) { ghCopy(raw, s.id); n++ } }
+                Toast.makeText(this, "$n টি ওয়ার্কস্পেসে কপি হয়েছে — সেখানে পেজ রিলোড করুন", Toast.LENGTH_LONG).show()
+            }.setNegativeButton("বাতিল", null).show()
+    }
+
+    private fun ghClearAllAsk() {
+        AlertDialog.Builder(this).setTitle("সব জায়গার GitHub লগইন মুছবেন?")
+            .setMessage("সব ওয়ার্কস্পেস ও সাধারণ ট্যাব থেকে GitHub-এর লগআউট হবে। Claude-সহ অন্য সাইটের লগইন থাকবে। এরপর প্রতিটি জায়গায় নিজের ইচ্ছামতো অ্যাকাউন্টে লগইন করতে পারবেন।")
+            .setPositiveButton("মুছুন") { _, _ ->
+                ghClearAll()
+                tabs.forEach { if (it.web.url?.contains("github.com") == true) it.web.reload() }
+                Toast.makeText(this, "সব জায়গার GitHub লগইন মোছা হয়েছে", Toast.LENGTH_LONG).show()
+            }.setNegativeButton("না", null).show()
     }
 
     private fun refreshHomes() { tabs.filter { it.isHome }.forEach { loadHome(it) } }
@@ -1207,6 +1251,9 @@ class MainActivity : Activity() {
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 14, 9, "🔍 লিমিট শনাক্তকরণ পরীক্ষা") }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
         m.menu.add(0, 13, 8, "🔗 ডিফল্ট GitHub রিপো (Claude Code)")
+        m.menu.add(0, 40, 9, "🐙 GitHub লগইন মুছুন (এই ওয়ার্কস্পেস/ট্যাব)")
+        m.menu.add(0, 41, 9, "🐙 GitHub লগইন অন্য ওয়ার্কস্পেসে কপি")
+        m.menu.add(0, 42, 9, "🐙 সব জায়গার GitHub লগইন মুছুন")
         val ct = cur
         if (urlOk(ct)) {
             m.menu.add(0, 20, 1, if (Bookmarks.has(this, ct!!.url)) "★ বুকমার্ক সরান" else "☆ বুকমার্ক যোগ করুন")
@@ -1223,6 +1270,10 @@ class MainActivity : Activity() {
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 13 -> editRepo()
+                40 -> { ghClear(cur?.site); cur?.let { t -> if (t.web.url?.contains("github.com") == true) t.web.reload() }
+                    Toast.makeText(this, "এখানকার GitHub লগইন মোছা হয়েছে", Toast.LENGTH_SHORT).show() }
+                41 -> ghShareDialog(cur?.site)
+                42 -> ghClearAllAsk()
                 20 -> cur?.let { t ->
                     if (Bookmarks.has(this, t.url)) { Bookmarks.remove(this, t.url); Toast.makeText(this, "বুকমার্ক সরানো হয়েছে", Toast.LENGTH_SHORT).show() }
                     else { Bookmarks.add(this, t.title, t.url); Toast.makeText(this, "বুকমার্ক যোগ হয়েছে", Toast.LENGTH_SHORT).show() }
