@@ -443,19 +443,6 @@ class MainActivity : Activity() {
                     true
                 }
             }
-            // লম্বা চাপ › "পেস্ট" মেনু: ক্লিপবোর্ডে শুধু ছবি থাকলে সেটাই বসায়
-            override fun onTextContextMenuItem(id: Int): Boolean {
-                if (id == android.R.id.paste) {
-                    try {
-                        val c = (context.getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).primaryClip
-                        val u = c?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
-                        if (c != null && u != null && c.description.hasMimeType("image/*") && !c.description.hasMimeType("text/plain")) {
-                            pasteImage(this, u, c.description.getMimeType(0)); return true
-                        }
-                    } catch (_: Exception) {}
-                }
-                return super.onTextContextMenuItem(id)
-            }
         }
         // আলাদা লগইন-প্রোফাইল WebView-এর অন্য কোনো কাজের আগেই বসাতে হয়; না বসলে লগইন মিশে যেত, তাই তখন সাইট লোডই করি না
         var siteOk: String? = null
