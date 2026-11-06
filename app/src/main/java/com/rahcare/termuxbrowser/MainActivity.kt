@@ -1125,14 +1125,16 @@ class MainActivity : Activity() {
     }
 
     private fun fillInput(t: Tab, text: String, n: Int, send: Boolean) {
-        if (n >= 6) { if (send) Toast.makeText(this, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান", Toast.LENGTH_LONG).show(); return }
+        if (n >= 12) { if (send) Toast.makeText(this, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান", Toast.LENGTH_LONG).show(); return }
         handler.postDelayed({
             if (!tabs.contains(t)) return@postDelayed
             t.web.evaluateJavascript(Sites.fillJs(text)) { r ->
-                if (r == null || !r.contains("ok")) fillInput(t, text, n + 1, send)
-                else if (send) sendInput(t, 0)
+                if (r == null || !r.contains("ok")) {
+                    // চ্যাটের ঘর নেই: প্ল্যান/স্বাগত পেজ আটকে থাকলে নিজেই "Use Claude for free" বা ← চেপে পার করি, তারপর আবার চেষ্টা
+                    t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send) }
+                } else if (send) sendInput(t, 0)
             }
-        }, 4000L)
+        }, if (n == 0) 4000L else 3000L)
     }
 
     /** বসানো লেখা পাঠায়: বোতাম চেপে, না পেলে Enter দিয়ে (সাইটভেদে বোতাম তৈরি হতে একটু সময় লাগে, তাই কয়েকবার চেষ্টা) */
