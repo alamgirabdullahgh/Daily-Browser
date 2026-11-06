@@ -71,10 +71,11 @@ object Sites {
     fun unquote(raw: String?): String = try { (JSONTokener(raw ?: "").nextValue() as? String) ?: "" } catch (_: Exception) { "" }
 
     /** repo খালি না হলে (Claude Code চ্যাট) হ্যান্ডঅফের লেখায় রিপোর নাম যায়, যাতে নতুন সেশন নিজেই রিপোটা যোগ করে নেয় */
-    fun handoffText(from: String, chat: String, repo: String = ""): String {
+    fun handoffText(from: String, chat: String, repo: String = "", token: String = ""): String {
         val head = "[এটা আগের কথোপকথন ($from থেকে নেওয়া)। এটা পড়ে কাজ যেখানে থেমেছিল সেখান থেকেই চালিয়ে যাও। আমার সর্বশেষ প্রশ্নের উত্তর যদি না পেয়ে থাকি, সেটারই উত্তর দাও।]"
         val gh = if (repo.isBlank()) "" else "\n[GitHub রিপো: $repo — এই সেশনে রিপোটা যোগ (add_repo) করে ক্লোন করে নাও, তারপর কাজ চালাও।]"
-        return "$head$gh\n\n$chat"
+        val tk = if (token.isBlank()) "" else "\n[GitHub টোকেন (আমার নিজের, এই কাজের জন্যই): $token — রিপো clone/pull/push করতে এটা ব্যবহার করো (যেমন https://x-access-token:টোকেন@github.com/মালিক/রিপো.git)। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে কখনো লিখবে না, রিপোর remote URL-এও রেখে দেবে না। কাজ শেষ হলে আমাকে জানাবে যেন আমি টোকেনটা বাতিল করি।]"
+        return "$head$gh$tk\n\n$chat"
     }
 
     /** আগের ট্যাবটা Claude Code চ্যাট (ঠিকানার পথ /code দিয়ে শুরু) এবং গন্তব্য একই সাইটের (যেমন claude.ai) অন্য ওয়ার্কস্পেস কিনা */

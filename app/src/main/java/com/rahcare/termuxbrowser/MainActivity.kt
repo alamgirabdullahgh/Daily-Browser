@@ -1092,8 +1092,20 @@ class MainActivity : Activity() {
         from.web.evaluateJavascript(Sites.EXTRACT_JS) { raw ->
             val chat = Sites.unquote(raw).trim()
             fun proceed(repo: String) {
-                val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat, repo)
-                if (payload.isNotEmpty()) (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("chat", payload))
+                // সংরক্ষিত GitHub টোকেন শুধু তখনই যায় যখন কাজটা GitHub/Claude Code-সংক্রান্ত (রিপো জানা আছে বা চ্যাটে github আছে)
+                val tok = Secret.get(this)
+                val useTok = tok.isNotBlank() && (isCode || repo.isNotBlank() || chat.contains("github", ignoreCase = true))
+                val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat, repo, if (useTok) tok else "")
+                if (payload.isNotEmpty()) {
+                    val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = android.content.ClipData.newPlainText("chat", payload)
+                    if (useTok) {
+                        // টোকেন থাকলে ক্লিপবোর্ডে "সংবেদনশীল" চিহ্ন (Android ১৩+ এ পর্দায় দেখায় না) এবং ২ মিনিট পর মুছে ফেলা
+                        try { if (android.os.Build.VERSION.SDK_INT >= 33) clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) } } catch (_: Exception) {}
+                        handler.postDelayed({ try { if (android.os.Build.VERSION.SDK_INT >= 28) cm.clearPrimaryClip() } catch (_: Exception) {} }, 120000L)
+                    }
+                    cm.setPrimaryClip(clip)
+                }
                 val tab = openSite(to.id, true, destUrl)
                 if (tab != null) {
                     if (payload.isEmpty()) Toast.makeText(this, "কপি করার মতো লেখা পাওয়া যায়নি — শুধু ${to.name} খোলা হয়েছে", Toast.LENGTH_LONG).show()
@@ -1111,6 +1123,29 @@ class MainActivity : Activity() {
                 else from.web.evaluateJavascript(Sites.REPO_JS) { r -> proceed(Sites.unquote(r).trim()) }
             }
         }
+    }
+
+    /** GitHub টোকেন একবার দিলে এনক্রিপ্ট হয়ে ফোনে থাকে; লিমিটে অন্য AI-তে সুইচের সময় (GitHub-সংক্রান্ত কাজে) চ্যাটের সাথে আপনা-আপনি যায় */
+    private fun editToken() {
+        val e = EditText(this).apply {
+            hint = "ghp_… বা github_pat_…"; setSingleLine()
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        val l = LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(e) }
+        val b = AlertDialog.Builder(this).setTitle("GitHub টোকেন")
+            .setMessage("টোকেন ফোনের Keystore দিয়ে এনক্রিপ্ট হয়ে থাকে। লিমিট শেষে অন্য AI-তে (যেমন Claude) সুইচের সময় কাজটা GitHub/Claude Code-সংক্রান্ত হলে এটা চ্যাটের বার্তায় নিজে থেকে যোগ হবে, যাতে সে রিপোতে কাজ চালাতে পারে।\n\n⚠ মনে রাখুন: বার্তাটা ওই সাইটের চ্যাট ইতিহাসে জমা থাকবে। তাই শুধু একটি রিপোর জন্য সীমিত (fine-grained), স্বল্প মেয়াদের টোকেন দিন এবং কাজ শেষে বাতিল করুন। পুরো অ্যাকাউন্টের ক্ষমতাওয়ালা টোকেন দেবেন না।")
+            .setView(l)
+            .setPositiveButton("সেভ") { _, _ ->
+                val v = e.text.toString().trim()
+                when {
+                    v.isEmpty() -> Toast.makeText(this, "কিছু লেখা হয়নি", Toast.LENGTH_SHORT).show()
+                    v.length < 20 || v.any { it.isWhitespace() } -> Toast.makeText(this, "টোকেনটা ঠিক মনে হচ্ছে না (ফাঁকা বা খুব ছোট)", Toast.LENGTH_LONG).show()
+                    Secret.put(this, v) -> Toast.makeText(this, "টোকেন এনক্রিপ্ট হয়ে সংরক্ষিত হয়েছে", Toast.LENGTH_SHORT).show()
+                    else -> Toast.makeText(this, "সংরক্ষণ করা যায়নি", Toast.LENGTH_LONG).show()
+                }
+            }.setNegativeButton("বাতিল", null)
+        if (Secret.has(this)) b.setNeutralButton("🗑 মুছুন") { _, _ -> Secret.put(this, ""); Toast.makeText(this, "টোকেন মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show() }
+        b.show()
     }
 
     /** মেনু থেকে ডিফল্ট GitHub রিপো (মালিক/রিপো) সেট করা — Claude Code হ্যান্ডঅফে এটাই সাথে যায় */
@@ -1296,6 +1331,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 15, 7, "🔒 ব্যাকগ্রাউন্ডে ট্যাব সচল রাখুন").apply { isCheckable = true; isChecked = Store.prefs(this@MainActivity).getBoolean("keep_web", true) }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
         m.menu.add(0, 13, 8, "🔗 ডিফল্ট GitHub রিপো (Claude Code)")
+        m.menu.add(0, 16, 8, if (Secret.has(this)) "🔑 GitHub টোকেন: সেট আছে (বদল/মুছুন)" else "🔑 GitHub টোকেন (হ্যান্ডঅফে সাথে যাবে)")
         m.menu.add(0, 40, 9, "🐙 GitHub লগইন মুছুন (এই ওয়ার্কস্পেস/ট্যাব)")
         m.menu.add(0, 41, 9, "🐙 GitHub লগইন অন্য ওয়ার্কস্পেসে কপি")
         m.menu.add(0, 42, 9, "🐙 সব জায়গার GitHub লগইন মুছুন")
@@ -1315,6 +1351,7 @@ class MainActivity : Activity() {
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 13 -> editRepo()
+                16 -> editToken()
                 40 -> { ghClear(cur?.site); cur?.let { t -> if (t.web.url?.contains("github.com") == true) t.web.reload() }
                     Toast.makeText(this, "এখানকার GitHub লগইন মোছা হয়েছে", Toast.LENGTH_SHORT).show() }
                 41 -> ghShareDialog(cur?.site)
