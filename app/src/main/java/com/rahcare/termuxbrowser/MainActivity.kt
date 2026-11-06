@@ -289,6 +289,9 @@ class MainActivity : Activity() {
         // অন্য অ্যাপ থেকে ফিরলে যেসব চলমান কাজের লাইভ সংযোগ ছিঁড়ে গেছে সেগুলো এখনই আবার জুড়ি
         try { Runner.reconnect(this, 3000L, true) } catch (_: Exception) {}
         retryErrorTabs()
+        // ফিরে এলে প্রতিটি সাইটকে "আবার দেখো" সংকেত: ছেঁড়া স্ট্রিম থাকলে সাইট নিজেই উত্তর/অবস্থা আবার টেনে আনে
+        tabs.forEach { t -> if (t.jobKey == null && !t.isHome && t.url.startsWith("http"))
+            try { t.web.resumeTimers(); t.web.evaluateJavascript("try{window.dispatchEvent(new Event('online'));window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'))}catch(e){}", null) } catch (_: Exception) {} }
         // অনুমতি/ইনস্টল বদলে থাকলে হোম পেজ নতুন করে আঁকি
         cur?.let { if (it.isHome) loadHome(it) }
         scheduleRefresh()

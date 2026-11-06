@@ -51,8 +51,6 @@ object Browse {
         "var d=document,P=Object.getPrototypeOf(d);" +
         "function def(k,v){try{Object.defineProperty(d,k,{get:function(){return v},configurable:true})}catch(e){}}" +
         "def('hidden',false);def('webkitHidden',false);def('visibilityState','visible');def('webkitVisibilityState','visible');" +
-        "var stop=function(e){e.stopImmediatePropagation()};" +
-        "d.addEventListener('visibilitychange',stop,true);d.addEventListener('webkitvisibilitychange',stop,true);" +
         "}catch(e){}})();"
 
     const val ERR_TITLE = "পেজটি খোলা যায়নি"
