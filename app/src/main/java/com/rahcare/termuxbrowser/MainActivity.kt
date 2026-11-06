@@ -601,6 +601,8 @@ class MainActivity : Activity() {
             override fun onPageFinished(v: WebView, u: String) {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
+                // claude.ai-এর নির্দিষ্ট দুটো অনুমতি-কার্ড (রিপো তালিকা / রিপো যোগ, শুধু read) নিজে চাপে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
+                if (u.startsWith("https://claude.ai/") || u.startsWith("https://www.claude.ai/")) v.evaluateJavascript(Browse.CLAUDE_AUTO_JS, null)
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
                 t.site?.let { sid -> if (!(Uri.parse(u).host ?: "").endsWith("github.com")) detectEmail(t, sid, true) }
                 if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
