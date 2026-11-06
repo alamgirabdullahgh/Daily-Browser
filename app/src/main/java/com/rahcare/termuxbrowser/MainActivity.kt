@@ -1465,7 +1465,7 @@ class MainActivity : Activity() {
             }
             true
         }
-        showMenuSheet(m)
+        showMenuSheet(m, anchor)
     }
 
     class MI(val itemId: Int, val title: String) { var isCheckable = false; var isChecked = false }
@@ -1477,8 +1477,8 @@ class MainActivity : Activity() {
         fun setOnMenuItemClickListener(l: (MI) -> Boolean) { click = l }
     }
 
-    /** নিচ থেকে ওঠা, ভাগ করা প্রিমিয়াম মেনু */
-    private fun showMenuSheet(m: SheetMenu) {
+    /** ডান পাশ থেকে খোলা সাইডবার মেনু */
+    private fun showMenuSheet(m: SheetMenu, anchor: View) {
         val d = android.app.Dialog(this)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val groups = listOf(
@@ -1491,8 +1491,6 @@ class MainActivity : Activity() {
         )
         val icons = mapOf(1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(22)) }
-        col.addView(View(this).apply { background = bg(Color.parseColor("#D1D5DB"), 3) },
-            LinearLayout.LayoutParams(dp(40), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(12) })
         fun pick(it: MI) { d.dismiss(); m.click?.invoke(it) }
         m.items.firstOrNull { it.itemId == 8 }?.let { u ->
             col.addView(TextView(this).apply {
@@ -1531,18 +1529,24 @@ class MainActivity : Activity() {
         }
         val sv = ScrollView(this).apply {
             addView(col); isVerticalScrollBarEnabled = false
-            background = GradientDrawable().apply { setColor(Color.WHITE); val r = dp(24).toFloat(); cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f) }
+            background = GradientDrawable().apply { setColor(Color.WHITE); val r = dp(20).toFloat(); cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r) }
         }
-        d.setContentView(sv)
+        d.setContentView(sv, ViewGroup.LayoutParams(-1, -1))
+        d.setCanceledOnTouchOutside(true)
+        // ডান পাশের সাইডবার: টুলবারের নিচ থেকে শুরু, তাই ⋮ বা বাইরে চাপলে (বা ব্যাক চাপলে) স্বাভাবিকভাবে বন্ধ হয়
+        val loc = IntArray(2); anchor.getLocationOnScreen(loc)
+        val top = loc[1] + anchor.height
+        val dm = resources.displayMetrics
+        val w = minOf(dp(320), (dm.widthPixels * 0.84).toInt())
         d.window?.apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
-            setGravity(Gravity.BOTTOM)
-            setLayout(-1, -2)
-            attributes = attributes.apply { dimAmount = 0.45f }
+            setGravity(Gravity.TOP or Gravity.END)
+            setLayout(w, dm.heightPixels - top)
+            attributes = attributes.apply { y = top; dimAmount = 0.4f }
             addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         }
         d.show()
-        sv.post { d.window?.let { w -> if (sv.height > resources.displayMetrics.heightPixels * 0.88) w.setLayout(-1, (resources.displayMetrics.heightPixels * 0.88).toInt()) } }
+        sv.post { sv.translationX = w.toFloat(); sv.animate().translationX(0f).setDuration(180).start() }
     }
 
     private fun manage() {
