@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- আপডেটের পর অ্যাপ নিজে খুলতে না পারলে শব্দহীন full-screen নোটিফিকেশনে খোলার জন্য -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- ওয়েবসাইট অবস্থান চাইলে (ম্যাপ ইত্যাদি) — প্রতিবার ব্যবহারকারীকে জিজ্ঞেস করে তবেই দেওয়া হয় -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -83,6 +85,7 @@
         <!-- নিজে নিজে ব্যাকগ্রাউন্ড আপডেট -->
         <receiver android:name=".AutoUpdateResult" android:exported="false" />
         <receiver android:name=".AutoUpdateAlarm" android:exported="false" />
+        <receiver android:name=".ReopenCheck" android:exported="false" />
         <receiver android:name=".AutoUpdateBoot" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

@@ -382,6 +382,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         Updater.fg = true
+        Reopen.done(this)   // আপডেটের পর অ্যাপ খুলে গেছে: "আবার খুলতে হবে" চিহ্ন ও নোটিফিকেশন মুছি
         AutoUpdate.fg = true; AutoUpdate.schedule(this)
         Updater.onFail = { runOnUiThread { if (updBusy) resetUpd() } }
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(rx, IntentFilter(REFRESH), Context.RECEIVER_NOT_EXPORTED)
@@ -409,6 +410,8 @@ class MainActivity : Activity() {
     // কোনো সময়ের বাধা নেই: অ্যাপ খুললেই খোঁজে, আর সামনে থাকলে প্রতি ২০ সেকেন্ডে আবার খোঁজে
     private val updCheck = object : Runnable {
         override fun run() {
+            // সামনে থাকা অবস্থায় নিয়মিত অবস্থা সংরক্ষণ: আপডেট বসে প্রসেস মারা গেলেও ট্যাব/চ্যাট আগের জায়গায় ফেরে
+            try { save() } catch (_: Exception) {}
             Thread { val i = Updater.check(); runOnUiThread { if (i != null) { upd = i.takeIf { it.v > Updater.curVer(this@MainActivity) } }; showBanner(); autoStartUpdate() } }.start()
             handler.postDelayed(this, 20000L)
         }
@@ -460,6 +463,7 @@ class MainActivity : Activity() {
     }
 
     private fun runInstall(u: Updater.Info, silent: Boolean) {
+        try { save() } catch (_: Exception) {}   // ইনস্টলের ঠিক আগে অবস্থা সংরক্ষণ
         Thread {
             val err = Updater.install(this, u.url, silent) { p -> runOnUiThread { updPct = p; updTxt = if (p < 100) "$p%" else "Installing…"; updBtn.invalidate() } }
             runOnUiThread {
@@ -1726,7 +1730,8 @@ class MainActivity : Activity() {
     private fun save() {
         val a = JSONArray()
         val keep = tabs.filter { it.jobKey == null && !it.incognito }
-        keep.forEach { a.put(if (it.isHome || it.url.isBlank()) "home" else it.url) }
+        // ওয়েবভিউয়ের আসল বর্তমান URL (claude.ai-র মতো সিঙ্গেল-পেজ সাইটে চ্যাট বদলালেও সঠিক চ্যাটেই ফিরতে)
+        keep.forEach { a.put(if (it.isHome || it.url.isBlank()) "home" else (it.web.url?.takeIf { u -> u.startsWith("http") } ?: it.url)) }
         val sa = JSONArray(); keep.forEach { sa.put(it.site ?: "") }
         val jt = JSONArray(); tabs.forEach { t -> t.jobKey?.let { jt.put(it) } }
         Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", maxOf(0, keep.indexOf(cur))).putString("jobtabs", jt.toString()).putString("tabsite", sa.toString()).apply()

@@ -41,7 +41,13 @@ class InstallClicker : AccessibilityService() {
         private val OK = setOf("install", "update", "ইনস্টল", "আপডেট", "ইনস্টল করুন", "আপডেট করুন")
     }
 
-    override fun onServiceConnected() { instance = this }
+    override fun onServiceConnected() {
+        instance = this
+        // আপডেটের পর সার্ভিস আবার চালু হলে: অ্যাপ এখনও না খুলে থাকলে সার্ভিস থেকে খোলার চেষ্টা (অ্যাক্সেসিবিলিটি সার্ভিস ব্যাকগ্রাউন্ড থেকে অ্যাপ খুলতে পারে)
+        if (Reopen.pending(this)) {
+            try { startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)) } catch (_: Exception) {}
+        }
+    }
     override fun onUnbind(intent: Intent?): Boolean { instance = null; return super.onUnbind(intent) }
     override fun onInterrupt() {}
 

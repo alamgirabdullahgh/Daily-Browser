@@ -174,6 +174,7 @@ object AutoUpdate {
             )
             sp(c).edit().putBoolean("inst_silent", silent).putBoolean("inst_pending", false).apply()
             ClickGate.open(c) // নিশ্চিত-পর্দা এলে InstallClicker নিজে "Install" চাপবে (সার্ভিস চালু থাকলে)
+            Reopen.arm(c)     // আপডেটের পর অ্যাপ আবার খুলতে হবে
             s.commit(pi.intentSender)
         } catch (e: Exception) {
             try { inst.abandonSession(id) } catch (x: Exception) {}
@@ -229,6 +230,7 @@ object AutoUpdate {
         if (s.getBoolean("inst_silent", false) && !s.getBoolean("inst_pending", false)) s.edit().putInt("silent_fail", 0).apply()
         s.edit().remove("inst_silent").remove("inst_pending").apply()
         try { val m = c.getSystemService(NotificationManager::class.java); m.cancel(21); m.cancel(22) } catch (e: Exception) {}
+        Reopen.afterUpdate(c)
     }
 
     fun fail(c: Context, msg: String) {

@@ -42,10 +42,9 @@ object Updater {
         val s = sp(c)
         if (s.getBoolean("inst_silent", false) && !s.getBoolean("inst_pending", false)) noteSilentOk(c)
         s.edit().remove("inst_silent").remove("inst_pending").apply()
-        // আপডেটের পর কোনো নোটিফিকেশন নয় (শব্দ/ব্যানার বন্ধ); শুধু অ্যাপ আবার খোলার চেষ্টা
+        // আপডেটের পর "আপডেট হয়েছে" নোটিফিকেশন নয়; অ্যাপ আবার খোলার ব্যবস্থা Reopen-এ (সরাসরি চেষ্টা, না হলে শব্দহীন full-screen)
         try {
-            val go = Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            try { c.startActivity(go) } catch (_: Exception) {}
+            Reopen.afterUpdate(c)
             c.getSystemService(NotificationManager::class.java).deleteNotificationChannel("updated")
             c.getSystemService(NotificationManager::class.java).cancel(12)
         } catch (_: Exception) {}
@@ -105,6 +104,7 @@ object Updater {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
             markSilent(c, silent)
             ClickGate.open(c) // নিশ্চিত-পর্দা এলে InstallClicker নিজে "Install" চাপবে (শুধু এই অ্যাপের নাম থাকলে)
+            Reopen.arm(c)     // আপডেটের পর অ্যাপ আবার খুলতে হবে (অন্য অ্যাপ ইনস্টল হলে MY_PACKAGE_REPLACED আসে না, তাই ক্ষতি নেই)
             s.commit(pi.intentSender); null
         } catch (e: Exception) {
             try { inst.abandonSession(id) } catch (_: Exception) {}
