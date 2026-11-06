@@ -431,11 +431,12 @@ class MainActivity : Activity() {
     // ব্যানার আর নেই: নতুন সংস্করণ এলে নিচের বোতাম দেখায়, আর আপডেট নিজে নিজেও ব্যাকগ্রাউন্ডে হয়ে যায়
     private fun showBanner() { banner.visibility = View.GONE; refreshUpdBtn() }
 
-    /** বোতাম শুধু মূল পেজে (বা আপডেট চলার সময়) দেখায়, নতুন সংস্করণ না থাকলে লুকানো থাকে */
+    /** বোতাম যেকোনো ট্যাব/পেজের নিচে দেখায় (নতুন সংস্করণ থাকলে বা আপডেট চলার সময়); নতুন সংস্করণ না থাকলে লুকানো থাকে।
+     *  শুধু ট্যাব-তালিকা খোলা থাকলে বা পূর্ণ-পর্দা ভিডিও চলার সময় লুকায় */
     private fun refreshUpdBtn() {
         if (!::updBtn.isInitialized) return
         val switcherOpen = overlay?.parent != null
-        val show = (upd != null || updBusy) && cur?.isHome == true && !switcherOpen
+        val show = (upd != null || updBusy) && !switcherOpen && customView == null
         if (!updBusy) updBtn.text = if (packageManager.canRequestPackageInstalls()) "Update" else "Allow update"
         updBtn.visibility = if (show) View.VISIBLE else View.GONE
     }
@@ -925,6 +926,7 @@ class MainActivity : Activity() {
     private fun showFullscreen(v: View, cb: WebChromeClient.CustomViewCallback) {
         if (customView != null) { cb.onCustomViewHidden(); return }
         customView = v; customCb = cb
+        refreshUpdBtn()
         v.setBackgroundColor(Color.BLACK)
         (window.decorView as ViewGroup).addView(v, ViewGroup.LayoutParams(-1, -1))
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -938,6 +940,7 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         customCb?.onCustomViewHidden(); customCb = null
+        refreshUpdBtn()
     }
 
     // সাইট অবস্থান চাইলে: আগে ব্যবহারকারীকে জিজ্ঞেস, তারপর Android-এর অনুমতি
@@ -1449,9 +1452,10 @@ class MainActivity : Activity() {
     private fun refreshHomes() { tabs.filter { it.isHome }.forEach { loadHome(it) } }
 
     // ---------- ট্যাব তালিকা ----------
-    private fun hideSwitcher() { overlay?.let { content.removeView(it) }; overlay = null }
+    private fun hideSwitcher() { overlay?.let { content.removeView(it) }; overlay = null; refreshUpdBtn() }
 
     private fun showSwitcher() {
+        handler.post { refreshUpdBtn() }   // তালিকা সাজানো শেষ হলে বোতাম লুকাই
         val keep = (overlay as? ScrollView)?.scrollY ?: 0
         lastOverlay = System.currentTimeMillis()
         overlay?.let { content.removeView(it) }
