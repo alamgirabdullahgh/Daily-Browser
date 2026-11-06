@@ -46,6 +46,28 @@ object Runner {
         try { if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) } catch (_: Exception) {}
     }
 
+    /**
+     * লাইভ সংযোগ ছিঁড়ে গেছে এমন চলমান কাজ আবার লগ থেকে জুড়ে দেয়। কাজ নিজে Termux-এ চলতেই থাকে;
+     * শুধু অ্যাপের পর্দায় আউটপুট আসা থেমে যেত। force=true হলে অপেক্ষা না করে এখনই (অ্যাপে ফিরে এলে)।
+     */
+    fun reconnect(c: Context, minAge: Long, force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        Jobs.list.filter { it.status == "running" && it.links.get() == 0 && now - it.time > minAge }.forEach { j ->
+            val gap = if (j.attaches < 4) 15000L else 60000L
+            if (j.attaches >= 8 && !force) {
+                // প্রায় ৫ মিনিট টানা চেষ্টার পরেও Termux সাড়া দেয়নি: কাজটা আর চলছে না ধরি (নইলে চিরকাল "চলছে…" ও নোটিফিকেশন থাকত)
+                j.status = "fail"; j.end = now; j.reattach = false
+                j.out = (j.out + "\n(Termux থেকে সাড়া মেলেনি — কাজটি সম্ভবত আর চলছে না)").trim()
+                Jobs.save(c); c.sendBroadcast(Intent(MainActivity.REFRESH).setPackage(c.packageName))
+                return@forEach
+            }
+            if (force || now - j.lastAttach > gap) {
+                j.lastAttach = now; j.attaches++; j.reattach = true
+                attach(c, j)
+            }
+        }
+    }
+
     /** চলমান কাজের প্রক্রিয়া (ও তার সব সন্তান-প্রক্রিয়া, যেমন আটকে থাকা apt) Termux-এ থামায় */
     fun kill(c: Context, job: Job) {
         if (!installed(c) || !hasPermission(c)) return

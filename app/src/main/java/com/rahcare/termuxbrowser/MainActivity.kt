@@ -38,6 +38,7 @@ class Tab(val web: WebView) {
     var limitAt = 0L           // শেষ কখন "লিমিট শেষ" ধরা পড়েছে
     var limitHits = 0          // পরপর কয়বার লিমিটের লেখা দেখা গেছে (ভুল শনাক্ত এড়াতে ২ বার লাগে)
     var thumb: Bitmap? = null  // ট্যাব তালিকার ছোট প্রিভিউ
+    var errUrl: String? = null // ত্রুটির পাতা দেখাচ্ছে হলে আসল ঠিকানা (নেট ফিরলে নিজে থেকে আবার খুলবে)
     var incognito = false      // ইনকগনিটো ট্যাব (সাময়িক আলাদা প্রোফাইল, ইতিহাস নেই)
     var profileName: String? = null  // ইনকগনিটো প্রোফাইলের নাম
     val isHome get() = url == Home.BASE || (url.startsWith(Home.BASE) && !url.startsWith(Home.JOB))
@@ -228,6 +229,7 @@ class MainActivity : Activity() {
             ghClearAll(); Store.prefs(this).edit().putBoolean("gh_reset_v1", true).apply()
             Toast.makeText(this, "GitHub লগইন রিসেট হয়েছে — প্রতিটি ওয়ার্কস্পেসে নিজের অ্যাকাউন্টে লগইন করুন", Toast.LENGTH_LONG).show()
         }
+        watchNetwork()
         restore()
         if (tabs.isEmpty()) { newTab(null); openHome() }
         handleIntent(intent)
@@ -283,6 +285,10 @@ class MainActivity : Activity() {
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(rx, IntentFilter(REFRESH), Context.RECEIVER_NOT_EXPORTED)
         else registerReceiver(rx, IntentFilter(REFRESH))
         Live.onUpdate = { _ -> handler.post { scheduleRefresh() } }
+        Keep.webUntil = 0L
+        // অন্য অ্যাপ থেকে ফিরলে যেসব চলমান কাজের লাইভ সংযোগ ছিঁড়ে গেছে সেগুলো এখনই আবার জুড়ি
+        try { Runner.reconnect(this, 3000L, true) } catch (_: Exception) {}
+        retryErrorTabs()
         // অনুমতি/ইনস্টল বদলে থাকলে হোম পেজ নতুন করে আঁকি
         cur?.let { if (it.isHome) loadHome(it) }
         scheduleRefresh()
@@ -333,10 +339,37 @@ class MainActivity : Activity() {
         handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher)
         try { unregisterReceiver(rx) } catch (_: Exception) {}
         Live.onUpdate = null
+        // সাইটের ট্যাব খোলা থাকলে ব্যাকগ্রাউন্ডেও সচল রাখি (ফোরগ্রাউন্ড সার্ভিস + CPU/Wi-Fi জাগানো)
+        if (Store.prefs(this).getBoolean("keep_web", true) && tabs.any { it.jobKey == null && !it.isHome && it.url.startsWith("http") }) {
+            Keep.webUntil = System.currentTimeMillis() + 3 * 60 * 60 * 1000L
+            KeepAliveService.start(this)
+        }
         save()
     }
 
-    override fun onDestroy() { super.onDestroy(); tabs.forEach { it.web.destroy() } }
+    override fun onDestroy() {
+        super.onDestroy()
+        try { netCb?.let { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } } catch (_: Exception) {}
+        tabs.forEach { it.web.destroy() }
+    }
+
+    // ---------- নেট ফিরলে ত্রুটির পাতা নিজে থেকে আবার খোলা ----------
+    private var netCb: android.net.ConnectivityManager.NetworkCallback? = null
+    private fun watchNetwork() {
+        try {
+            val cm = getSystemService(android.net.ConnectivityManager::class.java)
+            val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(n: android.net.Network) { handler.post { retryErrorTabs() } }
+            }
+            cm.registerDefaultNetworkCallback(cb); netCb = cb
+        } catch (_: Exception) {}
+    }
+    private fun retryErrorTabs() {
+        tabs.toList().forEach { t ->
+            val u = t.errUrl
+            if (u != null) { t.errUrl = null; try { t.web.loadUrl(u) } catch (_: Exception) {} }
+        }
+    }
 
     // ---------- ট্যাব ----------
     private fun newTab(url: String?, site: String? = null, incognito: Boolean = false, reuseProfile: String? = null): Tab {
@@ -374,6 +407,9 @@ class MainActivity : Activity() {
             useWideViewPort = true; loadWithOverviewMode = true
         }
         applyDesktop(t); applyView(t)
+        // ব্যাকগ্রাউন্ডে গেলেও ওয়েব-রেন্ডারার "গুরুত্বপূর্ণ" থাকে, যাতে সাইটের কাজ/স্ট্রিম থামে না
+        if (android.os.Build.VERSION.SDK_INT >= 26) try { w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false) } catch (_: Exception) {}
+        try { if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) WebViewCompat.addDocumentStartJavaScript(w, Browse.KEEP_JS, setOf("*")) } catch (_: Exception) {}
         w.setFindListener { idx, n, _ -> if (t === cur) findCount.text = if (n == 0) "০" else "${idx + 1}/$n" }
         w.setOnLongClickListener { _ -> handleLongPress(t) }
         w.webViewClient = object : WebViewClient() {
@@ -403,6 +439,7 @@ class MainActivity : Activity() {
                 val c = e.errorCode
                 if (c == WebViewClient.ERROR_HOST_LOOKUP || c == WebViewClient.ERROR_CONNECT || c == WebViewClient.ERROR_TIMEOUT || c == WebViewClient.ERROR_IO || c == WebViewClient.ERROR_FAILED_SSL_HANDSHAKE) {
                     val u = r.url.toString()
+                    t.errUrl = u
                     v.loadDataWithBaseURL(u, Browse.errorHtml(u, e.description.toString()), "text/html", "utf-8", u)
                 }
             }
@@ -412,6 +449,8 @@ class MainActivity : Activity() {
             }
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
+                if (v.title != Browse.ERR_TITLE) t.errUrl = null
+                if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
                 t.site?.let { sid -> if (!(Uri.parse(u).host ?: "").endsWith("github.com")) detectEmail(t, sid, true) }
                 if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
@@ -1249,6 +1288,7 @@ class MainActivity : Activity() {
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
         cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 14, 9, "🔍 লিমিট শনাক্তকরণ পরীক্ষা") }
+        m.menu.add(0, 15, 7, "🔒 ব্যাকগ্রাউন্ডে ট্যাব সচল রাখুন").apply { isCheckable = true; isChecked = Store.prefs(this@MainActivity).getBoolean("keep_web", true) }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
         m.menu.add(0, 13, 8, "🔗 ডিফল্ট GitHub রিপো (Claude Code)")
         m.menu.add(0, 40, 9, "🐙 GitHub লগইন মুছুন (এই ওয়ার্কস্পেস/ট্যাব)")
@@ -1293,6 +1333,8 @@ class MainActivity : Activity() {
                 14 -> cur?.let { t -> t.web.evaluateJavascript(Sites.LIMIT_DEBUG_JS) { raw ->
                     AlertDialog.Builder(this).setTitle("লিমিট শনাক্তকরণ").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 11 -> cur?.let { t -> makeWorkspace(t) }
+                15 -> { val on = !Store.prefs(this).getBoolean("keep_web", true); Store.prefs(this).edit().putBoolean("keep_web", on).apply()
+                    Toast.makeText(this, if (on) "অন্য অ্যাপে গেলেও ট্যাব সচল থাকবে (নোটিফিকেশন দেখাবে)" else "অন্য অ্যাপে গেলে ট্যাব থেমে যেতে পারে", Toast.LENGTH_LONG).show() }
                 10 -> { autoSwitch = !autoSwitch; Store.prefs(this).edit().putBoolean("autoswitch", autoSwitch).apply()
                     Toast.makeText(this, if (autoSwitch) "স্বয়ংক্রিয় সুইচ চালু" else "স্বয়ংক্রিয় সুইচ বন্ধ — শুধু প্রস্তাব আসবে", Toast.LENGTH_SHORT).show() }
                 1 -> { newTab(null); openHome() }
@@ -1363,15 +1405,15 @@ class MainActivity : Activity() {
             for (i in 0 until jt.length()) Jobs.find(jt.getString(i))?.let { openJobTab(it) }
             keepCur?.let { select(it) }
             Jobs.list.filter { it.status == "running" }.forEach { it.reattach = true; Runner.attach(this, it) }
-            // Termux ১ মিনিটেও সাড়া না দিলে কাজটা আর চলছে না ধরে নিই — নইলে চিরকাল "চলছে…" দেখাত আর ফোরগ্রাউন্ড সার্ভিস/ওয়েকলক ছাড়ত না
+            // Termux ৩ মিনিটেও (প্রতি ১৫ সেকেন্ডে আবার চেষ্টার পরেও) সাড়া না দিলে কাজটা আর চলছে না ধরে নিই — নইলে চিরকাল "চলছে…" দেখাত আর ফোরগ্রাউন্ড সার্ভিস/ওয়েকলক ছাড়ত না
             handler.postDelayed({
                 var changed = false
-                Jobs.list.filter { it.status == "running" && it.reattach }.forEach {
+                Jobs.list.filter { it.status == "running" && it.reattach && it.links.get() == 0 && it.attaches >= 4 }.forEach {
                     it.status = "fail"; it.end = System.currentTimeMillis(); it.reattach = false
                     it.out = (it.out + "\n(Termux থেকে সাড়া মেলেনি — কাজটি সম্ভবত আর চলছে না)").trim(); changed = true
                 }
                 if (changed) { Jobs.save(this); scheduleRefresh() }
-            }, 60000L)
+            }, 180000L)
             if (Jobs.running() > 0) KeepAliveService.start(this)
         } catch (_: Exception) {}
     }

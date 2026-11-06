@@ -3,6 +3,7 @@
 
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- ওয়েবসাইটের ক্যামেরা/মাইক (ছবি-ভিডিও তোলা, ভয়েস ইনপুট) — প্রতিবার ব্যবহারকারীকে জিজ্ঞেস করে তবেই দেওয়া হয় -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />

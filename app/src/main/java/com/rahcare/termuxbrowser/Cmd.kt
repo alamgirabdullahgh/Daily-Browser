@@ -13,6 +13,9 @@ data class Job(val key: String, val title: String, var status: String, var out: 
     var script = ""
     var pct = -1          // আউটপুটে পাওয়া শেষ "NN%" (না পেলে -১)
     @Volatile var lastPush = 0L
+    @Volatile var lastAttach = 0L    // শেষ কখন লাইভ সংযোগ আবার জোড়ার চেষ্টা হয়েছে
+    @Volatile var attaches = 0       // কতবার চেষ্টা হয়েছে (ধীরে ধীরে বিরতি বাড়াতে)
+    val links = java.util.concurrent.atomic.AtomicInteger(0)   // এখন কয়টি লাইভ সংযোগ খোলা (০ = আউটপুট আর আসছে না)
     @Volatile var reattach = false   // অ্যাপ নতুন করে চালুর পর লগ থেকে আবার স্ট্রিম নেওয়া হচ্ছে
 
     private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]|\u001B\\][^\u0007]*\u0007")

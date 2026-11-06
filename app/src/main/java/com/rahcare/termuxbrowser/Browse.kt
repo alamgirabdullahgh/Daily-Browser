@@ -46,6 +46,15 @@ object History {
 }
 
 object Browse {
+    /** ব্যাকগ্রাউন্ডে গেলে সাইট যেন "পেজ লুকানো" ধরে স্ট্রিম/পোলিং না থামায় */
+    const val KEEP_JS = "(function(){try{if(window.__tbKeep)return;window.__tbKeep=1;" +
+        "var d=document,P=Object.getPrototypeOf(d);" +
+        "function def(k,v){try{Object.defineProperty(d,k,{get:function(){return v},configurable:true})}catch(e){}}" +
+        "def('hidden',false);def('webkitHidden',false);def('visibilityState','visible');def('webkitVisibilityState','visible');" +
+        "var stop=function(e){e.stopImmediatePropagation()};" +
+        "d.addEventListener('visibilitychange',stop,true);d.addEventListener('webkitvisibilitychange',stop,true);" +
+        "}catch(e){}})();"
+
     const val ERR_TITLE = "পেজটি খোলা যায়নি"
 
     fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&#39;")

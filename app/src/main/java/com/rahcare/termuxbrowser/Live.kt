@@ -95,11 +95,13 @@ object Live {
 
     private fun serve(s: Socket) {
         var job: Job? = null
+        var linked = false
         try {
             val r = BufferedReader(InputStreamReader(s.getInputStream(), Charsets.UTF_8))
             val first = r.readLine() ?: return
             if (!first.startsWith("@@KEY:")) return
             job = Jobs.find(first.removePrefix("@@KEY:")) ?: return
+            job.links.incrementAndGet(); linked = true; job.attaches = 0
             if (job.reattach) { job.out = ""; job.reattach = false }
             val buf = CharArray(4096)
             while (true) {
@@ -127,6 +129,7 @@ object Live {
         } catch (_: Exception) {
         } finally {
             try { s.close() } catch (_: Exception) {}
+            if (linked) job?.links?.decrementAndGet()
             job?.let { it.refreshPct(); onUpdate?.invoke(it) }
         }
     }
