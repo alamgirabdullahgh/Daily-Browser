@@ -1095,11 +1095,16 @@ class MainActivity : Activity() {
                         if (hit.isBlank() || t !== cur) t.limitHits = 0
                         else {
                             t.limitHits++
-                            if (t.limitHits >= 2 && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
+                            // আপগ্রেড পপআপের লেখা স্পষ্ট সংকেত — সাথে সাথে সুইচ; অন্যগুলো পরপর ২ বার দেখলে
+                            val strong = Regex("hit your|upgrade to keep chatting", RegexOption.IGNORE_CASE).containsMatchIn(hit)
+                            if ((strong || t.limitHits >= 2) && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
                                 t.limitHits = 0; t.limitAt = System.currentTimeMillis(); onLimit(t, hit)
                             }
                         }
+                        t.web.evaluateJavascript(Sites.DISMISS_JS, null)
                     }
+                } else if (t != null && t.site != null && overlay == null) {
+                    t.web.evaluateJavascript(Sites.DISMISS_JS, null)
                 }
             } catch (_: Exception) {
             } finally {
