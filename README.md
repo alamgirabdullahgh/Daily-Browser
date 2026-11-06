@@ -1,4 +1,4 @@
-# Termux Browser
+# Daily Browser
 
 Termux-এর কমান্ডগুলো বাটন হিসেবে চালানোর ওপেন-সোর্স Android অ্যাপ।
 

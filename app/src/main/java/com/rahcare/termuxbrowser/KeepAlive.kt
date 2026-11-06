@@ -36,7 +36,7 @@ class KeepAliveService : Service() {
         val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
         val n = Notification.Builder(this, "keep")
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle("Termux Browser")
+            .setContentTitle("Daily Browser")
             .setContentText("কমান্ড চলছে…")
             .setContentIntent(pi).setOngoing(true).build()
         if (Build.VERSION.SDK_INT >= 34) startForeground(8, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)

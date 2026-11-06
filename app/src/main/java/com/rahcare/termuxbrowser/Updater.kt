@@ -11,7 +11,7 @@ import java.net.URL
 
 /** GitHub-এর নতুন রিলিজ ধরে এবং অ্যাপের ভেতর থেকেই ইনস্টল করে */
 object Updater {
-    private const val REPO = "raqialamgirabdullah-rgb/TermuxBrowser"
+    private const val REPO = "alamgirabdullahgh/Daily-Browser"
     class Info(val v: Int, val url: String)
 
     fun curVer(c: Context): Int {
@@ -25,7 +25,7 @@ object Updater {
         cn.instanceFollowRedirects = false; cn.connectTimeout = 10000; cn.readTimeout = 10000
         val tag = (cn.getHeaderField("Location") ?: "").substringAfterLast('/')
         cn.disconnect()
-        Info(tag.substringAfterLast('.').toInt(), "https://github.com/$REPO/releases/download/$tag/TermuxBrowser.apk")
+        Info(tag.substringAfterLast('.').toInt(), "https://github.com/$REPO/releases/download/$tag/DailyBrowser.apk")
     } catch (e: Exception) { null }
 
     /** APK নামিয়ে PackageInstaller-এ দেয়; ব্যাকগ্রাউন্ড থ্রেডে ডাকুন। ব্যর্থ হলে বার্তা ফেরত */

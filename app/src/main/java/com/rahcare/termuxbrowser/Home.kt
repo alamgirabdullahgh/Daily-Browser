@@ -114,7 +114,7 @@ code{background:#fde68a;padding:2px 4px;border-radius:4px;word-break:break-all;f
 .ll{color:#6b7280;font:11.5px monospace;margin-top:4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
 pre{background:#111827;color:#d1fae5;border-radius:8px;padding:8px;font-size:11.5px;white-space:pre-wrap;word-break:break-all;margin:8px 0 0;max-height:220px;overflow:auto}
 </style></head><body>
-<h1>Termux Browser</h1><div class=m>কমান্ডে চাপলে নতুন ট্যাবে কাজ চলবে — সেখানেই লাইভ আউটপুট, সময় আর প্রগ্রেস দেখা যাবে।</div>
+<h1>Daily Browser</h1><div class=m>কমান্ডে চাপলে নতুন ট্যাবে কাজ চলবে — সেখানেই লাইভ আউটপুট, সময় আর প্রগ্রেস দেখা যাবে।</div>
 $warn
 $bmSection<h2>🌐 ওয়ার্কস্পেস</h2><div class=m>যেকোনো সাইট যোগ করা যায়। প্রতিটির লগইন আলাদা ও স্থায়ী। কোনোটার লিমিট শেষ হলে নিজে থেকেই পরেরটায় চলে যায়, চ্যাটের শেষ অংশ সাথে নিয়ে পাঠিয়ে দেয় (⋮ মেনু থেকে বন্ধ করা যায়)।</div>
 ${if (siteCards.isEmpty()) "<div class=warn style='margin-top:8px'>এখনো কোনো ওয়ার্কস্পেস নেই। যেকোনো সাইট খুলে <b>⋮ › 🌐 এই সাইটকে ওয়ার্কস্পেস বানান</b> চাপুন, অথবা নিচের ＋ দিয়ে ঠিকানা লিখে যোগ করুন।</div>" else "<div class=g style='margin-top:8px'>$siteCards</div>"}<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>

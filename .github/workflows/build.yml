@@ -38,8 +38,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          cp app/build/outputs/apk/release/app-release.apk TermuxBrowser.apk
-          gh release create "v0.1.$VC" TermuxBrowser.apk --title "Termux Browser v0.1.$VC" --notes "TermuxBrowser.apk ডাউনলোড করে ইনস্টল করুন।" --latest
+          cp app/build/outputs/apk/release/app-release.apk DailyBrowser.apk
+          cp DailyBrowser.apk TermuxBrowser.apk
+          gh release create "v0.1.$VC" DailyBrowser.apk TermuxBrowser.apk --title "Daily Browser v0.1.$VC" --notes "DailyBrowser.apk ডাউনলোড করে ইনস্টল করুন।" --latest
       - name: Save build error log (branch build-logs)
         if: failure()
         shell: bash
