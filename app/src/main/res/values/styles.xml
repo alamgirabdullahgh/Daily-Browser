@@ -1,0 +1,6 @@
+<resources>
+    <style name="SideSheetAnim" parent="@android:style/Animation">
+        <item name="android:windowEnterAnimation">@anim/side_in</item>
+        <item name="android:windowExitAnimation">@anim/side_out</item>
+    </style>
+</resources>
