@@ -342,6 +342,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         Updater.fg = true
+        AutoUpdate.fg = true; AutoUpdate.schedule(this)
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(rx, IntentFilter(REFRESH), Context.RECEIVER_NOT_EXPORTED)
         else registerReceiver(rx, IntentFilter(REFRESH))
         Live.onUpdate = { _ -> handler.post { scheduleRefresh() } }
@@ -372,10 +373,12 @@ class MainActivity : Activity() {
         }
     }
 
+    // আপডেট এখন নিজে নিজে হয় (ব্যাকগ্রাউন্ডে), তাই ব্যানার দেখাই না; শুধু "অজানা উৎস" অনুমতি না থাকলে একবার জানাই
     private fun showBanner() {
         val u = upd
         if (u == null || updBusy) { if (!updBusy) banner.visibility = View.GONE; return }
-        banner.text = "⬆ নতুন সংস্করণ এসেছে — অ্যাপ থেকে বের হলে নিজে আপডেট হবে (বা চাপুন)"; banner.visibility = View.VISIBLE
+        if (packageManager.canRequestPackageInstalls()) { banner.visibility = View.GONE; return }
+        banner.text = "⬆ নতুন সংস্করণ — নিজে নিজে আপডেটের জন্য একবার অনুমতি দিন (চাপুন)"; banner.visibility = View.VISIBLE
     }
 
     private fun startUpdate() {
@@ -416,7 +419,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         Updater.fg = false
-        autoUpdate()
+        AutoUpdate.fg = false; AutoUpdate.kick(this, 60_000L)
         handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher)
         try { unregisterReceiver(rx) } catch (_: Exception) {}
         Live.onUpdate = null

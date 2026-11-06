@@ -34,12 +34,13 @@ object Live {
     val PKG_SHIM: String = """export DEBIAN_FRONTEND=noninteractive
 PREFIX=§{PREFIX:-/data/data/com.termux/files/usr}
 tb_say() { echo "▸ §*"; }
+tb_run() { "§@" & p=§!; s=§(date +%s); ( while kill -0 §p 2>/dev/null; do sleep 8; kill -0 §p 2>/dev/null || break; d=§(du -sk "§PREFIX/var/cache/apt/archives/partial" "§PREFIX/var/lib/apt/lists/partial" 2>/dev/null | awk '{t+=§1} END{print t+0}'); echo "… এখনও চলছে (§((§(date +%s)-s)) সেকেন্ড) — নামানো §{d} KB · ধীর নেটে সময় লাগে, অপেক্ষা করুন"; done ) & h=§!; wait §p; r=§?; kill §h 2>/dev/null; wait §h 2>/dev/null; return §r; }
 tb_aptwait() { command -v pgrep >/dev/null 2>&1 || return 0; w=0; while pgrep -x apt >/dev/null || pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do [ §w = 0 ] && { echo 'অন্য একটি প্যাকেজ কাজ চলছে — শেষ হওয়ার অপেক্ষা… (আটকে গেলে হোমের ⏹ আটকে থাকা প্যাকেজ কাজ থামান চাপুন)'; }; w=1; sleep 3; done; }
 tb_net() { curl -s -o /dev/null --max-time 15 https://packages-cf.termux.dev/apt/termux-main/dists/stable/InRelease || curl -s -o /dev/null --max-time 15 https://github.com; }
 tb_fix() { rm -f "§PREFIX/var/lib/dpkg/lock" "§PREFIX/var/lib/dpkg/lock-frontend" "§PREFIX/var/lib/apt/lists/lock" "§PREFIX/var/cache/apt/archives/lock" 2>/dev/null; dpkg --configure -a --force-confold >/dev/null 2>&1; apt-get -f install -y -o Dpkg::Options::=--force-confold >/dev/null 2>&1; return 0; }
 tb_mirror() { U=https://packages-cf.termux.dev/apt/termux-main; S="§PREFIX/etc/apt/sources.list"; if curl -fsI --max-time 20 "§U/dists/stable/InRelease" >/dev/null 2>&1; then [ -f "§S.bak" ] || cp "§S" "§S.bak" 2>/dev/null; echo "deb §U stable main" > "§S"; tb_say 'মিরর ডিফল্টে ফেরানো হলো'; return 0; fi; return 1; }
-tb_update() { n=0; while :; do apt-get update -o Acquire::Retries=3 && return 0; n=§((n+1)); [ §n -ge 3 ] && return 1; tb_say "তালিকা আপডেট ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা (§n/2)"; tb_fix; [ §n = 2 ] && tb_mirror; sleep 2; done; }
-tb_apt() { apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef -o Acquire::Retries=3 "§@"; }
+tb_update() { n=0; while :; do tb_run apt-get update -o Acquire::Retries=3 && { touch "§PREFIX/var/lib/apt/lists/.tb_ok" 2>/dev/null; return 0; }; n=§((n+1)); [ §n -ge 3 ] && return 1; tb_say "তালিকা আপডেট ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা (§n/2)"; tb_fix; [ §n = 2 ] && tb_mirror; sleep 2; done; }
+tb_apt() { tb_run apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef -o Acquire::Retries=3 "§@"; }
 tb_install() {
   [ "§(ls "§PREFIX/var/lib/apt/lists" 2>/dev/null | wc -l)" -gt 3 ] || { tb_say 'প্যাকেজ তালিকা আপডেট হচ্ছে'; tb_update; }
   tb_apt install -y "§@" && return 0
@@ -47,7 +48,7 @@ tb_install() {
   tb_mirror && tb_update && tb_apt install -y "§@" && return 0
   echo "ইনস্টল ব্যর্থ: §*"; return 1
 }
-tb_upgrade() { tb_update || return 1; tb_apt upgrade -y && return 0; tb_say 'আপগ্রেড ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা'; tb_fix; tb_apt upgrade -y; }
+tb_upgrade() { [ -n "§(find "§PREFIX/var/lib/apt/lists/.tb_ok" -mmin -10 2>/dev/null)" ] || tb_update || return 1; tb_apt upgrade -y && return 0; tb_say 'আপগ্রেড ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা'; tb_fix; tb_apt upgrade -y; }
 pkg() { tb_aptwait; c="§1"; shift
   case "§c" in
     update|up|upgrade|full-upgrade|install|i|add) tb_net || { echo 'ইন্টারনেট সংযোগ নেই — নেট চালু করে আবার চেষ্টা করুন'; return 1; }; dpkg --configure -a --force-confold >/dev/null 2>&1 ;;
