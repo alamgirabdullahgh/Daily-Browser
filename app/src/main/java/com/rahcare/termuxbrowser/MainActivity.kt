@@ -776,6 +776,13 @@ class MainActivity : Activity() {
                 .setPositiveButton("ঠিক আছে") { _, _ ->
                     try { startActivity(Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) } catch (_: Exception) {}
                 }.setNegativeButton("পরে", null).show()
+        } else if (!ClickGate.enabled(this) && !sp.getBoolean("a11y_asked", false)) {
+            // একবারই: আপডেটের "Install" নিশ্চিত-পর্দা নিজে চাপার জন্য (Android এটা নিজে থেকে চালু করতে দেয় না)
+            sp.edit().putBoolean("a11y_asked", true).apply()
+            AlertDialog.Builder(this).setTitle("আপডেট পুরোপুরি স্বয়ংক্রিয় করুন")
+                .setMessage("Android আপডেটের সময় একটা \"Install\" পর্দা দেখায়। সেটা নিজে চেপে দিতে একবার চালু করুন:\n১. নিচের বোতামে চাপুন\n২. তালিকায় \"Daily Browser\" খুলে চালু করুন\n\nএই সার্ভিস শুধু এই অ্যাপের নিজের আপডেটের ঠিক পরে, ইনস্টলার পর্দায় \"Install/Update\" বোতাম চাপে — আর কিছু পড়ে না, চাপে না।\n(\"Restricted setting\" বার্তা এলে: অ্যাপ info › ⋮ › Allow restricted settings, তারপর আবার চালু করুন)")
+                .setPositiveButton("সেটিংসে যান") { _, _ -> try { startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)) } catch (_: Exception) {} }
+                .setNegativeButton("পরে", null).show()
         }
     }
 

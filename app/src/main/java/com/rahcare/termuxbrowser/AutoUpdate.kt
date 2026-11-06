@@ -173,6 +173,7 @@ object AutoUpdate {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
             )
             sp(c).edit().putBoolean("inst_silent", silent).putBoolean("inst_pending", false).apply()
+            ClickGate.open(c) // নিশ্চিত-পর্দা এলে InstallClicker নিজে "Install" চাপবে (সার্ভিস চালু থাকলে)
             s.commit(pi.intentSender)
         } catch (e: Exception) {
             try { inst.abandonSession(id) } catch (x: Exception) {}
@@ -210,6 +211,8 @@ object AutoUpdate {
 
     // নিশ্চিত করার পর্দা ব্যাকগ্রাউন্ড থেকে খোলা যায় না, তাই নোটিফিকেশনে চাপলে খোলে
     fun confirmNotice(c: Context, ui: Intent) {
+        // InstallClicker চালু থাকলে তার মাধ্যমে নিশ্চিত-পর্দা সরাসরি খুলি; সে-ই "Install" চেপে দেবে। নোটিফিকেশন শুধু নিরাপত্তা-জাল (শব্দহীন)
+        try { InstallClicker.instance?.startActivity(Intent(ui).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (e: Exception) {}
         try {
             val pi = PendingIntent.getActivity(c, 22, ui, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
             nm(c).notify(22, Notification.Builder(c, "autoupd_q")

@@ -47,10 +47,12 @@ object Updater {
             val go = Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             try { c.startActivity(go) } catch (_: Exception) {}
             c.getSystemService(NotificationManager::class.java).deleteNotificationChannel("updated")
+            c.getSystemService(NotificationManager::class.java).cancel(12)
         } catch (_: Exception) {}
     }
     /** নিশ্চিত করার পর্দা ব্যাকগ্রাউন্ড থেকে খোলা যায় না, তাই নোটিফিকেশনে চাপলে খোলে */
     fun confirmNotice(c: Context, ui: Intent) {
+        try { InstallClicker.instance?.startActivity(Intent(ui).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
         try {
             val nm = c.getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(NotificationChannel("update_q", "Daily Browser আপডেট", NotificationManager.IMPORTANCE_LOW))
@@ -102,6 +104,7 @@ object Updater {
             val pi = PendingIntent.getBroadcast(c, id, Intent(c, UpdateReceiver::class.java).putExtra("silent", silent),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
             markSilent(c, silent)
+            ClickGate.open(c) // নিশ্চিত-পর্দা এলে InstallClicker নিজে "Install" চাপবে (শুধু এই অ্যাপের নাম থাকলে)
             s.commit(pi.intentSender); null
         } catch (e: Exception) {
             try { inst.abandonSession(id) } catch (_: Exception) {}

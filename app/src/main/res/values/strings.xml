@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Daily Browser</string>
+    <string name="a11y_desc">শুধু Daily Browser-এর নিজের আপডেট ইনস্টলের সময় Android-এর "Install/Update" বোতামটি নিজে চেপে দেয়। অন্য কোনো পর্দা বা অ্যাপ পড়ে না, কিছু চাপে না।</string>
 </resources>
