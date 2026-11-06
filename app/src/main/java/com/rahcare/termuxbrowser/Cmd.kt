@@ -54,7 +54,7 @@ object Jobs {
     fun find(key: String) = list.firstOrNull { it.key == key }
 
     /** কাজের তালিকা সেভ করে, যাতে অ্যাপ বন্ধ/আপডেট হলেও ট্যাব ও অবস্থা হারায় না */
-    fun save(c: Context) {
+    fun save(c: Context, sync: Boolean = false) {
         try {
             val a = JSONArray()
             synchronized(list) {
@@ -63,7 +63,7 @@ object Jobs {
                         .put("tm", j.time).put("e", j.end).put("s", j.script))
                 }
             }
-            Store.prefs(c).edit().putString("jobs", a.toString()).apply()
+            Store.prefs(c).edit().putString("jobs", a.toString()).let { if (sync) it.commit() else it.apply() }
         } catch (_: Exception) {}
     }
 

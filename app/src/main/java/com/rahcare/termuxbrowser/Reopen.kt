@@ -22,7 +22,7 @@ object Reopen {
     private const val WINDOW_MS = 15 * 60 * 1000L
     private fun sp(c: Context) = c.getSharedPreferences("reopen", Context.MODE_PRIVATE)
 
-    fun arm(c: Context) { try { sp(c).edit().putLong("want", System.currentTimeMillis()).apply() } catch (_: Exception) {} }
+    fun arm(c: Context) { try { sp(c).edit().putLong("want", System.currentTimeMillis()).commit() } catch (_: Exception) {} }
 
     fun pending(c: Context): Boolean {
         val w = sp(c).getLong("want", 0L)

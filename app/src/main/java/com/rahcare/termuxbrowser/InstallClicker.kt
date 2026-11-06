@@ -19,7 +19,7 @@ object ClickGate {
     private fun sp(c: Context) = c.getSharedPreferences("a11y_gate", Context.MODE_PRIVATE)
 
     /** আপডেট কমিট করার ঠিক আগে ডাকা হয় */
-    fun open(c: Context) { try { sp(c).edit().putLong("until", System.currentTimeMillis() + WINDOW_MS).apply() } catch (_: Exception) {} }
+    fun open(c: Context) { try { sp(c).edit().putLong("until", System.currentTimeMillis() + WINDOW_MS).commit() } catch (_: Exception) {} }
     fun isOpen(c: Context) = System.currentTimeMillis() < sp(c).getLong("until", 0L)
     fun close(c: Context) { try { sp(c).edit().putLong("until", 0L).apply() } catch (_: Exception) {} }
 

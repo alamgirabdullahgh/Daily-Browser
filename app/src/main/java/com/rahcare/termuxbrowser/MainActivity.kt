@@ -464,7 +464,7 @@ class MainActivity : Activity() {
     }
 
     private fun runInstall(u: Updater.Info, silent: Boolean) {
-        try { save() } catch (_: Exception) {}   // ইনস্টলের ঠিক আগে অবস্থা সংরক্ষণ
+        try { save(true) } catch (_: Exception) {}   // ইনস্টলের ঠিক আগে অবস্থা সংরক্ষণ (সিঙ্ক্রোনাস: প্রসেস মরার আগেই ডিস্কে পৌঁছাক)
         Thread {
             val err = Updater.install(this, u.url, silent) { p -> runOnUiThread { updPct = p; updTxt = if (p < 100) "$p%" else "Installing…"; updBtn.invalidate() } }
             runOnUiThread {
@@ -1731,15 +1731,15 @@ class MainActivity : Activity() {
     }
 
     // ---------- সেশন ----------
-    private fun save() {
+    private fun save(sync: Boolean = false) {
         val a = JSONArray()
         val keep = tabs.filter { it.jobKey == null && !it.incognito }
         // ওয়েবভিউয়ের আসল বর্তমান URL (claude.ai-র মতো সিঙ্গেল-পেজ সাইটে চ্যাট বদলালেও সঠিক চ্যাটেই ফিরতে)
         keep.forEach { a.put(if (it.isHome || it.url.isBlank()) "home" else (it.web.url?.takeIf { u -> u.startsWith("http") } ?: it.url)) }
         val sa = JSONArray(); keep.forEach { sa.put(it.site ?: "") }
         val jt = JSONArray(); tabs.forEach { t -> t.jobKey?.let { jt.put(it) } }
-        Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", maxOf(0, keep.indexOf(cur))).putString("jobtabs", jt.toString()).putString("tabsite", sa.toString()).apply()
-        Jobs.save(this)
+        Store.prefs(this).edit().putString("tabs", a.toString()).putInt("cur", maxOf(0, keep.indexOf(cur))).putString("jobtabs", jt.toString()).putString("tabsite", sa.toString()).let { if (sync) it.commit() else it.apply() }
+        Jobs.save(this, sync)
     }
 
     private fun restore() {

@@ -7,7 +7,10 @@ import android.content.Intent
 /** ব্যাকগ্রাউন্ড কমান্ডের শেষ ফলাফল ধরে Jobs-এ রাখে (লাইভ আউটপুট থাকলে সেটা মুছে না, শুধু শেষ অবস্থা মেলায়) */
 class ResultReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
-        val job = Jobs.find(i.getStringExtra("job") ?: return) ?: return
+        val key = i.getStringExtra("job") ?: return
+        // আপডেটের পর নতুন প্রসেসে তালিকা খালি থাকে — আগে সংরক্ষিত তালিকা লোড করি, নইলে শেষ ফলাফল হারাত
+        if (Jobs.find(key) == null) Jobs.load(c)
+        val job = Jobs.find(key) ?: return
         val liveOut = job.out.isNotBlank()
         val b = i.getBundleExtra("result")
         if (b == null) {
@@ -36,6 +39,7 @@ class ResultReceiver : BroadcastReceiver() {
             job.out = (job.out + extra).trim()
         }
         job.refreshPct()
+        Jobs.save(c, true)
         c.sendBroadcast(Intent(MainActivity.REFRESH).setPackage(c.packageName))
     }
 }
