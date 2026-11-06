@@ -39,6 +39,10 @@ class Tab(val web: WebView) {
     var jobKey: String? = null // কমান্ডের নিজস্ব ট্যাব হলে কাজের চাবি
     var site: String? = null   // ওয়ার্কস্পেস হলে তার আইডি (আলাদা লগইন-প্রোফাইলে চলে)
     var limitAt = 0L           // শেষ কখন "লিমিট শেষ" ধরা পড়েছে
+    var stuckHits = 0          // পরপর কয়বার "আটকে আছে" লেখা দেখা গেছে
+    var stuckReloadAt = 0L     // শেষ স্বয়ংক্রিয় রিলোডের সময়
+    var stuckReloads = 0       // একটানা কয়বার রিলোড করা হয়েছে (অনন্ত চক্র এড়াতে)
+    var chatUrl = ""           // শেষ জানা চ্যাটের ঠিকানা (/chat/… বা /code/…)
     var limitHits = 0          // পরপর কয়বার লিমিটের লেখা দেখা গেছে (ভুল শনাক্ত এড়াতে ২ বার লাগে)
     var thumb: Bitmap? = null  // ট্যাব তালিকার ছোট প্রিভিউ
     var errUrl: String? = null // ত্রুটির পাতা দেখাচ্ছে হলে আসল ঠিকানা (নেট ফিরলে নিজে থেকে আবার খুলবে)
@@ -1116,6 +1120,8 @@ class MainActivity : Activity() {
             try {
                 val t = cur
                 if (t != null && t.site != null && overlay == null) detectEmail(t, t.site!!, false)
+                // নেট ধীর হয়ে সাইট "Checking for a response…" দেখিয়ে আটকে গেলে নিজে সারায়: আগে নরম চেষ্টা, না হলে চ্যাট রিলোড
+                if (t != null && t.jobKey == null && !t.isHome && t.url.startsWith("http") && overlay == null) checkStuck(t)
                 if (t != null && t.site != null && overlay == null && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
                     t.web.evaluateJavascript(Sites.LIMIT_JS) { raw ->
                         val hit = Sites.unquote(raw)
@@ -1136,6 +1142,25 @@ class MainActivity : Activity() {
             } catch (_: Exception) {
             } finally {
                 handler.postDelayed(this, 6000L)
+            }
+        }
+    }
+
+    private fun checkStuck(t: Tab) {
+        val u = t.url
+        if (u.contains("/chat/") || u.contains("/code/")) t.chatUrl = u
+        t.web.evaluateJavascript(Sites.STUCK_JS) { raw ->
+            val hit = Sites.unquote(raw)
+            if (hit.isBlank() || t !== cur) { t.stuckHits = 0; if (hit.isBlank() && t.stuckReloads > 0 && System.currentTimeMillis() - t.stuckReloadAt > 120000L) t.stuckReloads = 0; return@evaluateJavascript }
+            t.stuckHits++
+            if (t.stuckHits == 1) { t.web.evaluateJavascript(Sites.STUCK_SOFT_JS, null); return@evaluateJavascript }
+            val now = System.currentTimeMillis()
+            if (t.stuckHits >= 3 && now - t.stuckReloadAt > 40000L && t.stuckReloads < 6) {
+                t.stuckHits = 0; t.stuckReloadAt = now; t.stuckReloads++
+                val target = if (u.contains("/chat/") || u.contains("/code/")) null else t.chatUrl.ifBlank { null }
+                if (!u.contains("/chat/") && !u.contains("/code/") && target == null) return@evaluateJavascript
+                Toast.makeText(this, "নেট ধীর ছিল — চ্যাট আবার লোড হচ্ছে", Toast.LENGTH_SHORT).show()
+                if (target == null) t.web.reload() else t.web.loadUrl(target)
             }
         }
     }
