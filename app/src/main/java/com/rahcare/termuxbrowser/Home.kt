@@ -17,7 +17,7 @@ object Home {
 
     /** হোম পেজের কাজের তালিকা: প্রতিটিতে চাপলে সেই কাজের ট্যাব খোলে */
     fun jobsHtml(): String {
-        if (Jobs.list.isEmpty()) return "<p class=m>এখনো কিছু চালানো হয়নি।</p>"
+        if (Jobs.list.isEmpty()) return "<div class=empty>এখনো কিছু চালানো হয়নি।</div>"
         val more = if (Jobs.list.size > 10) "<p class=m>…আরও ${Jobs.list.size - 10}টি পুরনো কাজ আছে (ওপরের 🗑 দিয়ে শেষ হওয়াগুলো মুছুন)</p>" else ""
         return Jobs.list.asReversed().take(10).joinToString("") { j ->
             val dot = when (j.status) { "running" -> "#f59e0b"; "ok" -> "#16a34a"; "stopped" -> "#6b7280"; else -> "#dc2626" }
@@ -80,46 +80,71 @@ setInterval(function(){if(S.s==='running')tick()},1000);
 draw();
 </script></body></html>"""
 
+    private fun mono(s: String): String = if (s.isBlank()) "•" else esc(String(Character.toChars(s.trim().codePointAt(0))).uppercase())
+
     fun html(c: Context): String {
         val ready = Runner.installed(c) && Runner.hasPermission(c)
-        val cards = Store.all(c).joinToString("") { d ->
-            "<div class=card><a class=run href='termux://run/${d.id}'>${esc(d.title)}</a>" +
+        val cmds = Store.all(c)
+        val sites = Sites.all(c)
+        val cards = cmds.joinToString("") { d ->
+            "<div class=card><a class=run href='termux://run/${d.id}'><span class=mo>${mono(d.title)}</span><span class=nm>${esc(d.title)}</span></a>" +
                 "<a class=ed href='termux://edit/${d.id}'>✎</a></div>"
         }
-        val siteCards = Sites.all(c).joinToString("") { s ->
-            "<div class=card><a class=run href='termux://site/${s.id}'>${esc(s.name)}</a>" +
+        val siteCards = sites.joinToString("") { s ->
+            "<div class=card><a class=run href='termux://site/${s.id}'><span class='mo w'>${mono(s.name)}</span><span class=nm>${esc(s.name)}</span></a>" +
                 "<a class=ed href='termux://siteedit/${s.id}'>✎</a></div>"
         }
-        val setupBtn = "<a class=add href='termux://setup'>⚡ এক চাপে সেটআপ (কমান্ড কপি + Termux খোলা)</a>"
+        val setupBtn = "<a class=add href='termux://setup'>⚡ এক চাপে সেটআপ</a>"
         val bm = Bookmarks.all(c).take(12)
-        val bmSection = if (bm.isEmpty()) "" else "<h2>⭐ বুকমার্ক</h2><div class=g>" + bm.joinToString("") { b ->
-            "<div class=card><a class=run href=\"${esc(b.second)}\">${esc(b.first.take(30))}</a></div>" } + "</div>"
+        val bmSection = if (bm.isEmpty()) "" else "<h2>বুকমার্ক</h2><div class=g>" + bm.joinToString("") { b ->
+            "<div class=card><a class=run href=\"${esc(b.second)}\"><span class='mo b'>${mono(b.first)}</span><span class=nm>${esc(b.first.take(30))}</span></a></div>" } + "</div>"
         val warn = if (ready && Runner.verified(c)) "" else if (ready)
-            "<div class=warn><b>Termux সংযোগ বাকি</b><br>নিচের বোতামে চাপলে কমান্ড কপি হয়ে Termux খুলবে — সেখানে স্ক্রিন লম্বা চেপে Paste করে Enter চাপুন। এরপর যেকোনো কমান্ড চালালেই সংযোগ নিশ্চিত হবে।$setupBtn</div>"
+            "<div class=warn><b>Termux সংযোগ বাকি</b><span>নিচের বোতামে চাপলে কমান্ড কপি হয়ে Termux খুলবে। সেখানে লম্বা চেপে Paste করে Enter দিন।</span>$setupBtn</div>"
         else
-            "<div class=warn><b>সেটআপ দরকার</b><br>Termux (F-Droid) ইনস্টল করুন, তারপর ⋮ মেনু › অ্যাপ অনুমতি থেকে \"Run commands in Termux environment\" দিন, এরপর নিচের বোতামে চাপুন।$setupBtn</div>"
+            "<div class=warn><b>সেটআপ দরকার</b><span>Termux (F-Droid) ইনস্টল করে মেনু › অ্যাপ › অনুমতি থেকে \"Run commands in Termux environment\" দিন, তারপর নিচের বোতাম চাপুন।</span>$setupBtn</div>"
         return """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <style>
-body{font-family:system-ui,sans-serif;margin:0;padding:14px;background:#f3f4f6;color:#111827}
-h1{font-size:20px;margin:6px 2px 2px}h2{font-size:15px;margin:18px 2px 8px;color:#374151}
-.m{color:#6b7280;font-size:13px}.warn{background:#fef3c7;color:#78350f;border-radius:12px;padding:12px;margin:10px 0;font-size:13.5px}
-code{background:#fde68a;padding:2px 4px;border-radius:4px;word-break:break-all;font-size:12px}
-.g{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px}@media(min-width:520px){.g{grid-template-columns:repeat(4,1fr)}}
-.card{position:relative;background:#fff;border-radius:14px;overflow:hidden}
-.run{display:flex;align-items:center;justify-content:center;text-align:center;min-height:68px;padding:10px 8px;color:#111827;text-decoration:none;font-size:13px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}
-.ed{position:absolute;top:0;right:0;padding:5px 8px;color:#9ca3af;text-decoration:none;font-size:12px}
-.add{display:block;text-align:center;padding:12px;background:#111827;color:#fff;border-radius:14px;text-decoration:none;margin-top:4px}
-.job{display:block;text-decoration:none;color:inherit;background:#fff;border-radius:12px;padding:10px 12px;margin-bottom:8px}
-.mb{height:5px;background:#e5e7eb;border-radius:3px;overflow:hidden;margin:7px 0 2px}.mb i{display:block;height:100%;background:#2563eb}.mb i.ind{width:30%;animation:mv 1.1s ease-in-out infinite}.mb i.okb{width:100%;background:#16a34a}.mb i.fb{width:100%;background:#dc2626}.mb i.sb{width:100%;background:#9ca3af}.jw{position:relative}.job.r{padding-right:92px}.kl{position:absolute;right:10px;top:9px;font-size:12px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:8px;padding:4px 9px;text-decoration:none}.clr{float:right;font-size:12px;font-weight:600;color:#dc2626;text-decoration:none}@keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
-.ll{color:#6b7280;font:11.5px monospace;margin-top:4px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
-pre{background:#111827;color:#d1fae5;border-radius:8px;padding:8px;font-size:11.5px;white-space:pre-wrap;word-break:break-all;margin:8px 0 0;max-height:220px;overflow:auto}
+:root{--bg:#f5f6fa;--card:#fff;--tx:#0f172a;--mu:#64748b;--ln:#eceef5;--sh:0 1px 2px rgba(15,23,42,.04),0 6px 18px rgba(15,23,42,.06)}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1020;--card:#151b2e;--tx:#e5e7eb;--mu:#94a3b8;--ln:#232b45;--sh:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.25)}}
+*{box-sizing:border-box}
+body{font-family:system-ui,-apple-system,"Noto Sans Bengali",sans-serif;margin:0;padding:14px 14px 28px;background:var(--bg);color:var(--tx);-webkit-font-smoothing:antialiased}
+.hero{position:relative;overflow:hidden;border-radius:22px;padding:22px 20px 20px;color:#fff;background:linear-gradient(135deg,#312e81 0%,#4f46e5 55%,#7c3aed 100%);box-shadow:0 10px 30px rgba(79,70,229,.35)}
+.hero:after{content:"";position:absolute;right:-40px;top:-50px;width:170px;height:170px;border-radius:50%;background:rgba(255,255,255,.10)}
+.hero:before{content:"";position:absolute;right:30px;bottom:-60px;width:120px;height:120px;border-radius:50%;background:rgba(255,255,255,.07)}
+.hero h1{font-size:24px;font-weight:800;letter-spacing:-.3px;margin:0 0 4px;position:relative}
+.hero p{margin:0;font-size:13px;opacity:.82;position:relative}
+.stats{display:flex;gap:8px;margin-top:16px;position:relative;flex-wrap:wrap}
+.stat{background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:7px 12px;font-size:12px;font-weight:600}
+.stat b{font-size:15px;margin-right:4px}
+h2{font-size:12px;font-weight:700;letter-spacing:.4px;color:var(--mu);margin:24px 4px 10px;display:flex;align-items:center;justify-content:space-between}
+.m{color:var(--mu);font-size:13px}
+.g{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:10px}@media(min-width:560px){.g{grid-template-columns:repeat(3,1fr)}}
+.card{position:relative;background:var(--card);border:1px solid var(--ln);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
+.run{display:flex;align-items:center;gap:10px;min-height:62px;padding:11px 28px 11px 11px;color:var(--tx);text-decoration:none}
+.mo{flex:none;width:36px;height:36px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:15px;color:#fff;background:linear-gradient(135deg,#6366f1,#8b5cf6)}
+.mo.w{background:linear-gradient(135deg,#0ea5e9,#6366f1)}.mo.b{background:linear-gradient(135deg,#f59e0b,#f97316)}
+.nm{font-size:13.5px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
+.ed{position:absolute;top:2px;right:2px;padding:6px 9px;color:var(--mu);text-decoration:none;font-size:12px;opacity:.7}
+.add{display:flex;align-items:center;justify-content:center;gap:6px;padding:13px;background:var(--card);color:#4f46e5;border:1.5px dashed #a5b4fc;border-radius:14px;text-decoration:none;font-size:13.5px;font-weight:700}
+.warn{background:#fffbeb;color:#78350f;border:1px solid #fde68a;border-radius:16px;padding:14px;margin:14px 0 0;font-size:13px;line-height:1.5}
+.warn b{display:block;font-size:14px;margin-bottom:3px}.warn span{display:block;margin-bottom:10px}
+.warn .add{background:#4f46e5;color:#fff;border:0}
+.job{display:block;text-decoration:none;color:inherit;background:var(--card);border:1px solid var(--ln);box-shadow:var(--sh);border-radius:14px;padding:11px 13px;margin-bottom:9px}
+.job b{font-size:13.5px}.job .m{display:block;margin-top:3px;font-size:12px}
+.mb{height:5px;background:var(--ln);border-radius:3px;overflow:hidden;margin:8px 0 2px}.mb i{display:block;height:100%;background:#4f46e5;border-radius:3px}.mb i.ind{width:30%;animation:mv 1.1s ease-in-out infinite}.mb i.okb{width:100%;background:#16a34a}.mb i.fb{width:100%;background:#dc2626}.mb i.sb{width:100%;background:#9ca3af}
+.jw{position:relative}.job.r{padding-right:92px}.kl{position:absolute;right:10px;top:10px;font-size:12px;font-weight:700;color:#991b1b;background:#fee2e2;border-radius:9px;padding:5px 10px;text-decoration:none}
+.clr{font-size:12px;font-weight:700;color:#dc2626;text-decoration:none;letter-spacing:0}
+@keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
+.ll{color:var(--mu);font:11.5px ui-monospace,monospace;margin-top:5px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:7px}
+.empty{background:var(--card);border:1px dashed var(--ln);border-radius:14px;padding:14px;color:var(--mu);font-size:13px;margin-bottom:10px;line-height:1.5}
 </style></head><body>
-<h1>Daily Browser</h1><div class=m>কমান্ডে চাপলে নতুন ট্যাবে কাজ চলবে — সেখানেই লাইভ আউটপুট, সময় আর প্রগ্রেস দেখা যাবে।</div>
+<div class=hero><h1>Daily Browser</h1><p>আপনার কাজের জন্য তৈরি ব্রাউজার</p>
+<div class=stats><div class=stat><b>${sites.size}</b>ওয়ার্কস্পেস</div><div class=stat><b>${cmds.size}</b>কমান্ড</div><div class=stat><b>${Jobs.list.count { it.status == "running" }}</b>চলছে</div></div></div>
 $warn
-$bmSection<h2>🌐 ওয়ার্কস্পেস</h2><div class=m>যেকোনো সাইট যোগ করা যায়। প্রতিটির লগইন আলাদা ও স্থায়ী। কোনোটার লিমিট শেষ হলে নিজে থেকেই পরেরটায় চলে যায়, চ্যাটের শেষ অংশ সাথে নিয়ে পাঠিয়ে দেয় (⋮ মেনু থেকে বন্ধ করা যায়)।</div>
-${if (siteCards.isEmpty()) "<div class=warn style='margin-top:8px'>এখনো কোনো ওয়ার্কস্পেস নেই। যেকোনো সাইট খুলে <b>⋮ › 🌐 এই সাইটকে ওয়ার্কস্পেস বানান</b> চাপুন, অথবা নিচের ＋ দিয়ে ঠিকানা লিখে যোগ করুন।</div>" else "<div class=g style='margin-top:8px'>$siteCards</div>"}<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
+$bmSection<h2>ওয়ার্কস্পেস</h2>
+${if (siteCards.isEmpty()) "<div class=empty>এখনো কোনো ওয়ার্কস্পেস নেই। যেকোনো সাইট খুলে মেনু › ওয়ার্কস্পেস থেকে যোগ করুন, বা নিচের বোতামে ঠিকানা দিন।</div>" else "<div class=g>$siteCards</div>"}<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
 <h2>কমান্ড</h2><div class=g>$cards</div><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a>
-<h2>চলমান ও শেষ হওয়া কাজ <a class=clr href='termux://clear/all'>🗑 শেষ হওয়া মুছুন</a></h2><div id=jobs>${jobsHtml()}</div>
+<h2>কাজ <a class=clr href='termux://clear/all'>শেষ হওয়াগুলো মুছুন</a></h2><div id=jobs>${jobsHtml()}</div>
 </body></html>"""
     }
 }

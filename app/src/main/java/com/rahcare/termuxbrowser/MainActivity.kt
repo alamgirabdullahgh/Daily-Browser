@@ -185,6 +185,7 @@ class MainActivity : Activity() {
         val dots = icon("⋮", 24f) {}
         dots.setOnClickListener { menu(dots) }
         bar.addView(dots)
+        bar.elevation = dp(3).toFloat()
         root.addView(bar)
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; visibility = View.GONE }
         root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
@@ -1382,7 +1383,7 @@ class MainActivity : Activity() {
 
     // ---------- মেনু ----------
     private fun menu(anchor: View) {
-        val m = PopupMenu(this, anchor)
+        val m = SheetMenu()
         if (upd != null) m.menu.add(0, 8, 0, "⬆ অ্যাপ আপডেট করুন")
         m.menu.add(0, 1, 0, "নতুন ট্যাব")
         m.menu.add(0, 2, 1, "রিলোড")
@@ -1459,7 +1460,84 @@ class MainActivity : Activity() {
             }
             true
         }
-        m.show()
+        showMenuSheet(m)
+    }
+
+    class MI(val itemId: Int, val title: String) { var isCheckable = false; var isChecked = false }
+    class SheetMenu {
+        val items = mutableListOf<MI>()
+        val menu = this
+        var click: ((MI) -> Boolean)? = null
+        fun add(@Suppress("UNUSED_PARAMETER") g: Int, id: Int, @Suppress("UNUSED_PARAMETER") order: Int, title: String): MI = MI(id, title).also { items.add(it) }
+        fun setOnMenuItemClickListener(l: (MI) -> Boolean) { click = l }
+    }
+
+    /** নিচ থেকে ওঠা, ভাগ করা প্রিমিয়াম মেনু */
+    private fun showMenuSheet(m: SheetMenu) {
+        val d = android.app.Dialog(this)
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
+        val groups = listOf(
+            "পেজ" to listOf(20, 23, 24, 25, 26, 3, 29, 2, 12, 1),
+            "লাইব্রেরি" to listOf(21, 22, 30, 27),
+            "ওয়ার্কস্পেস" to listOf(9, 11, 10, 15, 14),
+            "GitHub" to listOf(13, 16, 40, 41, 42),
+            "Termux" to listOf(4, 5),
+            "অ্যাপ" to listOf(6, 7)
+        )
+        val icons = mapOf(1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(22)) }
+        col.addView(View(this).apply { background = bg(Color.parseColor("#D1D5DB"), 3) },
+            LinearLayout.LayoutParams(dp(40), dp(4)).apply { gravity = Gravity.CENTER_HORIZONTAL; bottomMargin = dp(12) })
+        fun pick(it: MI) { d.dismiss(); m.click?.invoke(it) }
+        m.items.firstOrNull { it.itemId == 8 }?.let { u ->
+            col.addView(TextView(this).apply {
+                text = "⬆  অ্যাপ আপডেট করুন"; textSize = 15f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.WHITE); gravity = Gravity.CENTER
+                background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.parseColor("#4F46E5"), Color.parseColor("#7C3AED"))).apply { cornerRadius = dp(14).toFloat() }
+                setOnClickListener { pick(u) }
+            }, LinearLayout.LayoutParams(-1, dp(48)).apply { bottomMargin = dp(10) })
+        }
+        for ((name, ids) in groups) {
+            val its = ids.mapNotNull { id -> m.items.firstOrNull { it.itemId == id } }
+            if (its.isEmpty()) continue
+            col.addView(TextView(this).apply {
+                text = name; textSize = 12f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#6B7280")); setPadding(dp(6), dp(10), 0, dp(6))
+            })
+            val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; background = bg(Color.parseColor("#F5F6FA"), 16) }
+            its.forEachIndexed { i, it ->
+                val raw = it.title
+                val clean = raw.replace(Regex("^[^\\p{L}\\p{N}]+"), "")
+                val ic = icons[it.itemId] ?: raw.takeWhile { c -> !c.isLetterOrDigit() }.trim().ifEmpty { "•" }
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), dp(11), dp(12), dp(11)) }
+                row.addView(TextView(this).apply {
+                    text = ic; textSize = 16f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#4F46E5")); background = bg(Color.parseColor("#E0E7FF"), 10)
+                }, LinearLayout.LayoutParams(dp(34), dp(34)).apply { rightMargin = dp(12) })
+                row.addView(TextView(this).apply { text = clean; textSize = 14.5f; setTextColor(Color.parseColor("#111827")) }, LinearLayout.LayoutParams(0, -2, 1f))
+                if (it.isCheckable) row.addView(TextView(this).apply {
+                    text = if (it.isChecked) "চালু" else "বন্ধ"; textSize = 11.5f; typeface = Typeface.DEFAULT_BOLD
+                    setTextColor(Color.parseColor(if (it.isChecked) "#166534" else "#6B7280"))
+                    background = bg(Color.parseColor(if (it.isChecked) "#DCFCE7" else "#E5E7EB"), 12); setPadding(dp(10), dp(3), dp(10), dp(3))
+                })
+                row.setOnClickListener { _ -> pick(it) }
+                card.addView(row)
+                if (i < its.size - 1) card.addView(View(this).apply { setBackgroundColor(Color.parseColor("#E8EAF2")) },
+                    LinearLayout.LayoutParams(-1, 1).apply { leftMargin = dp(58) })
+            }
+            col.addView(card)
+        }
+        val sv = ScrollView(this).apply {
+            addView(col); isVerticalScrollBarEnabled = false
+            background = GradientDrawable().apply { setColor(Color.WHITE); val r = dp(24).toFloat(); cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f) }
+        }
+        d.setContentView(sv)
+        d.window?.apply {
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+            setGravity(Gravity.BOTTOM)
+            setLayout(-1, -2)
+            attributes = attributes.apply { dimAmount = 0.45f }
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        d.show()
+        sv.post { d.window?.let { w -> if (sv.height > resources.displayMetrics.heightPixels * 0.88) w.setLayout(-1, (resources.displayMetrics.heightPixels * 0.88).toInt()) } }
     }
 
     private fun manage() {
