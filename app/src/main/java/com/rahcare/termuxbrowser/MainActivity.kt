@@ -409,9 +409,20 @@ class MainActivity : Activity() {
     // কোনো সময়ের বাধা নেই: অ্যাপ খুললেই খোঁজে, আর সামনে থাকলে প্রতি ২০ সেকেন্ডে আবার খোঁজে
     private val updCheck = object : Runnable {
         override fun run() {
-            Thread { val i = Updater.check(); runOnUiThread { if (i != null) { upd = i.takeIf { it.v > Updater.curVer(this@MainActivity) } }; showBanner() } }.start()
+            Thread { val i = Updater.check(); runOnUiThread { if (i != null) { upd = i.takeIf { it.v > Updater.curVer(this@MainActivity) } }; showBanner(); autoStartUpdate() } }.start()
             handler.postDelayed(this, 20000L)
         }
+    }
+
+    /** অ্যাপ খোলা অবস্থায় নতুন সংস্করণ এলে বোতাম না চাপলেও নিজে থেকে শুরু হয় (AutoReply-এর মতো): বোতামটাই প্রগ্রেস বার হয়ে যায়।
+     *  প্রতি সংস্করণে একবারই; বাতিল করলে আবার জোর করে না, তখন বোতাম ব্যবহার করা যাবে। "অজানা উৎস" অনুমতি না থাকলে সেটিংস-পর্দা জোর করে খোলে না */
+    private fun autoStartUpdate() {
+        val u = upd ?: return
+        if (updBusy || isFinishing || !packageManager.canRequestPackageInstalls()) return
+        val p = Store.prefs(this)
+        if (p.getInt("fg_auto_v", 0) == u.v) return
+        p.edit().putInt("fg_auto_v", u.v).apply()
+        startUpdate()
     }
 
     // ব্যানার আর নেই: নতুন সংস্করণ এলে নিচের বোতাম দেখায়, আর আপডেট নিজে নিজেও ব্যাকগ্রাউন্ডে হয়ে যায়
