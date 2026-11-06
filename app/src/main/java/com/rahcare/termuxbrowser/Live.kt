@@ -30,15 +30,35 @@ object Live {
 
     /** ব্যবহারকারীর স্ক্রিপ্টকে এমনভাবে মুড়ে দেয় যে আউটপুট লাইভ অ্যাপে আসে; সংযোগ না হলে স্ক্রিপ্ট সাধারণভাবেই চলে */
     /** pkg-র ধীর মিরর-পরীক্ষা এড়াতে pkg-কে apt-এ বদলায় (ব্যাকগ্রাউন্ড ও Termux-পর্দা দুই ক্ষেত্রেই) */
-    const val PKG_SHIM = "export DEBIAN_FRONTEND=noninteractive\n" +
-        // একই সময়ে দুই ট্যাবে প্যাকেজ কমান্ড দিলে পরেরটা আগেরটা শেষ হওয়া পর্যন্ত অপেক্ষা করে (apt-এর তালা নিয়ে ঝগড়া এড়াতে)
-        "aptwait() { command -v pgrep >/dev/null 2>&1 || return 0; w=0; while pgrep -x apt >/dev/null || pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do [ \$w = 0 ] && { echo 'অন্য একটি প্যাকেজ কাজ চলছে (অন্য ট্যাবে, বা অ্যাপ আপডেটের আগে শুরু হওয়া) — শেষ হওয়ার অপেক্ষা…'; for n in apt apt-get dpkg; do pgrep -a -x \$n; done | head -2 | cut -c1-90; echo '(আটকে গেলে হোমের ⏹ আটকে থাকা প্যাকেজ কাজ থামান চাপুন)'; }; w=1; sleep 3; done; }\n" +
-        "pkg() { aptwait; c=\"\$1\"; shift; case \"\$c\" in\n" +
-        // আগের কাটা-পড়া ইনস্টলের জের ("dpkg was interrupted") নিজে সারিয়ে নেয়
-        "update|up) dpkg --configure -a --force-confold >/dev/null 2>&1; apt update \"\$@\" ;;\n" +
-        "upgrade|full-upgrade) dpkg --configure -a --force-confold >/dev/null 2>&1; apt -o Dpkg::Options::=--force-confold upgrade \"\$@\" ;;\n" +
-        "install|i|add) dpkg --configure -a --force-confold >/dev/null 2>&1; apt -o Dpkg::Options::=--force-confold install \"\$@\" ;;\n" +
-        "*) command pkg \"\$c\" \"\$@\" ;; esac; }\n"
+    /** প্রতিটি কমান্ডের আগে বসে: pkg-কে নিজে-সারানো আপডেট/ইনস্টলে বদলায় (তালা মোছা, dpkg মেরামত, পুনরায় চেষ্টা, মিরর বদল) */
+    val PKG_SHIM: String = """export DEBIAN_FRONTEND=noninteractive
+PREFIX=§{PREFIX:-/data/data/com.termux/files/usr}
+tb_say() { echo "▸ §*"; }
+tb_aptwait() { command -v pgrep >/dev/null 2>&1 || return 0; w=0; while pgrep -x apt >/dev/null || pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do [ §w = 0 ] && { echo 'অন্য একটি প্যাকেজ কাজ চলছে — শেষ হওয়ার অপেক্ষা… (আটকে গেলে হোমের ⏹ আটকে থাকা প্যাকেজ কাজ থামান চাপুন)'; }; w=1; sleep 3; done; }
+tb_net() { curl -s -o /dev/null --max-time 15 https://packages-cf.termux.dev/apt/termux-main/dists/stable/InRelease || curl -s -o /dev/null --max-time 15 https://github.com; }
+tb_fix() { rm -f "§PREFIX/var/lib/dpkg/lock" "§PREFIX/var/lib/dpkg/lock-frontend" "§PREFIX/var/lib/apt/lists/lock" "§PREFIX/var/cache/apt/archives/lock" 2>/dev/null; dpkg --configure -a --force-confold >/dev/null 2>&1; apt-get -f install -y -o Dpkg::Options::=--force-confold >/dev/null 2>&1; return 0; }
+tb_mirror() { U=https://packages-cf.termux.dev/apt/termux-main; S="§PREFIX/etc/apt/sources.list"; if curl -fsI --max-time 20 "§U/dists/stable/InRelease" >/dev/null 2>&1; then [ -f "§S.bak" ] || cp "§S" "§S.bak" 2>/dev/null; echo "deb §U stable main" > "§S"; tb_say 'মিরর ডিফল্টে ফেরানো হলো'; return 0; fi; return 1; }
+tb_update() { n=0; while :; do apt-get update -o Acquire::Retries=3 && return 0; n=§((n+1)); [ §n -ge 3 ] && return 1; tb_say "তালিকা আপডেট ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা (§n/2)"; tb_fix; [ §n = 2 ] && tb_mirror; sleep 2; done; }
+tb_apt() { apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=--force-confdef -o Acquire::Retries=3 "§@"; }
+tb_install() {
+  [ "§(ls "§PREFIX/var/lib/apt/lists" 2>/dev/null | wc -l)" -gt 3 ] || { tb_say 'প্যাকেজ তালিকা আপডেট হচ্ছে'; tb_update; }
+  tb_apt install -y "§@" && return 0
+  tb_say 'ইনস্টল ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা'; tb_fix; tb_update; tb_apt install -y "§@" && return 0
+  tb_mirror && tb_update && tb_apt install -y "§@" && return 0
+  echo "ইনস্টল ব্যর্থ: §*"; return 1
+}
+tb_upgrade() { tb_update || return 1; tb_apt upgrade -y && return 0; tb_say 'আপগ্রেড ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা'; tb_fix; tb_apt upgrade -y; }
+pkg() { tb_aptwait; c="§1"; shift
+  case "§c" in
+    update|up|upgrade|full-upgrade|install|i|add) tb_net || { echo 'ইন্টারনেট সংযোগ নেই — নেট চালু করে আবার চেষ্টা করুন'; return 1; }; dpkg --configure -a --force-confold >/dev/null 2>&1 ;;
+  esac
+  case "§c" in
+    update|up) tb_update ;;
+    upgrade|full-upgrade) tb_upgrade ;;
+    install|i|add) tb_install "§@" ;;
+    *) command pkg "§c" "§@" ;;
+  esac; }
+""".replace('§', '$')
 
     fun wrap(job: Job, script: String): String {
         val port = ensure()

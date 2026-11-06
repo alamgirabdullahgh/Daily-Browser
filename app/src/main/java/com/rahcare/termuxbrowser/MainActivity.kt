@@ -748,9 +748,17 @@ class MainActivity : Activity() {
                 val cmd = Store.all(this).firstOrNull { it.id == id }
                 if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
                 if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
+                if (cmd.id == "d10" && !x11Installed()) {
+                    AlertDialog.Builder(this).setTitle("Termux:X11 অ্যাপও লাগবে")
+                        .setMessage("কম্পিউটার মোডের পর্দা দেখাতে আলাদা Termux:X11 অ্যাপ দরকার। এখন নামিয়ে ইনস্টল করব? (ইনস্টল শেষে কম্পিউটার মোডে আবার চাপুন)")
+                        .setPositiveButton("ইনস্টল") { _, _ -> installX11() }
+                        .setNegativeButton("বাতিল", null).show()
+                    return
+                }
                 val run = if (cmd.id == "d12") cmd.copy(script = cmd.script.replace("@@WEBPW@@", webPw())) else cmd
                 val (job, err) = Runner.run(this, run)
                 if (err == null && cmd.id == "d12") waitWebTerm()
+                if (err == null && cmd.id == "d10" && job != null) openX11WhenReady(job)
                 if (err != null) AlertDialog.Builder(this).setTitle("চালানো যায়নি").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
                 else if (job != null) openJobTab(job)
                 else Toast.makeText(this, "Termux স্ক্রিনে চলছে: ${cmd.title}", Toast.LENGTH_SHORT).show()
@@ -1552,20 +1560,56 @@ class MainActivity : Activity() {
         }
         d.setContentView(sv, ViewGroup.LayoutParams(-1, -1))
         d.setCanceledOnTouchOutside(true)
-        // ডান পাশের সাইডবার: টুলবারের নিচ থেকে শুরু, তাই ⋮ বা বাইরে চাপলে (বা ব্যাক চাপলে) স্বাভাবিকভাবে বন্ধ হয়
-        val loc = IntArray(2); anchor.getLocationOnScreen(loc)
-        val top = loc[1] + anchor.height
+        // ডান পাশের সাইডবার: টুলবারের নিচের দাগ থেকে শুরু (পর্দার ওপর থেকে মাপা), তাই ⋮ বা বাইরে চাপলে স্বাভাবিকভাবে বন্ধ হয়
+        val barView = (anchor.parent as? View) ?: anchor
+        val loc = IntArray(2); barView.getLocationOnScreen(loc)
+        val top = loc[1] + barView.height
         val dm = resources.displayMetrics
         val w = minOf(dp(320), (dm.widthPixels * 0.84).toInt())
         d.window?.apply {
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
             setGravity(Gravity.TOP or Gravity.END)
+            addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
             setLayout(w, dm.heightPixels - top)
-            attributes = attributes.apply { y = top; dimAmount = 0.4f }
-            addFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+            attributes = attributes.apply { y = top; x = 0; dimAmount = 0.4f }
+            setWindowAnimations(R.style.SideSheetAnim)
         }
         d.show()
-        sv.post { sv.translationX = w.toFloat(); sv.animate().translationX(0f).setDuration(180).start() }
+    }
+
+    // ---------- Termux:X11 (কম্পিউটার মোডের পর্দা) ----------
+    private val X11_PKG = "com.termux.x11"
+    private val X11_URL = "https://github.com/termux/termux-x11/releases/download/nightly/termux-x11-universal-debug.apk"
+    private fun x11Installed() = try { packageManager.getPackageInfo(X11_PKG, 0); true } catch (_: Exception) { false }
+
+    private fun openX11() {
+        try { packageManager.getLaunchIntentForPackage(X11_PKG)?.let { it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); startActivity(it) } } catch (_: Exception) {}
+    }
+
+    /** কম্পিউটার মোডের সার্ভার চালু হয়েছে বোঝা গেলে (আউটপুটের চিহ্ন দেখে) Termux:X11 অ্যাপ নিজেই খুলে দেয় */
+    private fun openX11WhenReady(job: Job) {
+        var n = 0
+        val r = object : Runnable {
+            override fun run() {
+                if (job.text().contains("ডেস্কটপ সার্ভার চালু")) { openX11(); return }
+                if (job.status != "running" || ++n > 450) return
+                handler.postDelayed(this, 2000L)
+            }
+        }
+        handler.postDelayed(r, 2000L)
+    }
+
+    private fun installX11() {
+        if (!packageManager.canRequestPackageInstalls()) {
+            Toast.makeText(this, "\"Allow from this source\" চালু করে ফিরে এসে আবার চাপুন", Toast.LENGTH_LONG).show()
+            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+            return
+        }
+        Toast.makeText(this, "Termux:X11 নামানো হচ্ছে… শেষ হলে ইনস্টল নিশ্চিত করুন", Toast.LENGTH_LONG).show()
+        Thread {
+            val err = Updater.install(this, X11_URL, false) { }
+            if (err != null) runOnUiThread { Toast.makeText(this, "নামানো যায়নি ($err)", Toast.LENGTH_LONG).show() }
+        }.start()
     }
 
     private fun manage() {

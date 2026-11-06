@@ -24,6 +24,7 @@
 
     <queries>
         <package android:name="com.termux" />
+        <package android:name="com.termux.x11" />
     </queries>
 
     <application

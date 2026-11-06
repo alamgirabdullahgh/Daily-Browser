@@ -85,34 +85,47 @@ object Jobs {
     fun running() = list.count { it.status == "running" }
 }
 
-/** ইনস্টল ব্যর্থ হলে আর Termux:X11 খোলে না (আগে ; দিয়ে জোড়া ছিল বলে ব্যর্থ হলেও খুলে যেত) */
-const val DESKTOP = "pkg install -y x11-repo && pkg install -y termux-x11-nightly openbox tint2 xterm pcmanfm || { echo 'ইনস্টল ব্যর্থ — উপরের ত্রুটি দেখুন'; exit 1; }\n" +
-    "pkill -f termux-x11 2>/dev/null\n" +
-    "(termux-x11 :0 >/dev/null 2>&1 &)\n" +
-    "sleep 3\n" +
-    "echo 'ডেস্কটপ সার্ভার চালু — Termux:X11 খুলছে'\n" +
-    "am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1\n" +
-    "export DISPLAY=:0\n" +
-    "(tint2 >/dev/null 2>&1 &)\n" +
-    "exec openbox-session"
+/** কম্পিউটার মোড: শুরু থেকে শেষ — আপডেট/আপগ্রেড, x11-repo, ডেস্কটপ প্যাকেজ, সার্ভার চালু; কোনো ধাপ ব্যর্থ হলে বাকি ধাপ চলে না */
+val DESKTOP: String = """echo '▸ ধাপ ১/৪: প্যাকেজ আপডেট ও আপগ্রেড'
+pkg update -y && pkg upgrade -y || { echo 'আপডেট/আপগ্রেড ব্যর্থ — উপরের ত্রুটি দেখুন'; exit 1; }
+echo '▸ ধাপ ২/৪: X11 রিপো'
+pkg install -y x11-repo || { echo 'x11-repo ইনস্টল ব্যর্থ'; exit 1; }
+pkg update -y || exit 1
+echo '▸ ধাপ ৩/৪: ডেস্কটপ প্যাকেজ'
+pkg install -y termux-x11-nightly openbox tint2 xterm pcmanfm dbus || { echo 'ডেস্কটপ প্যাকেজ ইনস্টল ব্যর্থ'; exit 1; }
+command -v termux-x11 >/dev/null 2>&1 || { echo 'termux-x11 কমান্ড পাওয়া যায়নি'; exit 1; }
+echo '▸ ধাপ ৪/৪: ডেস্কটপ চালু'
+pkill -f termux-x11 2>/dev/null; pkill -x openbox 2>/dev/null; pkill -x tint2 2>/dev/null; sleep 1
+export XDG_RUNTIME_DIR=§{TMPDIR:-§PREFIX/tmp}
+(termux-x11 :0 >/dev/null 2>&1 &)
+sleep 3
+echo 'ডেস্কটপ সার্ভার চালু — Termux:X11 খুলছে'
+am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || true
+export DISPLAY=:0
+(tint2 >/dev/null 2>&1 &)
+if command -v dbus-launch >/dev/null 2>&1; then exec dbus-launch --exit-with-session openbox-session; else exec openbox-session; fi""".replace('§', '$')
 
 object Store {
     private fun sp(c: Context) = c.getSharedPreferences("cmds", Context.MODE_PRIVATE)
 
     private val defaults = listOf(
-        Cmd("d1", "প্যাকেজ আপডেট", "pkg update -y && pkg upgrade -y"),
+        Cmd("d1", "প্যাকেজ আপডেট ও আপগ্রেড", "pkg update -y && pkg upgrade -y && echo 'সম্পন্ন'"),
         Cmd("d2", "স্টোরেজ অনুমতি", "termux-setup-storage", false),
-        Cmd("d3", "Python ইনস্টল", "pkg install -y python"),
-        Cmd("d4", "Git ইনস্টল", "pkg install -y git"),
-        Cmd("d5", "Node.js ইনস্টল", "pkg install -y nodejs"),
-        Cmd("d6", "SSH সার্ভার চালু", "pkg install -y openssh && sshd && echo 'sshd চালু, পোর্ট 8022' && whoami"),
+        Cmd("d3", "Python ইনস্টল", "pkg install -y python && python --version && pip --version"),
+        Cmd("d4", "Git ইনস্টল", "pkg install -y git && git --version"),
+        Cmd("d5", "Node.js ইনস্টল", "pkg install -y nodejs && node -v && npm -v"),
+        Cmd("d6", "SSH সার্ভার চালু", "pkg install -y openssh || exit 1\npkill -x sshd 2>/dev/null; sshd && echo 'sshd চালু, পোর্ট 8022'\necho \"ব্যবহারকারী: \$(whoami)\"\necho 'পাসওয়ার্ড সেট করতে Termux স্ক্রিনে passwd চালান'"),
         Cmd("d7", "ডিস্ক ব্যবহার", "df -h \$HOME"),
         Cmd("d8", "আইপি দেখুন", "(command -v ifconfig >/dev/null || pkg install -y net-tools) && ifconfig 2>/dev/null | grep -E \"inet |wlan|rmnet\" || /system/bin/ip -4 addr 2>/dev/null | grep inet"),
         Cmd("d9", "সিস্টেম তথ্য", "uname -a && echo && free -h 2>/dev/null | head -3"),
         Cmd("d10", "🖥 কম্পিউটার মোড (হালকা ডেস্কটপ)", DESKTOP),
         // ওয়েব-টার্মিনাল: Termux-এ ttyd চালু হয়, তারপর অ্যাপ নতুন ট্যাবে খোলে। শুধু 127.0.0.1-এ, পাসওয়ার্ডসহ (@@WEBPW@@ অ্যাপ বসায়)
         Cmd("d12", "🌐 ওয়েব-টার্মিনাল (ট্যাবে পূর্ণ টার্মিনাল)",
-            "pkg install -y ttyd && { pkill -x ttyd 2>/dev/null; nohup setsid ttyd -W -i 127.0.0.1 -p 7681 -c tb:@@WEBPW@@ bash -l >/dev/null 2>&1 & sleep 2; echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; }"),
+            "pkg install -y ttyd || exit 1\n" +
+            "pkill -x ttyd 2>/dev/null; sleep 1\n" +
+            "nohup ttyd -W -i 127.0.0.1 -p 7681 -c tb:@@WEBPW@@ bash -l >/dev/null 2>&1 &\n" +
+            "sleep 3\n" +
+            "if curl -s -o /dev/null --max-time 5 -u tb:@@WEBPW@@ http://127.0.0.1:7681/; then echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; else echo 'ttyd চালু হয়নি — উপরের ত্রুটি দেখুন'; exit 1; fi"),
         Cmd("d13", "⏹ আটকে থাকা প্যাকেজ কাজ থামান",
             "pkill -x apt 2>/dev/null; pkill -x apt-get 2>/dev/null; pkill -x dpkg 2>/dev/null; sleep 1; dpkg --configure -a --force-confold 2>&1 | tail -5; echo 'থামানো হয়েছে — এখন নতুন কমান্ড চালাতে পারেন'"),
         // ধীর/আটকে যাওয়া মিরর থেকে Termux-এর ডিফল্ট (Cloudflare) মিররে ফেরায়। আগে পৌঁছানো যায় কিনা যাচাই করে, পুরনো ফাইলের কপি রাখে
@@ -145,6 +158,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 5) { out.filter { it.id == "d10" }.forEach { it.background = true }; changed = true }
         // পুরনো কম্পিউটার-মোড স্ক্রিপ্ট ব্যর্থ ইনস্টলেও X11 খুলত — নতুনটা বসাই
         if (sp(c).getInt("ver", 1) < 6) { out.filter { it.id == "d10" }.forEach { it.script = DESKTOP }; changed = true }
+        // v7: কমান্ডগুলো নিজে-সারানো প্রিলুড ও পূর্ণ কম্পিউটার-মোড স্ক্রিপ্টে নতুন করে বসানো
+        if (sp(c).getInt("ver", 1) < 7) { out.forEach { o -> defaults.firstOrNull { it.id == o.id }?.let { n -> o.script = n.script; o.title = n.title } }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -153,7 +168,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 6)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 7)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
