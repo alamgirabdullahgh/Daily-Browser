@@ -20,6 +20,8 @@ object Updater {
 
     /** অ্যাপের পর্দা এখন সামনে আছে কি না (MainActivity ঠিক করে) — সামনে থাকলে ফোন নীরব ইনস্টল না করে নিশ্চিত-পর্দা চায় */
     @Volatile var fg = false
+    /** ইনস্টল বাতিল/ব্যর্থ হলে বোতাম আগের অবস্থায় ফেরাতে (MainActivity বসায়) */
+    @Volatile var onFail: (() -> Unit)? = null
     private const val MAX_SILENT_FAILS = 3
     private fun sp(c: Context) = c.getSharedPreferences("updater", Context.MODE_PRIVATE)
 
@@ -40,24 +42,20 @@ object Updater {
         val s = sp(c)
         if (s.getBoolean("inst_silent", false) && !s.getBoolean("inst_pending", false)) noteSilentOk(c)
         s.edit().remove("inst_silent").remove("inst_pending").apply()
+        // আপডেটের পর কোনো নোটিফিকেশন নয় (শব্দ/ব্যানার বন্ধ); শুধু অ্যাপ আবার খোলার চেষ্টা
         try {
-            val nm = c.getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(NotificationChannel("updated", "আপডেট সম্পন্ন", NotificationManager.IMPORTANCE_DEFAULT))
             val go = Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             try { c.startActivity(go) } catch (_: Exception) {}
-            val pi = PendingIntent.getActivity(c, 13, go, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            nm.notify(13, Notification.Builder(c, "updated").setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setContentTitle("Daily Browser আপডেট হয়েছে").setContentText("সংস্করণ ${curVer(c)} চালু। খুলতে চাপুন")
-                .setContentIntent(pi).setAutoCancel(true).build())
+            c.getSystemService(NotificationManager::class.java).deleteNotificationChannel("updated")
         } catch (_: Exception) {}
     }
     /** নিশ্চিত করার পর্দা ব্যাকগ্রাউন্ড থেকে খোলা যায় না, তাই নোটিফিকেশনে চাপলে খোলে */
     fun confirmNotice(c: Context, ui: Intent) {
         try {
             val nm = c.getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(NotificationChannel("update", "Daily Browser আপডেট", NotificationManager.IMPORTANCE_HIGH))
+            nm.createNotificationChannel(NotificationChannel("update_q", "Daily Browser আপডেট", NotificationManager.IMPORTANCE_LOW))
             val pi = PendingIntent.getActivity(c, 12, ui, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-            nm.notify(12, Notification.Builder(c, "update").setSmallIcon(android.R.drawable.stat_sys_download_done)
+            nm.notify(12, Notification.Builder(c, "update_q").setSmallIcon(android.R.drawable.stat_sys_download_done)
                 .setContentTitle("Daily Browser-এর নতুন সংস্করণ তৈরি").setContentText("চাপুন — ইনস্টল নিশ্চিত করুন")
                 .setContentIntent(pi).setAutoCancel(true).build())
         } catch (_: Exception) {}
@@ -131,6 +129,7 @@ class UpdateReceiver : BroadcastReceiver() {
             else -> {
                 Updater.markPending(c)
                 if (i.getBooleanExtra("silent", false)) Updater.noteSilentFail(c)
+                try { Updater.onFail?.invoke() } catch (_: Exception) {}
                 Toast.makeText(c, "আপডেট হয়নি: " + (i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""), Toast.LENGTH_LONG).show()
             }
         }

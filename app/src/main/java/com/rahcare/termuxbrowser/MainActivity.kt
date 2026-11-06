@@ -69,6 +69,9 @@ class MainActivity : Activity() {
     private var upd: Updater.Info? = null
     private var updBusy = false
     private var pendingInstall = false
+    private lateinit var updBtn: TextView   // নিচের ভাসমান আপডেট বোতাম (AutoReply-এর মতো)
+    private var updPct = -1
+    private var updTxt = ""
     private lateinit var banner: TextView
     private lateinit var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
     private var fileCb: ValueCallback<Array<Uri>>? = null     // ওয়েবসাইটের "ফাইল বাছুন" অনুরোধ
@@ -225,7 +228,44 @@ class MainActivity : Activity() {
             setOnRefreshListener { reloadCur(); handler.postDelayed({ isRefreshing = false }, 1500L) }
         }
         root.addView(swipe, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
+        // নিচে ভাসমান আপডেট বোতাম (AutoReply-এর মতো): নতুন সংস্করণ থাকলে মূল পেজে দেখায়; চাপলে বোতামটাই প্রগ্রেস বার হয়ে যায়
+        updBtn = object : TextView(this) {
+            private val fp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+            private val tp = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                textAlign = android.graphics.Paint.Align.CENTER
+                color = Color.WHITE
+                textSize = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, 17f, resources.displayMetrics)
+            }
+            override fun onDraw(c: Canvas) {
+                if (updBusy) {
+                    val w = width.toFloat(); val h = height.toFloat(); val r = h / 2
+                    fp.color = Color.parseColor("#93C5FD")
+                    c.drawRoundRect(0f, 0f, w, h, r, r, fp)
+                    if (updPct >= 0) {
+                        fp.color = Color.parseColor("#1D4ED8")
+                        c.save(); c.clipRect(0f, 0f, w * updPct / 100f, h)
+                        c.drawRoundRect(0f, 0f, w, h, r, r, fp)
+                        c.restore()
+                    }
+                }
+                super.onDraw(c)
+                if (updBusy && updTxt.isNotEmpty()) {
+                    val y = height / 2f - (tp.descent() + tp.ascent()) / 2f
+                    c.drawText(updTxt, width / 2f, y, tp)
+                }
+            }
+        }.apply {
+            text = "Update"; textSize = 22f; includeFontPadding = false
+            setTextColor(Color.WHITE); setTypeface(typeface, Typeface.BOLD); gravity = Gravity.CENTER
+            background = bg(Color.parseColor("#2563EB"), 26)
+            elevation = dp(6).toFloat(); visibility = View.GONE
+            setOnClickListener { if (!updBusy) startUpdate() }
+        }
+        val frame = FrameLayout(this)
+        frame.addView(root, FrameLayout.LayoutParams(-1, -1))
+        frame.addView(updBtn, FrameLayout.LayoutParams(dp(170), dp(52), Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL).apply { bottomMargin = dp(27) })
+        setContentView(frame)
 
         // আগের চালুর ইনকগনিটো প্রোফাইল (অ্যাপ হঠাৎ বন্ধ হলে থেকে যেতে পারে) মুছে দিই
         try {
@@ -343,6 +383,7 @@ class MainActivity : Activity() {
         super.onResume()
         Updater.fg = true
         AutoUpdate.fg = true; AutoUpdate.schedule(this)
+        Updater.onFail = { runOnUiThread { if (updBusy) resetUpd() } }
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(rx, IntentFilter(REFRESH), Context.RECEIVER_NOT_EXPORTED)
         else registerReceiver(rx, IntentFilter(REFRESH))
         Live.onUpdate = { _ -> handler.post { scheduleRefresh() } }
@@ -373,12 +414,22 @@ class MainActivity : Activity() {
         }
     }
 
-    // আপডেট এখন নিজে নিজে হয় (ব্যাকগ্রাউন্ডে), তাই ব্যানার দেখাই না; শুধু "অজানা উৎস" অনুমতি না থাকলে একবার জানাই
-    private fun showBanner() {
-        val u = upd
-        if (u == null || updBusy) { if (!updBusy) banner.visibility = View.GONE; return }
-        if (packageManager.canRequestPackageInstalls()) { banner.visibility = View.GONE; return }
-        banner.text = "⬆ নতুন সংস্করণ — নিজে নিজে আপডেটের জন্য একবার অনুমতি দিন (চাপুন)"; banner.visibility = View.VISIBLE
+    // ব্যানার আর নেই: নতুন সংস্করণ এলে নিচের বোতাম দেখায়, আর আপডেট নিজে নিজেও ব্যাকগ্রাউন্ডে হয়ে যায়
+    private fun showBanner() { banner.visibility = View.GONE; refreshUpdBtn() }
+
+    /** বোতাম শুধু মূল পেজে (বা আপডেট চলার সময়) দেখায়, নতুন সংস্করণ না থাকলে লুকানো থাকে */
+    private fun refreshUpdBtn() {
+        if (!::updBtn.isInitialized) return
+        val switcherOpen = overlay?.parent != null
+        val show = (upd != null || updBusy) && cur?.isHome == true && !switcherOpen
+        if (!updBusy) updBtn.text = if (packageManager.canRequestPackageInstalls()) "Update" else "Allow update"
+        updBtn.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    private fun resetUpd() {
+        updBusy = false; updPct = -1; updTxt = ""
+        updBtn.setTextColor(Color.WHITE)
+        updBtn.invalidate(); refreshUpdBtn()
     }
 
     private fun startUpdate() {
@@ -390,30 +441,21 @@ class MainActivity : Activity() {
             startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
             return
         }
-        val silent = Updater.silentAllowed(this)
-        updBusy = true; banner.visibility = View.VISIBLE; banner.text = "ডাউনলোড হচ্ছে… 0%"
-        // নীরব ইনস্টলে ফোন তখনই নিশ্চিত-পর্দা দেখায় না যখন অ্যাপ সামনে নেই — তাই চাপার পর অ্যাপ ব্যাকগ্রাউন্ডে পাঠাই, বাকিটা নিজে হবে
-        if (silent) { Toast.makeText(this, "আপডেট নিজে হয়ে যাবে — কিছু চাপতে হবে না", Toast.LENGTH_LONG).show(); moveTaskToBack(true) }
-        runInstall(u, silent)
+        // বোতামটাই প্রগ্রেস বার; অ্যাপ সামনে থাকায় নিশ্চিত-পর্দা স্বাভাবিক (নীরব ইনস্টল ব্যাকগ্রাউন্ডে নিজে হয়)
+        updBusy = true; updPct = 0; updTxt = "0%"
+        updBtn.setTextColor(Color.argb(115, 255, 255, 255))
+        updBtn.invalidate(); refreshUpdBtn()
+        runInstall(u, false)
     }
 
     private fun runInstall(u: Updater.Info, silent: Boolean) {
         Thread {
-            val err = Updater.install(this, u.url, silent) { p -> runOnUiThread { banner.text = if (p < 100) "ডাউনলোড হচ্ছে… $p%" else "ইনস্টল হচ্ছে…" } }
+            val err = Updater.install(this, u.url, silent) { p -> runOnUiThread { updPct = p; updTxt = if (p < 100) "$p%" else "Installing…"; updBtn.invalidate() } }
             runOnUiThread {
-                if (err != null) { updBusy = false; showBanner(); Toast.makeText(this, "আপডেট শুরু হয়নি ($err)", Toast.LENGTH_LONG).show() }
-                else handler.postDelayed({ updBusy = false; showBanner() }, 60000L)
+                if (err != null) { resetUpd(); Toast.makeText(this, "আপডেট শুরু হয়নি ($err)", Toast.LENGTH_LONG).show() }
+                else handler.postDelayed({ if (updBusy) resetUpd() }, 180000L)
             }
         }.start()
-    }
-
-    /** অ্যাপ থেকে বের হলে (ব্যাকগ্রাউন্ডে গেলে) নতুন সংস্করণ থাকলে নিজে নামিয়ে নীরবে ইনস্টল করে */
-    private fun autoUpdate() {
-        val u = upd ?: return
-        if (updBusy || !packageManager.canRequestPackageInstalls() || !Updater.silentAllowed(this)) return
-        if (!Updater.autoTry(this, u.v)) return
-        updBusy = true
-        runInstall(u, true)
     }
 
     override fun onPause() {
@@ -625,6 +667,7 @@ class MainActivity : Activity() {
 
     private fun updateBar() {
         countBox.text = tabs.size.toString()
+        refreshUpdBtn()
         val t = cur ?: return
         if (!address.hasFocus()) address.setText(if (t.isHome || t.url == "about:blank") "" else if (t.jobKey != null) "⚙ " + t.title else t.url)
         address.hint = if (t.isHome) "Termux হোম — সার্চ বা ঠিকানা লিখুন" else "সার্চ বা ঠিকানা লিখুন"
