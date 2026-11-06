@@ -22,6 +22,9 @@ import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import androidx.core.view.inputmethod.EditorInfoCompat
+import androidx.core.view.inputmethod.InputConnectionCompat
 import android.webkit.*
 import android.widget.*
 import org.json.JSONArray
@@ -230,6 +233,7 @@ class MainActivity : Activity() {
             Toast.makeText(this, "GitHub লগইন রিসেট হয়েছে — প্রতিটি ওয়ার্কস্পেসে নিজের অ্যাকাউন্টে লগইন করুন", Toast.LENGTH_LONG).show()
         }
         watchNetwork()
+        try { java.io.File(cacheDir, "up").listFiles()?.forEach { if (System.currentTimeMillis() - it.lastModified() > 24 * 3600 * 1000L) it.deleteRecursively() } } catch (_: Exception) {}
         restore()
         if (tabs.isEmpty()) { newTab(null); openHome() }
         handleIntent(intent)
@@ -248,7 +252,57 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(rc: Int, res: Int, data: Intent?) {
         super.onActivityResult(rc, res, data)
-        if (rc == 4711) { fileCb?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(res, data)); fileCb = null }
+        if (rc == 4711) {
+            val cb = fileCb; fileCb = null
+            if (cb == null) return
+            // একাধিক ছবি: clipData-র সব ছবি + data.data নিই
+            val uris = linkedSetOf<Uri>()
+            if (res == RESULT_OK && data != null) {
+                data.clipData?.let { cd -> for (k in 0 until cd.itemCount) cd.getItemAt(k).uri?.let { uris.add(it) } }
+                data.data?.let { uris.add(it) }
+            }
+            if (uris.isEmpty()) { cb.onReceiveValue(null); return }
+            // বাছাইয়ের অ্যাপের অস্থায়ী অনুমতি হারিয়ে যেতে পারে (Chrome-এর মতো) — তাই ফাইলগুলো নিজের ক্যাশে কপি করে সেটা দিই
+            Thread {
+                val out = uris.map { copyPicked(it) ?: it }
+                runOnUiThread { cb.onReceiveValue(out.toTypedArray()) }
+            }.start()
+        }
+    }
+
+    /** বাছাই করা ফাইল ক্যাশে নাম-সহ কপি করে file:// ঠিকানা দেয়; না পারলে null (তখন আসল ঠিকানাই যায়) */
+    private fun copyPicked(u: Uri): Uri? = try {
+        if (u.scheme == "file") null else {
+            var name = "file"
+            contentResolver.query(u, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+                if (c.moveToFirst()) c.getString(0)?.let { name = it }
+            }
+            name = name.replace('/', '_').ifBlank { "file" }
+            val dir = java.io.File(cacheDir, "up/" + System.nanoTime()); dir.mkdirs()
+            val f = java.io.File(dir, name)
+            contentResolver.openInputStream(u)?.use { i -> f.outputStream().use { o -> i.copyTo(o) } } ?: throw Exception("empty")
+            Uri.fromFile(f)
+        }
+    } catch (_: Exception) { null }
+
+    /** কিবোর্ড/পেস্ট থেকে আসা ছবি পড়ে ওয়েবপেজে "পেস্ট" হিসেবে পাঠায় */
+    private fun pasteImage(w: WebView, uri: Uri, mime0: String?) {
+        val mime = if (mime0 != null && mime0.startsWith("image/")) mime0 else "image/png"
+        Thread {
+            try {
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: throw Exception("empty")
+                if (bytes.size > 12 * 1024 * 1024) { runOnUiThread { Toast.makeText(this, "ছবিটা অনেক বড় (১২ MB-র বেশি)", Toast.LENGTH_LONG).show() }; return@Thread }
+                val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                val ext = mime.substringAfter('/').substringBefore('+').ifBlank { "png" }
+                val js = Sites.pasteImageJs(b64, mime, "image.$ext")
+                runOnUiThread {
+                    w.evaluateJavascript(js) { r ->
+                        if (r == null || !(r.contains("pasted") || r.contains("input")))
+                            Toast.makeText(this, "ছবি বসানো যায়নি — ＋ চেপে গ্যালারি থেকে দিন", Toast.LENGTH_LONG).show()
+                    }
+                }
+            } catch (_: Exception) { runOnUiThread { Toast.makeText(this, "ক্লিপবোর্ডের ছবি পড়া যায়নি", Toast.LENGTH_LONG).show() } }
+        }.start()
     }
 
     /** ওয়েবসাইট ক্যামেরা/মাইক চাইলে: আগে ব্যবহারকারীকে জিজ্ঞেস, তারপর Android-এর অনুমতি, তারপর সাইটকে দেওয়া */
@@ -376,7 +430,33 @@ class MainActivity : Activity() {
 
     // ---------- ট্যাব ----------
     private fun newTab(url: String?, site: String? = null, incognito: Boolean = false, reuseProfile: String? = null): Tab {
-        val w = WebView(this)
+        val w = object : WebView(this@MainActivity) {
+            // কিবোর্ডের (Gboard ইত্যাদি) ক্লিপবোর্ড/স্ক্রিনশট থেকে ছবি পাঠানো: ওয়েবভিউকে জানাতে হয় যে এই ঘর ছবি নিতে পারে
+            override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+                val ic = super.onCreateInputConnection(outAttrs) ?: return null
+                EditorInfoCompat.setContentMimeTypes(outAttrs, arrayOf("image/png", "image/jpeg", "image/gif", "image/webp"))
+                return InputConnectionCompat.createWrapper(ic, outAttrs) { info, flags, _ ->
+                    if ((flags and InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION) != 0) {
+                        try { info.requestPermission() } catch (_: Exception) { return@createWrapper false }
+                    }
+                    pasteImage(this, info.contentUri, info.description.getMimeType(0))
+                    true
+                }
+            }
+            // লম্বা চাপ › "পেস্ট" মেনু: ক্লিপবোর্ডে শুধু ছবি থাকলে সেটাই বসায়
+            override fun onTextContextMenuItem(id: Int): Boolean {
+                if (id == android.R.id.paste) {
+                    try {
+                        val c = (context.getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).primaryClip
+                        val u = c?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+                        if (c != null && u != null && c.description.hasMimeType("image/*") && !c.description.hasMimeType("text/plain")) {
+                            pasteImage(this, u, c.description.getMimeType(0)); return true
+                        }
+                    } catch (_: Exception) {}
+                }
+                return super.onTextContextMenuItem(id)
+            }
+        }
         // আলাদা লগইন-প্রোফাইল WebView-এর অন্য কোনো কাজের আগেই বসাতে হয়; না বসলে লগইন মিশে যেত, তাই তখন সাইট লোডই করি না
         var siteOk: String? = null
         if (site != null) {

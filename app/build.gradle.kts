@@ -45,4 +45,6 @@ dependencies {
     implementation("androidx.webkit:webkit:1.12.1")
     // টেনে রিফ্রেশ (পেজের একদম ওপরে নামিয়ে টানলে রিলোড)
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
+    // কিবোর্ডের ক্লিপবোর্ড থেকে ছবি বসানো (InputConnectionCompat)
+    implementation("androidx.core:core:1.13.1")
 }
