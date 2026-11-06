@@ -337,6 +337,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        Updater.fg = true
         if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(rx, IntentFilter(REFRESH), Context.RECEIVER_NOT_EXPORTED)
         else registerReceiver(rx, IntentFilter(REFRESH))
         Live.onUpdate = { _ -> handler.post { scheduleRefresh() } }
@@ -370,7 +371,7 @@ class MainActivity : Activity() {
     private fun showBanner() {
         val u = upd
         if (u == null || updBusy) { if (!updBusy) banner.visibility = View.GONE; return }
-        banner.text = "⬆ নতুন সংস্করণ এসেছে — চাপুন, আপডেট হয়ে যাবে"; banner.visibility = View.VISIBLE
+        banner.text = "⬆ নতুন সংস্করণ এসেছে — অ্যাপ থেকে বের হলে নিজে আপডেট হবে (বা চাপুন)"; banner.visibility = View.VISIBLE
     }
 
     private fun startUpdate() {
@@ -382,9 +383,16 @@ class MainActivity : Activity() {
             startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
             return
         }
-        updBusy = true; banner.text = "ডাউনলোড হচ্ছে… 0%"
+        val silent = Updater.silentAllowed(this)
+        updBusy = true; banner.visibility = View.VISIBLE; banner.text = "ডাউনলোড হচ্ছে… 0%"
+        // নীরব ইনস্টলে ফোন তখনই নিশ্চিত-পর্দা দেখায় না যখন অ্যাপ সামনে নেই — তাই চাপার পর অ্যাপ ব্যাকগ্রাউন্ডে পাঠাই, বাকিটা নিজে হবে
+        if (silent) { Toast.makeText(this, "আপডেট নিজে হয়ে যাবে — কিছু চাপতে হবে না", Toast.LENGTH_LONG).show(); moveTaskToBack(true) }
+        runInstall(u, silent)
+    }
+
+    private fun runInstall(u: Updater.Info, silent: Boolean) {
         Thread {
-            val err = Updater.install(this, u.url) { p -> runOnUiThread { banner.text = if (p < 100) "ডাউনলোড হচ্ছে… $p%" else "ইনস্টল হচ্ছে…" } }
+            val err = Updater.install(this, u.url, silent) { p -> runOnUiThread { banner.text = if (p < 100) "ডাউনলোড হচ্ছে… $p%" else "ইনস্টল হচ্ছে…" } }
             runOnUiThread {
                 if (err != null) { updBusy = false; showBanner(); Toast.makeText(this, "আপডেট শুরু হয়নি ($err)", Toast.LENGTH_LONG).show() }
                 else handler.postDelayed({ updBusy = false; showBanner() }, 60000L)
@@ -392,8 +400,19 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    /** অ্যাপ থেকে বের হলে (ব্যাকগ্রাউন্ডে গেলে) নতুন সংস্করণ থাকলে নিজে নামিয়ে নীরবে ইনস্টল করে */
+    private fun autoUpdate() {
+        val u = upd ?: return
+        if (updBusy || !packageManager.canRequestPackageInstalls() || !Updater.silentAllowed(this)) return
+        if (!Updater.autoTry(this, u.v)) return
+        updBusy = true
+        runInstall(u, true)
+    }
+
     override fun onPause() {
         super.onPause()
+        Updater.fg = false
+        autoUpdate()
         handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher)
         try { unregisterReceiver(rx) } catch (_: Exception) {}
         Live.onUpdate = null

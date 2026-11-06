@@ -6,6 +6,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.widget.Toast
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.os.Build
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -13,6 +17,51 @@ import java.net.URL
 object Updater {
     private const val REPO = "alamgirabdullahgh/Daily-Browser"
     class Info(val v: Int, val url: String)
+
+    /** অ্যাপের পর্দা এখন সামনে আছে কি না (MainActivity ঠিক করে) — সামনে থাকলে ফোন নীরব ইনস্টল না করে নিশ্চিত-পর্দা চায় */
+    @Volatile var fg = false
+    private const val MAX_SILENT_FAILS = 3
+    private fun sp(c: Context) = c.getSharedPreferences("updater", Context.MODE_PRIVATE)
+
+    /** নিশ্চিত-পর্দা ছাড়া (নীরব) ইনস্টল চেষ্টা করা যাবে কি না: Android 12+, এবং পরপর ৩ বার ফোন আটকে না থাকলে */
+    fun silentAllowed(c: Context) = Build.VERSION.SDK_INT >= 31 && sp(c).getInt("silent_fail", 0) < MAX_SILENT_FAILS
+    fun noteSilentFail(c: Context) { sp(c).edit().putInt("silent_fail", sp(c).getInt("silent_fail", 0) + 1).apply() }
+    fun noteSilentOk(c: Context) { sp(c).edit().putInt("silent_fail", 0).apply() }
+    /** একই সংস্করণের জন্য নিজে থেকে চেষ্টা সর্বোচ্চ ৩ বার */
+    fun autoTry(c: Context, v: Int): Boolean {
+        val n = if (sp(c).getInt("auto_v", 0) == v) sp(c).getInt("auto_n", 0) else 0
+        if (n >= 3) return false
+        sp(c).edit().putInt("auto_v", v).putInt("auto_n", n + 1).apply(); return true
+    }
+    fun markSilent(c: Context, silent: Boolean) { sp(c).edit().putBoolean("inst_silent", silent).putBoolean("inst_pending", false).apply() }
+    fun markPending(c: Context) { sp(c).edit().putBoolean("inst_pending", true).apply() }
+    /** আপডেটের পর নতুন সংস্করণ চালু হলে: নীরব ইনস্টল কাজ করেছিল কি না মিলিয়ে দেখে */
+    fun afterUpdate(c: Context) {
+        val s = sp(c)
+        if (s.getBoolean("inst_silent", false) && !s.getBoolean("inst_pending", false)) noteSilentOk(c)
+        s.edit().remove("inst_silent").remove("inst_pending").apply()
+        try {
+            val nm = c.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(NotificationChannel("updated", "আপডেট সম্পন্ন", NotificationManager.IMPORTANCE_DEFAULT))
+            val go = Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            try { c.startActivity(go) } catch (_: Exception) {}
+            val pi = PendingIntent.getActivity(c, 13, go, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            nm.notify(13, Notification.Builder(c, "updated").setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("Daily Browser আপডেট হয়েছে").setContentText("সংস্করণ ${curVer(c)} চালু। খুলতে চাপুন")
+                .setContentIntent(pi).setAutoCancel(true).build())
+        } catch (_: Exception) {}
+    }
+    /** নিশ্চিত করার পর্দা ব্যাকগ্রাউন্ড থেকে খোলা যায় না, তাই নোটিফিকেশনে চাপলে খোলে */
+    fun confirmNotice(c: Context, ui: Intent) {
+        try {
+            val nm = c.getSystemService(NotificationManager::class.java)
+            nm.createNotificationChannel(NotificationChannel("update", "Daily Browser আপডেট", NotificationManager.IMPORTANCE_HIGH))
+            val pi = PendingIntent.getActivity(c, 12, ui, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            nm.notify(12, Notification.Builder(c, "update").setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("Daily Browser-এর নতুন সংস্করণ তৈরি").setContentText("চাপুন — ইনস্টল নিশ্চিত করুন")
+                .setContentIntent(pi).setAutoCancel(true).build())
+        } catch (_: Exception) {}
+    }
 
     fun curVer(c: Context): Int {
         @Suppress("DEPRECATION")
@@ -29,9 +78,11 @@ object Updater {
     } catch (e: Exception) { null }
 
     /** APK নামিয়ে PackageInstaller-এ দেয়; ব্যাকগ্রাউন্ড থ্রেডে ডাকুন। ব্যর্থ হলে বার্তা ফেরত */
-    fun install(c: Context, url: String, progress: (Int) -> Unit): String? {
+    fun install(c: Context, url: String, silent: Boolean, progress: (Int) -> Unit): String? {
         val inst = c.packageManager.packageInstaller
         val p = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        if (Build.VERSION.SDK_INT >= 31) p.setRequireUserAction(
+            if (silent) PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED else PackageInstaller.SessionParams.USER_ACTION_REQUIRED)
         val id = inst.createSession(p)
         return try {
             val s = inst.openSession(id)
@@ -50,8 +101,9 @@ object Updater {
                     s.fsync(out)
                 }
             }
-            val pi = PendingIntent.getBroadcast(c, id, Intent(c, UpdateReceiver::class.java),
+            val pi = PendingIntent.getBroadcast(c, id, Intent(c, UpdateReceiver::class.java).putExtra("silent", silent),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+            markSilent(c, silent)
             s.commit(pi.intentSender); null
         } catch (e: Exception) {
             try { inst.abandonSession(id) } catch (_: Exception) {}
@@ -60,17 +112,32 @@ object Updater {
     }
 }
 
-/** ইনস্টলারের ফল; নিশ্চিত করার পর্দা লাগলে খোলে */
+/** ইনস্টলারের ফল; নিশ্চিত করার পর্দা লাগলে: অ্যাপ সামনে থাকলে সরাসরি খোলে, নইলে নোটিফিকেশন */
 class UpdateReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         when (i.getIntExtra(PackageInstaller.EXTRA_STATUS, -1)) {
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
                 @Suppress("DEPRECATION")
                 val ui = i.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
-                if (ui != null) try { c.startActivity(ui.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                Updater.markPending(c)
+                if (i.getBooleanExtra("silent", false)) Updater.noteSilentFail(c)
+                if (ui != null) {
+                    ui.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (Updater.fg) { try { c.startActivity(ui) } catch (_: Exception) { Updater.confirmNotice(c, ui) } }
+                    else Updater.confirmNotice(c, ui)
+                }
             }
             PackageInstaller.STATUS_SUCCESS -> {}
-            else -> Toast.makeText(c, "আপডেট হয়নি: " + (i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""), Toast.LENGTH_LONG).show()
+            else -> {
+                Updater.markPending(c)
+                if (i.getBooleanExtra("silent", false)) Updater.noteSilentFail(c)
+                Toast.makeText(c, "আপডেট হয়নি: " + (i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: ""), Toast.LENGTH_LONG).show()
+            }
         }
     }
+}
+
+/** আপডেটের পর নতুন সংস্করণ চালু হলে */
+class BootReceiver : BroadcastReceiver() {
+    override fun onReceive(c: Context, i: Intent) { if (i.action == Intent.ACTION_MY_PACKAGE_REPLACED) Updater.afterUpdate(c) }
 }
