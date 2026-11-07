@@ -16,11 +16,11 @@ footer{padding:8px;border-top:1px solid var(--bd);display:flex;gap:8px;backgroun
 textarea,input{flex:1;font:inherit;padding:9px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);resize:none}
 button{font:inherit;border:0;border-radius:10px;padding:0 16px;background:var(--g);color:#fff;font-weight:700}
 #setup{padding:12px;display:none;flex-direction:column;gap:8px}
-</style></head><body>
+footer{align-items:flex-end} footer textarea{min-height:120px;max-height:50vh;line-height:1.5;font-size:16px;padding:12px} footer button{min-height:52px;padding:0 20px}</style></head><body>
 <header>🧭 এজেন্ট হাব <span id="ts" style="float:right;font-weight:400;font-size:12px;color:var(--mu)"></span></header>
 <div id="setup"><b>প্রথমবার: GitHub টোকেন দিন (শুধু এই ফোনে থাকবে)</b><input id="tok" type="password" placeholder="github_pat_..."><button onclick="saveTok()" style="padding:10px">সংরক্ষণ</button></div>
 <main id="m"><div class="row" id="ags"></div><div id="tasks"></div><div><b style="font-size:13px">ঘটনা</b><div id="evs"></div></div></main>
-<footer id="f"><textarea id="t" rows="2" placeholder="কমান্ড লিখুন — নতুন কাজ হিসেবে সারিতে যাবে (যেমন: ২৪:৩১-এর মতো সব মার্ক যাচাই করো)"></textarea><button onclick="send()">পাঠাও</button></footer>
+<footer id="f"><textarea id="t" rows="5" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,window.innerHeight*0.5)+'px'" placeholder="কমান্ড লিখুন — নতুন কাজ হিসেবে সারিতে যাবে (যেমন: ২৪:৩১-এর মতো সব মার্ক যাচাই করো)"></textarea><button onclick="send()">পাঠাও</button></footer>
 <script>
 const REPO="alamgirabdullahgh/daily-ruqyah",BR="agent-bus",API=`https://api.github.com/repos/${REPO}/contents/bus.json`;
 const tok=()=>localStorage.getItem("gh_tok")||"";
