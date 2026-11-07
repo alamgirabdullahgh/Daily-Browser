@@ -1765,10 +1765,9 @@ class MainActivity : Activity() {
         val d = android.app.Dialog(this)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val groups = listOf(
+            "এজেন্ট এবং ওয়ার্কস্পেস" to listOf(50, 9, 11, 10, 15, 14, 17),
             "পেজ" to listOf(20, 23, 24, 25, 26, 3, 29, 2, 12, 1),
             "লাইব্রেরি" to listOf(21, 22, 30, 27),
-            "এজেন্ট" to listOf(50),
-            "ওয়ার্কস্পেস" to listOf(9, 11, 10, 15, 14, 17),
             "GitHub" to listOf(18, 13, 16, 40, 41, 42),
             "Termux" to listOf(4, 5),
             "অ্যাপ" to listOf(6, 7)
