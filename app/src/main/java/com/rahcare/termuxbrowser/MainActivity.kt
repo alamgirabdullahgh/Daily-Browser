@@ -1745,6 +1745,29 @@ class MainActivity : Activity() {
         select(t)
     }
 
+    // ---------- ডেইলি এডিট: বিষয় লিখলে নির্দেশসহ সরাসরি Gemini এজেন্টের চ্যাটে যায় ----------
+    private fun dailyEdit() {
+        val sites = Sites.all(this)
+        val gem = tabs.firstOrNull { t -> t.site != null && sites.firstOrNull { it.id == t.site }?.let { AgentBus.agentOf(it) } == "gemini" }
+        if (gem == null) { Toast.makeText(this, "আগে Gemini ওয়ার্কস্পেসের একটি ট্যাব খুলুন", Toast.LENGTH_LONG).show(); return }
+        val et = EditText(this).apply { hint = "কী ভিডিও বানাতে চান? যেমন: একটি হরিণের গল্প"; minLines = 2 }
+        AlertDialog.Builder(this).setTitle("🎬 ডেইলি এডিট").setView(et)
+            .setPositiveButton("পাঠাও") { _, _ ->
+                val req = et.text.toString().trim()
+                if (req.isNotEmpty()) {
+                    select(gem)
+                    fillInput(gem, "অনুরোধ: $req\n\n" + DAILY_EDIT_STEPS, 0, true)
+                }
+            }.setNegativeButton("বন্ধ", null).show()
+    }
+
+    private val DAILY_EDIT_STEPS = "তুমি আমার ভিডিও এডিটর এজেন্ট। উপরের অনুরোধের ভিডিও ব্রাউজারে ওয়েবসাইট খুলে নিজে ক্লিক করে বানাও (কোনো API বা কোড লাগবে না)। ধাপ:\n" +
+        "১) স্ক্রিপ্ট: ৪–৮টি দৃশ্যের স্ক্রিপ্ট লেখো (প্রতি দৃশ্যে বাংলা narration + ছবির ইংরেজি বর্ণনা; সব ছবির স্টাইল ও মূল চরিত্র একই রাখো)।\n" +
+        "২) অডিও: aistudio.google.com-এর অডিও (Generate speech) ফিচারে পুরো narration দিয়ে ভয়েস বানাও ও নামাও।\n" +
+        "৩) ছবি: প্রতিটি দৃশ্যের ছবি Gemini-র ছবি তৈরির (Nano Banana) ফিচারে বানাও ও নামাও।\n" +
+        "৪) ভিডিও: ছবি ও অডিও Google Vids বা YouTube Shorts-এর ভিডিও তৈরির অপশনে জুড়ে সম্পূর্ণ ভিডিও বানাও।\n" +
+        "৫) শেষে ভিডিওর লিংক বা ফাইলের নাম আমাকে জানাও। কোনো ধাপে আটকালে (লগইন, ক্যাপচা, লিমিট) কোথায় আটকাল বলো।"
+
     private fun openAgentHub() {
         tabs.firstOrNull { it.url.startsWith(AGENT) }?.let { select(it); pushAgents(); detectAgentVersions(); return }
         val t = newTab(AGENT)
@@ -1785,6 +1808,7 @@ class MainActivity : Activity() {
             m.menu.add(0, 26, 1, "🖨 প্রিন্ট / PDF সেভ")
         }
         m.menu.add(0, 60, 2, "🎬 ডেইলি এডিট")
+        m.menu.add(0, 60, 2, "🎬 ডেইলি এডিট")
         m.menu.add(0, 50, 2, "🤖 এজেন্ট")
         m.menu.add(0, 51, 2, "📤 কাজ নিজে থেকে এজেন্টকে পাঠানো").apply { isCheckable = true; isChecked = agentAuto() }
         m.menu.add(0, 21, 2, "📚 বুকমার্ক তালিকা")
@@ -1795,6 +1819,7 @@ class MainActivity : Activity() {
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 60 -> openDailyEdit()
+                60 -> dailyEdit()
                 50 -> openAgentHub()
                 51 -> { val on = !agentAuto(); Store.prefs(this).edit().putBoolean("agent_auto", on).apply()
                     Toast.makeText(this, if (on) "সারিতে কাজ এলে খোলা ওয়ার্কস্পেসের চ্যাটে নিজে থেকে পাঠানো হবে" else "স্বয়ংক্রিয় পাঠানো বন্ধ — কাজ হাতে পাঠাতে হবে", Toast.LENGTH_LONG).show() }
