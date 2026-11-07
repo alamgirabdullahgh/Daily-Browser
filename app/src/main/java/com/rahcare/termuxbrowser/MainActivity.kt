@@ -1212,12 +1212,112 @@ class MainActivity : Activity() {
                 } else if (t != null && t.site != null && overlay == null) {
                     t.web.evaluateJavascript(Sites.DISMISS_JS, null)
                 }
+                // Claude বলছে GitHub টুল/কানেকশন নেই → নিজে কানেক্ট করার চেষ্টা (সেটিংসে চালু ও ইমেইল/পাসওয়ার্ড দেওয়া থাকলে)
+                if (t != null && t.site != null && overlay == null && gcTab == null && gcAuto() && GitCred.has(this)
+                    && (t.web.url ?: "").startsWith("https://claude.ai/") && System.currentTimeMillis() - gcLastRun > 20 * 60000L) {
+                    t.web.evaluateJavascript(GitConnect.DETECT_JS) { raw ->
+                        val hit = Sites.unquote(raw)
+                        if (hit.isNotBlank() && t === cur && gcTab == null && hit != gcLastHit) { gcLastHit = hit; gcBegin(t) }
+                    }
+                }
             } catch (_: Exception) {
             } finally {
                 handler.postDelayed(this, 6000L)
             }
         }
     }
+
+    // ---------- GitHub অটো-কানেক্ট ----------
+    private var gcTab: Tab? = null
+    private var gcStartAt = 0L
+    private var gcLastRun = 0L
+    private var gcLastHit = ""
+    private var gcBack = ""
+    private var gcLogins = 0
+    private var gcInstalled = false
+    private var gcConnectClicks = 0
+    private fun gcAuto() = Store.prefs(this).getBoolean("gc_auto", false)
+
+    private fun gcBegin(t: Tab) {
+        gcTab = t; gcStartAt = System.currentTimeMillis(); gcLastRun = gcStartAt
+        gcBack = (t.web.url ?: t.url).takeIf { it.contains("/chat/") || it.contains("/code") } ?: t.chatUrl
+        gcLogins = 0; gcInstalled = false; gcConnectClicks = 0
+        Toast.makeText(this, "Claude-এ GitHub কানেক্ট নেই — নিজে কানেক্ট করা হচ্ছে…", Toast.LENGTH_LONG).show()
+        t.web.loadUrl(GitConnect.CONNECTORS)
+        handler.postDelayed(gcTick, 5000L)
+    }
+
+    private fun gcFinish(t: Tab, ok: Boolean, msg: String) {
+        gcTab = null; gcLastRun = System.currentTimeMillis()
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        if (ok && gcBack.startsWith("http") && tabs.contains(t)) {
+            t.web.loadUrl(gcBack)
+            fillInput(t, "GitHub এখন কানেক্ট হয়েছে। এই চ্যাটে আগের কাজটা GitHub টুল দিয়ে চালিয়ে যাও।", 0, true)
+        }
+    }
+
+    private val gcTick = object : Runnable {
+        override fun run() {
+            val t = gcTab ?: return
+            try {
+                if (!tabs.contains(t)) { gcTab = null; return }
+                if (System.currentTimeMillis() - gcStartAt > 5 * 60000L) { gcFinish(t, false, "GitHub কানেক্ট: সময় শেষ — হাতে শেষ করুন"); return }
+                val u = t.web.url ?: ""
+                val uri = Uri.parse(u); val host = uri.host ?: ""; val path = uri.path ?: ""
+                when {
+                    host == "github.com" -> {
+                        val isLogin = (path == "/login" || path == "/session") && gcLogins < 2
+                        val cred = if (isLogin) GitCred.get(this) else null
+                        val js = GitConnect.githubJs(cred?.first, cred?.second)
+                        t.web.evaluateJavascript(js) { raw ->
+                            when (val r = Sites.unquote(raw)) {
+                                "login" -> gcLogins++
+                                "manual" -> gcFinish(t, false, "GitHub ২-ধাপ যাচাই/ক্যাপচা চাইছে — এই পাতায় আপনি হাতে শেষ করুন")
+                                "nocred" -> gcFinish(t, false, "GitHub ইমেইল/পাসওয়ার্ড দেওয়া নেই — মেনু থেকে দিন")
+                                else -> if (r.startsWith("clicked:")) { gcLastRun = System.currentTimeMillis() }
+                            }
+                        }
+                    }
+                    host == "claude.ai" || host == "www.claude.ai" -> {
+                        if (!path.startsWith("/customize/connectors")) { if (System.currentTimeMillis() - gcStartAt > 8000L) t.web.loadUrl(GitConnect.CONNECTORS) }
+                        else t.web.evaluateJavascript(GitConnect.claudeJs(!gcInstalled)) { raw ->
+                            val r = Sites.unquote(raw)
+                            if (r == "clicked:Install") gcInstalled = true
+                            if (r == "clicked:Connect" && ++gcConnectClicks > 4) gcFinish(t, false, "GitHub Connect বারবার চেপেও হয়নি — হাতে করুন")
+                            else if (r == "connected") gcFinish(t, true, "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি")
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                if (gcTab != null) handler.postDelayed(this, 3000L)
+            }
+        }
+    }
+
+    private fun editGitCred() {
+        val cur = GitCred.get(this)
+        val e = EditText(this).apply { hint = "GitHub ইমেইল/ইউজারনেম"; setText(cur?.first ?: ""); inputType = android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS }
+        val pw = EditText(this).apply { hint = if (cur != null) "পাসওয়ার্ড (বদলাতে নতুনটা লিখুন)" else "GitHub পাসওয়ার্ড"; inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD }
+        val sw = android.widget.CheckBox(this).apply { text = "Claude GitHub নেই বললে নিজে কানেক্ট করুক"; isChecked = gcAuto() || cur == null }
+        val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0); addView(e); addView(pw); addView(sw) }
+        AlertDialog.Builder(this).setTitle("GitHub অটো-কানেক্ট")
+            .setMessage("ইমেইল ও পাসওয়ার্ড ফোনের Keystore-এ এনক্রিপ্ট হয়ে থাকে এবং শুধু github.com-এর লগইন পাতায় বসে। ২-ধাপ যাচাই চালু থাকলে লগইনে আপনাকেই কোড দিতে হবে।\nখালি রেখে সেভ করলে মুছে যাবে।")
+            .setView(l)
+            .setPositiveButton("সেভ") { _, _ ->
+                val em = e.text.toString().trim(); val pp = pw.text.toString().ifEmpty { cur?.second ?: "" }
+                GitCred.put(this, em, if (em.isBlank()) "" else pp)
+                Store.prefs(this).edit().putBoolean("gc_auto", sw.isChecked && em.isNotBlank()).apply()
+                Toast.makeText(this, if (em.isBlank()) "মুছে ফেলা হয়েছে" else "সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+            }
+            .setNeutralButton("এখনই চালান") { _, _ ->
+                val t = cur2()
+                if (t == null || t.site == null) Toast.makeText(this, "আগে একটা Claude ওয়ার্কস্পেস ট্যাব খুলুন", Toast.LENGTH_LONG).show()
+                else gcBegin(t)
+            }
+            .setNegativeButton("বাতিল", null).show()
+    }
+    private fun cur2(): Tab? = cur
 
     private fun checkStuck(t: Tab) {
         val u = t.url
@@ -1537,6 +1637,7 @@ class MainActivity : Activity() {
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
         cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 14, 9, "🔍 লিমিট শনাক্তকরণ পরীক্ষা") }
+        m.menu.add(0, 18, 8, if (GitCred.has(this)) "🔗 GitHub অটো-কানেক্ট: " + (if (gcAuto()) "চালু" else "বন্ধ") else "🔗 GitHub অটো-কানেক্ট (ইমেইল/পাসওয়ার্ড)")
         m.menu.add(0, 17, 9, "🔍 claude.ai অনুমতি-কার্ড পরীক্ষা")
         m.menu.add(0, 15, 7, "🔒 ব্যাকগ্রাউন্ডে ট্যাব সচল রাখুন").apply { isCheckable = true; isChecked = Store.prefs(this@MainActivity).getBoolean("keep_web", true) }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
@@ -1585,6 +1686,7 @@ class MainActivity : Activity() {
                 14 -> cur?.let { t -> t.web.evaluateJavascript(Sites.LIMIT_DEBUG_JS) { raw ->
                     AlertDialog.Builder(this).setTitle("লিমিট শনাক্তকরণ").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 11 -> cur?.let { t -> makeWorkspace(t) }
+                18 -> editGitCred()
                 17 -> cur?.let { t -> t.web.evaluateJavascript("(function(){try{if(location.hostname.indexOf('claude.ai')<0)return 'এটা claude.ai ট্যাব নয়';return window.__rcDbg?window.__rcDbg():'স্ক্রিপ্ট লোড হয়নি (পেজ রিলোড করুন)'}catch(e){return 'ERR '+e}})()") { raw ->
                     AlertDialog.Builder(this).setTitle("অনুমতি-কার্ড পরীক্ষা").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 15 -> { val on = !Store.prefs(this).getBoolean("keep_web", true); Store.prefs(this).edit().putBoolean("keep_web", on).apply()
