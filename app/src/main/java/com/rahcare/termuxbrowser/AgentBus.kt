@@ -92,7 +92,6 @@ object AgentBus {
         "image" to Regex("image|imagen|ইমেজ|ছবি|midjourney|\\bflux\\b|dall-?e|ideogram|leonardo|banana|whisk", OPT),
         "video" to Regex("video|ভিডিও|\\bvids?\\b|\\bveo\\b|\\bflow\\b|\\bsora\\b|runway|kling|\\bluma\\b|\\bpika\\b|hailuo", OPT)
     )
-    )
 
     /** সাইট কোন এজেন্ট/ক্যাটাগরি: হাতে বাছা থাকলে সেটা, নইলে নাম/হোস্ট থেকে অডিও/ইমেজ/ভিডিও, তারপর claude / gemini / grok; না মিললে null */
     fun agentOf(s: Site): String? {
