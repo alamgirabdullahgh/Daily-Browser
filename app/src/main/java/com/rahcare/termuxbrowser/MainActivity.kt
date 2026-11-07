@@ -405,6 +405,7 @@ class MainActivity : Activity() {
         handler.removeCallbacks(updCheck); updCheck.run()
         handler.removeCallbacks(jobSaver); handler.postDelayed(jobSaver, 5000L)
         handler.removeCallbacks(siteWatcher); handler.postDelayed(siteWatcher, 6000L)
+        handler.removeCallbacks(agentTick); handler.postDelayed(agentTick, 15000L)
     }
 
     // কোনো সময়ের বাধা নেই: অ্যাপ খুললেই খোঁজে, আর সামনে থাকলে প্রতি ২০ সেকেন্ডে আবার খোঁজে
@@ -478,7 +479,7 @@ class MainActivity : Activity() {
         super.onPause()
         Updater.fg = false
         AutoUpdate.fg = false; AutoUpdate.kick(this, 60_000L)
-        handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher)
+        handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher); handler.removeCallbacks(agentTick)
         try { unregisterReceiver(rx) } catch (_: Exception) {}
         Live.onUpdate = null
         // সাইটের ট্যাব খোলা থাকলে ব্যাকগ্রাউন্ডেও সচল রাখি (ফোরগ্রাউন্ড সার্ভিস + CPU/Wi-Fi জাগানো)
@@ -1359,7 +1360,62 @@ class MainActivity : Activity() {
         return null
     }
 
+    // ---------- এজেন্ট স্বয়ংক্রিয় পাঠানো: সারিতে কাজ থাকলে ওয়ার্কস্পেসের চ্যাটে নির্দেশ বসিয়ে পাঠায় ----------
+    private var agBusy = false
+    private var agLastLimitAt = 0L
+    private var agNoTokWarned = false
+    private val agSent = HashMap<Int, Long>()
+    private val agTries = HashMap<Int, Int>()
+    private fun agentAuto() = Store.prefs(this).getBoolean("agent_auto", true)
+    private val agentTick = object : Runnable {
+        override fun run() {
+            try { if (agentAuto() && !agBusy && overlay == null) agentDispatch() } catch (_: Exception) {}
+            handler.postDelayed(this, 30000L)
+        }
+    }
+
+    private fun agentDispatch() {
+        val tok = Secret.get(this)
+        if (tok.isBlank()) {
+            if (!agNoTokWarned && tabs.any { it.site != null }) { agNoTokWarned = true; Toast.makeText(this, "এজেন্ট স্বয়ংক্রিয় পাঠানোর জন্য মেনুতে GitHub টোকেন সেট করুন", Toast.LENGTH_LONG).show() }
+            return
+        }
+        if (System.currentTimeMillis() - agLastLimitAt < 120000L) return
+        val sites = Sites.all(this)
+        val cands = tabs.filter { it.site != null }.mapNotNull { t ->
+            val s = sites.firstOrNull { it.id == t.site } ?: return@mapNotNull null
+            val a = AgentBus.agentOf(s) ?: return@mapNotNull null
+            if ((siteLimited[s.id] ?: 0L) > System.currentTimeMillis()) null else Triple(t, s, a)
+        }
+        if (cands.isEmpty()) return
+        agBusy = true
+        Thread {
+            try {
+                val d = (AgentBus.load(tok) ?: return@Thread).d
+                val task = AgentBus.queued(d) ?: return@Thread
+                val id = task.optInt("id")
+                val now = System.currentTimeMillis()
+                // একই কাজ ১০ মিনিটের মধ্যে আবার নয়; একই কাজে সর্বোচ্চ ৩ বার (এজেন্ট না ধরলে অনন্ত পাঠানো এড়াতে)
+                if (now - (agSent[id] ?: 0L) < 600000L || (agTries[id] ?: 0) >= 3) return@Thread
+                val ok = cands.filter { !AgentBus.inLimit(d, it.third) }
+                val pick = ok.firstOrNull { it.first === cur } ?: ok.firstOrNull() ?: return@Thread
+                val text = AgentBus.prompt(pick.third, id, task.optString("text"), task.optString("note"), task.optInt("progress"), tok)
+                agSent[id] = now; agTries[id] = (agTries[id] ?: 0) + 1
+                AgentBus.mutate(tok, "dispatch") { dd -> AgentBus.ev(dd, "অ্যাপ কাজ #$id ${pick.third}-কে পাঠাল"); true }
+                runOnUiThread {
+                    if (tabs.contains(pick.first)) {
+                        Toast.makeText(this, "কাজ #$id ${pick.second.name}-এর চ্যাটে পাঠানো হচ্ছে…", Toast.LENGTH_LONG).show()
+                        fillInput(pick.first, text, 0, true)
+                    }
+                }
+            } finally { agBusy = false }
+        }.start()
+    }
+
     private fun onLimit(t: Tab, hit: String) {
+        agLastLimitAt = System.currentTimeMillis()
+        t.site?.let { sid -> Sites.all(this).firstOrNull { it.id == sid }?.let { AgentBus.agentOf(it) }?.let { ag ->
+            val tk = Secret.get(this); if (tk.isNotBlank()) Thread { AgentBus.limit(tk, ag, hit) }.start() } }
         t.site?.let { siteLimited[it] = System.currentTimeMillis() + 5 * 3600 * 1000L }
         val nx = nextAvailable(Sites.all(this), t.site)
         if (nx == null) { Toast.makeText(this, "সব ওয়ার্কস্পেসের লিমিট শেষ মনে হচ্ছে — পরে আবার চেষ্টা করুন", Toast.LENGTH_LONG).show(); return }
@@ -1679,6 +1735,7 @@ class MainActivity : Activity() {
             m.menu.add(0, 26, 1, "🖨 প্রিন্ট / PDF সেভ")
         }
         m.menu.add(0, 50, 2, "🤖 এজেন্ট")
+        m.menu.add(0, 51, 2, "📤 কাজ নিজে থেকে এজেন্টকে পাঠানো").apply { isCheckable = true; isChecked = agentAuto() }
         m.menu.add(0, 21, 2, "📚 বুকমার্ক তালিকা")
         m.menu.add(0, 22, 2, "🕘 ইতিহাস")
         m.menu.add(0, 27, 2, "🕶 নতুন ইনকগনিটো ট্যাব")
@@ -1687,6 +1744,8 @@ class MainActivity : Activity() {
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 50 -> openAgentHub()
+                51 -> { val on = !agentAuto(); Store.prefs(this).edit().putBoolean("agent_auto", on).apply()
+                    Toast.makeText(this, if (on) "সারিতে কাজ এলে খোলা ওয়ার্কস্পেসের চ্যাটে নিজে থেকে পাঠানো হবে" else "স্বয়ংক্রিয় পাঠানো বন্ধ — কাজ হাতে পাঠাতে হবে", Toast.LENGTH_LONG).show() }
                 13 -> editRepo()
                 16 -> editToken()
                 40 -> { ghClear(cur?.site); cur?.let { t -> if (t.web.url?.contains("github.com") == true) t.web.reload() }
@@ -1765,14 +1824,14 @@ class MainActivity : Activity() {
         val d = android.app.Dialog(this)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val groups = listOf(
-            "এজেন্ট এবং ওয়ার্কস্পেস" to listOf(50, 9, 11, 10, 15, 14, 17),
+            "এজেন্ট এবং ওয়ার্কস্পেস" to listOf(50, 51, 9, 11, 10, 15, 14, 17),
             "পেজ" to listOf(20, 23, 24, 25, 26, 3, 29, 2, 12, 1),
             "লাইব্রেরি" to listOf(21, 22, 30, 27),
             "GitHub" to listOf(18, 13, 16, 40, 41, 42),
             "Termux" to listOf(4, 5),
             "অ্যাপ" to listOf(6, 7)
         )
-        val icons = mapOf(50 to "🤖", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
+        val icons = mapOf(50 to "🤖", 51 to "📤", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(22)) }
         fun pick(it: MI) { d.dismiss(); m.click?.invoke(it) }
         m.items.firstOrNull { it.itemId == 8 }?.let { u ->
