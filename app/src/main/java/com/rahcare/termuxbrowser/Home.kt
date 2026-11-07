@@ -123,9 +123,19 @@ draw();
             "<div class=card><a class=run href='termux://run/${d.id}'><span class=mo>${mono(d.title)}</span><span class=nm>${esc(d.title)}</span></a>" +
                 "<a class=ed href='termux://edit/${d.id}'>✎</a></div>"
         }
-        val siteCards = sites.joinToString("") { s ->
+        fun siteCard(s: Site) =
             "<div class=card><a class=run href='termux://site/${s.id}'><span class='mo w'>${mono(s.name)}</span><span class=nm>${esc(s.name)}</span></a>" +
                 "<a class=ed href='termux://siteedit/${s.id}'>✎</a></div>"
+        // ওয়ার্কস্পেস এজেন্ট অনুযায়ী আলাদা হেডিংয়ে (Claude / Gemini / Grok); চেনা না গেলে "অন্যান্য ওয়ার্কস্পেস" (শুধু সেগুলোই থাকলে "ওয়ার্কস্পেস")
+        val siteSection = if (sites.isEmpty()) "<h2>ওয়ার্কস্পেস</h2><div class=empty>এখনো কোনো ওয়ার্কস্পেস নেই। যেকোনো সাইট খুলে মেনু › ওয়ার্কস্পেস থেকে যোগ করুন, বা নিচের বোতামে ঠিকানা দিন।</div>" else {
+            val b = StringBuilder()
+            for (ag in AgentBus.ORDER) {
+                val l = sites.filter { AgentBus.agentOf(it) == ag }
+                if (l.isNotEmpty()) b.append("<h2>${esc(AgentBus.label(ag))}<span class=m>${l.size}</span></h2><div class=g>${l.joinToString("") { siteCard(it) }}</div>")
+            }
+            val rest = sites.filter { AgentBus.agentOf(it) == null }
+            if (rest.isNotEmpty()) b.append("<h2>${if (rest.size == sites.size) "ওয়ার্কস্পেস" else "অন্যান্য ওয়ার্কস্পেস"}<span class=m>${rest.size}</span></h2><div class=g>${rest.joinToString("") { siteCard(it) }}</div>")
+            b.toString()
         }
         val setupBtn = "<a class=add href='termux://setup'>⚡ এক চাপে সেটআপ</a>"
         val bm = Bookmarks.all(c).take(12)
@@ -174,8 +184,7 @@ h2{font-size:12px;font-weight:700;letter-spacing:.4px;color:var(--mu);margin:24p
 <div class=hero><h1>Daily Browser</h1><p>আপনার কাজের জন্য তৈরি ব্রাউজার</p>
 <div class=stats><div class=stat><b>${sites.size}</b>ওয়ার্কস্পেস</div><div class=stat><b>${cmds.size}</b>কমান্ড</div><div class=stat><b>${Jobs.list.count { it.status == "running" }}</b>চলছে</div></div></div>
 $warn
-$bmSection<h2>ওয়ার্কস্পেস</h2>
-${if (siteCards.isEmpty()) "<div class=empty>এখনো কোনো ওয়ার্কস্পেস নেই। যেকোনো সাইট খুলে মেনু › ওয়ার্কস্পেস থেকে যোগ করুন, বা নিচের বোতামে ঠিকানা দিন।</div>" else "<div class=g>$siteCards</div>"}<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
+$bmSection$siteSection<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
 <h2>কমান্ড</h2><div class=g>$cards</div><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a>
 <h2>কাজ <a class=clr href='termux://clear/all'>শেষ হওয়াগুলো মুছুন</a></h2><div id=jobs>${jobsHtml()}</div>
 </body></html>"""

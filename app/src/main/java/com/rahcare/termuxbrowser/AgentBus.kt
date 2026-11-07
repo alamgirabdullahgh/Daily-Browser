@@ -92,6 +92,38 @@ object AgentBus {
         }
     }
 
+    /** হোমপেজ ও হাবে এজেন্টের ক্রম */
+    val ORDER = listOf("claude", "gemini", "grok")
+
+    fun label(a: String): String = when (a) {
+        "claude" -> "Claude"; "gemini" -> "Gemini"; "grok" -> "Grok"
+        else -> a.replaceFirstChar { it.uppercase() }
+    }
+
+    /** হোমপেজের ওয়ার্কস্পেসগুলোতে যে এজেন্টগুলো আছে (Claude → Gemini → Grok ক্রমে) */
+    fun agentsIn(sites: List<Site>): List<String> {
+        val have = sites.mapNotNull { agentOf(it) }.toSet()
+        return ORDER.filter { it in have }
+    }
+
+    /** সারির সব কাজ (status = queued), পুরনো আগে */
+    fun queuedAll(d: JSONObject): List<JSONObject> {
+        val a = d.optJSONArray("tasks") ?: return emptyList()
+        val out = ArrayList<JSONObject>()
+        for (i in 0 until a.length()) { val t = a.getJSONObject(i); if (t.optString("status") == "queued") out.add(t) }
+        return out
+    }
+
+    /** ওয়ার্কস্পেস-পাতায় এজেন্টের বর্তমান মডেল/সংস্করণের নাম খোঁজার স্ক্রিপ্ট (পাতার বোতামের লেখা থেকে; না পেলে খালি) */
+    fun verJs(ag: String): String {
+        val re = when (ag) {
+            "claude" -> """(Opus|Sonnet|Haiku|Fable|Mythos)\\s*[0-9][0-9.]*"""
+            "gemini" -> """(Gemini\\s*)?[0-9][0-9.]*\\s*(Pro|Flash)|(Pro|Flash)\\s*[0-9][0-9.]*"""
+            else -> """Grok\\s*[0-9][0-9.]*"""
+        }
+        return """(function(){try{var re=new RegExp('$re','i');var b=document.querySelectorAll('button,[role=button],[role=combobox]');for(var i=0;i<b.length;i++){var x=(b[i].innerText||'').replace(/\s+/g,' ').trim();if(x.length>0&&x.length<60){var m=x.match(re);if(m)return m[0]}}return ''}catch(e){return ''}})()"""
+    }
+
     /** এই এজেন্টের চলমান কাজ সারিতে ফেরায় (লিমিট শেষ) */
     fun limit(tok: String, agent: String, note: String) {
         mutate(tok, "limit") { d ->

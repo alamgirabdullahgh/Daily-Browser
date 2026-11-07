@@ -618,6 +618,7 @@ class MainActivity : Activity() {
                         val q = org.json.JSONObject.quote(tk)
                         v.evaluateJavascript("(function(){try{if(!localStorage.getItem('gh_tok')){localStorage.setItem('gh_tok',$q);location.reload()}}catch(e){}})()", null)
                     }
+                    pushAgents(); detectAgentVersions()
                 }
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
                 t.site?.let { sid -> if (!(Uri.parse(u).host ?: "").endsWith("github.com")) detectEmail(t, sid, true) }
@@ -1173,8 +1174,9 @@ class MainActivity : Activity() {
                 if (site == null) {
                     val id = "s${System.currentTimeMillis()}"
                     val host = (Uri.parse(url).host ?: url).removePrefix("www.")
-                    list.add(Site(id, typed.ifEmpty { host }, url))
+                    val ns = Site(id, typed.ifEmpty { host }, url); list.add(ns)
                     sp.edit().putBoolean("autoname_$id", typed.isEmpty()).apply()
+                    AgentBus.agentOf(ns)?.let { ag -> Toast.makeText(this, "${AgentBus.label(ag)} এজেন্ট হিসেবে ধরা হয়েছে — হোমে “${AgentBus.label(ag)}” হেডিংয়ের নিচে দেখাবে", Toast.LENGTH_LONG).show() }
                 } else list.firstOrNull { it.id == site.id }?.let { s ->
                     // নতুন নাম লিখলে সেটাই থাকবে (আর জিমেইল বসবে না); খালি রাখলে আবার জিমেইল বসবে
                     if (typed.isNotEmpty() && typed != s.name) { s.name = typed; sp.edit().putBoolean("autoname_${s.id}", false).apply() }
@@ -1366,6 +1368,7 @@ class MainActivity : Activity() {
     private var agNoTokWarned = false
     private val agSent = HashMap<Int, Long>()
     private val agTries = HashMap<Int, Int>()
+    private val agWarned = HashSet<Int>()
     private fun agentAuto() = Store.prefs(this).getBoolean("agent_auto", true)
     private val agentTick = object : Runnable {
         override fun run() {
@@ -1392,14 +1395,27 @@ class MainActivity : Activity() {
         Thread {
             try {
                 val d = (AgentBus.load(tok) ?: return@Thread).d
-                val task = AgentBus.queued(d) ?: return@Thread
-                val id = task.optInt("id")
                 val now = System.currentTimeMillis()
-                // একই কাজ ১০ মিনিটের মধ্যে আবার নয়; একই কাজে সর্বোচ্চ ৩ বার (এজেন্ট না ধরলে অনন্ত পাঠানো এড়াতে)
-                if (now - (agSent[id] ?: 0L) < 600000L || (agTries[id] ?: 0) >= 3) return@Thread
                 val ok = cands.filter { !AgentBus.inLimit(d, it.third) }
-                val pick = ok.firstOrNull { it.first === cur } ?: ok.firstOrNull() ?: return@Thread
-                val text = AgentBus.prompt(pick.third, id, task.optString("text"), task.optString("note"), task.optInt("progress"), tok)
+                var task: org.json.JSONObject? = null
+                var pickX: Triple<Tab, Site, String>? = null
+                for (tk0 in AgentBus.queuedAll(d)) {
+                    val id0 = tk0.optInt("id")
+                    // একই কাজ ১০ মিনিটের মধ্যে আবার নয়; একই কাজে সর্বোচ্চ ৩ বার (এজেন্ট না ধরলে অনন্ত পাঠানো এড়াতে)
+                    if (now - (agSent[id0] ?: 0L) < 600000L || (agTries[id0] ?: 0) >= 3) return@Thread
+                    // হাবে বেছে নেওয়া এজেন্ট (target) থাকলে শুধু তার ওয়ার্কস্পেসে; তার লিমিট শেষ হলে অন্য এজেন্টে যেতে পারে
+                    val want = tk0.optString("target")
+                    val pool = if (want.isNotEmpty() && !AgentBus.inLimit(d, want)) ok.filter { it.third == want } else ok
+                    if (pool.isEmpty()) {
+                        if (want.isNotEmpty() && agWarned.add(id0)) runOnUiThread { Toast.makeText(this, "কাজ #$id0 ${AgentBus.label(want)}-এর জন্য — ${AgentBus.label(want)}-এর ওয়ার্কস্পেস ট্যাব খুলুন", Toast.LENGTH_LONG).show() }
+                        continue
+                    }
+                    task = tk0; pickX = pool.firstOrNull { it.first === cur } ?: pool.first(); break
+                }
+                val tkF = task ?: return@Thread
+                val pick = pickX ?: return@Thread
+                val id = tkF.optInt("id")
+                val text = AgentBus.prompt(pick.third, id, tkF.optString("text"), tkF.optString("note"), tkF.optInt("progress"), tok)
                 agSent[id] = now; agTries[id] = (agTries[id] ?: 0) + 1
                 AgentBus.mutate(tok, "dispatch") { dd -> AgentBus.ev(dd, "অ্যাপ কাজ #$id ${pick.third}-কে পাঠাল"); true }
                 runOnUiThread {
@@ -1625,7 +1641,7 @@ class MainActivity : Activity() {
             }.setNegativeButton("না", null).show()
     }
 
-    private fun refreshHomes() { tabs.filter { it.isHome }.forEach { loadHome(it) } }
+    private fun refreshHomes() { tabs.filter { it.isHome }.forEach { loadHome(it) }; pushAgents() }
 
     // ---------- ট্যাব তালিকা ----------
     private fun hideSwitcher() { overlay?.let { content.removeView(it) }; overlay = null; refreshUpdBtn() }
@@ -1695,8 +1711,33 @@ class MainActivity : Activity() {
     }
     private val AGENT = "https://appassets.androidplatform.net/assets/agent-hub.html"
 
+    /** হাবের চ্যাট-বক্সের এজেন্ট বাছাইয়ের তালিকা: হোমপেজের ওয়ার্কস্পেস থেকে (Claude → Gemini → Grok), জানা থাকলে সংস্করণ সহ */
+    private fun pushAgents() {
+        val hub = tabs.filter { it.url.startsWith(AGENT) }
+        if (hub.isEmpty()) return
+        val arr = org.json.JSONArray()
+        AgentBus.agentsIn(Sites.all(this)).forEach { id ->
+            arr.put(org.json.JSONObject().put("id", id).put("label", AgentBus.label(id)).put("ver", Store.prefs(this).getString("agver_$id", "") ?: ""))
+        }
+        hub.forEach { it.web.evaluateJavascript("if(window.setAgents)setAgents($arr)", null) }
+    }
+
+    /** খোলা ওয়ার্কস্পেস-ট্যাব থেকে প্রতিটি এজেন্টের বর্তমান মডেল/সংস্করণ পড়ার চেষ্টা (পাতা বদলালে না-ও মিলতে পারে; তখন আগের জানা মান থাকে) */
+    private fun detectAgentVersions() {
+        val sites = Sites.all(this)
+        for (ag in AgentBus.agentsIn(sites)) {
+            val tb = tabs.firstOrNull { x -> x.site != null && sites.firstOrNull { it.id == x.site }?.let { AgentBus.agentOf(it) } == ag } ?: continue
+            tb.web.evaluateJavascript(AgentBus.verJs(ag)) { raw ->
+                val v = Sites.unquote(raw).trim()
+                if (v.isNotEmpty() && v != (Store.prefs(this).getString("agver_$ag", "") ?: "")) {
+                    Store.prefs(this).edit().putString("agver_$ag", v).apply(); pushAgents()
+                }
+            }
+        }
+    }
+
     private fun openAgentHub() {
-        tabs.firstOrNull { it.url.startsWith(AGENT) }?.let { select(it); return }
+        tabs.firstOrNull { it.url.startsWith(AGENT) }?.let { select(it); pushAgents(); detectAgentVersions(); return }
         val t = newTab(AGENT)
         t.title = "এজেন্ট"
         select(t)
