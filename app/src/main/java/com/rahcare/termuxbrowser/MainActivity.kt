@@ -1213,7 +1213,7 @@ class MainActivity : Activity() {
                     t.web.evaluateJavascript(Sites.DISMISS_JS, null)
                 }
                 // Claude বলছে GitHub টুল/কানেকশন নেই → নিজে কানেক্ট করার চেষ্টা (সেটিংসে চালু ও ইমেইল/পাসওয়ার্ড দেওয়া থাকলে)
-                if (t != null && t.site != null && overlay == null && gcTab == null && gcAuto() && GitCred.has(this)
+                if (t != null && t.site != null && overlay == null && gcTab == null && gcAuto() && GitCred.has(this@MainActivity)
                     && (t.web.url ?: "").startsWith("https://claude.ai/") && System.currentTimeMillis() - gcLastRun > 20 * 60000L) {
                     t.web.evaluateJavascript(GitConnect.DETECT_JS) { raw ->
                         val hit = Sites.unquote(raw)
@@ -1267,7 +1267,7 @@ class MainActivity : Activity() {
                 when {
                     host == "github.com" -> {
                         val isLogin = (path == "/login" || path == "/session") && gcLogins < 2
-                        val cred = if (isLogin) GitCred.get(this) else null
+                        val cred = if (isLogin) GitCred.get(this@MainActivity) else null
                         val js = GitConnect.githubJs(cred?.first, cred?.second)
                         t.web.evaluateJavascript(js) { raw ->
                             when (val r = Sites.unquote(raw)) {
