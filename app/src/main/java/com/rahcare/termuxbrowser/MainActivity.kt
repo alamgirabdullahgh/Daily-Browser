@@ -1537,6 +1537,7 @@ class MainActivity : Activity() {
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
         cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 14, 9, "🔍 লিমিট শনাক্তকরণ পরীক্ষা") }
+        m.menu.add(0, 17, 9, "🔍 claude.ai অনুমতি-কার্ড পরীক্ষা")
         m.menu.add(0, 15, 7, "🔒 ব্যাকগ্রাউন্ডে ট্যাব সচল রাখুন").apply { isCheckable = true; isChecked = Store.prefs(this@MainActivity).getBoolean("keep_web", true) }
         m.menu.add(0, 10, 7, "⚡ লিমিটে স্বয়ংক্রিয় সুইচ").apply { isCheckable = true; isChecked = autoSwitch }
         m.menu.add(0, 13, 8, "🔗 ডিফল্ট GitHub রিপো (Claude Code)")
@@ -1584,6 +1585,8 @@ class MainActivity : Activity() {
                 14 -> cur?.let { t -> t.web.evaluateJavascript(Sites.LIMIT_DEBUG_JS) { raw ->
                     AlertDialog.Builder(this).setTitle("লিমিট শনাক্তকরণ").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 11 -> cur?.let { t -> makeWorkspace(t) }
+                17 -> cur?.let { t -> t.web.evaluateJavascript("(function(){try{if(location.hostname.indexOf('claude.ai')<0)return 'এটা claude.ai ট্যাব নয়';return window.__rcDbg?window.__rcDbg():'স্ক্রিপ্ট লোড হয়নি (পেজ রিলোড করুন)'}catch(e){return 'ERR '+e}})()") { raw ->
+                    AlertDialog.Builder(this).setTitle("অনুমতি-কার্ড পরীক্ষা").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 15 -> { val on = !Store.prefs(this).getBoolean("keep_web", true); Store.prefs(this).edit().putBoolean("keep_web", on).apply()
                     Toast.makeText(this, if (on) "অন্য অ্যাপে গেলেও ট্যাব সচল থাকবে (নোটিফিকেশন দেখাবে)" else "অন্য অ্যাপে গেলে ট্যাব থেমে যেতে পারে", Toast.LENGTH_LONG).show() }
                 10 -> { autoSwitch = !autoSwitch; Store.prefs(this).edit().putBoolean("autoswitch", autoSwitch).apply()

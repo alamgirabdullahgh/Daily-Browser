@@ -58,36 +58,41 @@ object Browse {
     const val CLAUDE_AUTO_JS = """(function(){try{
 if(location.hostname!=='claude.ai'&&location.hostname!=='www.claude.ai')return;
 if(window.__rcAllow)return;window.__rcAllow=1;
-function tx(e){return(e.innerText||'').replace(/\s+/g,' ').trim();}
-var RULES=[
-{head:'Claude wants to list your repositories',need:[],bad:[],click:['Always allow','Allow once']},
-{head:'Claude wants to add a repository to this session',need:['Access read'],bad:['Access push'],click:['Allow once']},
-{head:'Claude wants to add a repository to this session',need:['Owner alamgirabdullahgh Repo ','Access push'],bad:[],click:['Allow once']}
-];
-function find(card,label){var bs=card.querySelectorAll('button,[role=button]');for(var i=0;i<bs.length;i++){if(tx(bs[i])===label)return bs[i];}return null;}
+function tx(e){return(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim();}
+function vis(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0;}
+var OWN=/(Owner\s*:?\s*alamgirabdullahgh(?=\s|\/|Repo|Access|\s*$)|Repo(sitory)?\s*:?\s*alamgirabdullahgh\/)/i;
+function cardOf(btn){var c=btn;for(var k=0;k<12&&c.parentElement;k++){c=c.parentElement;var t=tx(c);if(t.length>1200)return null;if(t.indexOf('Claude wants to')>-1)return c;}return null;}
+function decide(s){
+if(s.indexOf('Claude wants to list your repositories')>-1)return {ok:1,why:'repo-list',click:['Always allow','Allow once']};
+if(s.indexOf('Claude wants to add a repository to this session')>-1){
+var push=/Access\s*:?\s*push/i.test(s),read=/Access\s*:?\s*read/i.test(s);
+if(read&&!push)return {ok:1,why:'add-repo read',click:['Allow once']};
+if(push&&OWN.test(s))return {ok:1,why:'add-repo push, own owner',click:['Allow once']};
+if(push)return {ok:0,why:'push but owner is not alamgirabdullahgh'};
+return {ok:0,why:'access type (read/push) not found in card'};}
+return {ok:0,why:'other card, never auto-clicked'};}
+function findBtn(card,label){var bs=card.querySelectorAll('button,[role=button]');for(var i=0;i<bs.length;i++){if(vis(bs[i])&&tx(bs[i])===label)return bs[i];}return null;}
+function press(B,n){try{B.click();}catch(e){}
+if(n>0){try{var o={bubbles:true,cancelable:true,view:window};B.dispatchEvent(new PointerEvent('pointerdown',o));B.dispatchEvent(new MouseEvent('mousedown',o));B.dispatchEvent(new PointerEvent('pointerup',o));B.dispatchEvent(new MouseEvent('mouseup',o));B.dispatchEvent(new MouseEvent('click',o));}catch(e){}}}
 function scan(){
 var bs=document.querySelectorAll('button,[role=button]');
 for(var i=0;i<bs.length;i++){
 var t=tx(bs[i]);
 if(t!=='Allow once'&&t!=='Always allow')continue;
-if(bs[i].offsetParent===null)continue;
-var c=bs[i],card=null;
-for(var k=0;k<8&&c.parentElement;k++){c=c.parentElement;var ct=tx(c);if(ct.length>420)break;if(ct.indexOf('Decline')>-1)card=c;}
-if(!card||card.__rcDone)continue;
-var s=tx(card),s2=s.replace(/\s+/g,'');
-for(var r=0;r<RULES.length;r++){
-var R=RULES[r];
-if(s.indexOf(R.head)<0)continue;
-var ok=true;
-for(var n=0;n<R.need.length;n++)if(s2.indexOf(R.need[n].replace(/\s+/g,''))<0)ok=false;
-for(var b=0;b<R.bad.length;b++)if(s2.indexOf(R.bad[b].replace(/\s+/g,''))>=0)ok=false;
-if(!ok)continue;
-for(var q=0;q<R.click.length;q++){var B=find(card,R.click[q]);if(B){card.__rcDone=1;B.click();break;}}
-}
-}
-}
+if(!vis(bs[i]))continue;
+var card=cardOf(bs[i]);if(!card)continue;
+var tries=card.__rcTry||0;
+if(tries>=3||(card.__rcAt&&Date.now()-card.__rcAt<1200))continue;
+var d=decide(tx(card));if(!d.ok)continue;
+for(var q=0;q<d.click.length;q++){var B=findBtn(card,d.click[q]);if(B){card.__rcTry=tries+1;card.__rcAt=Date.now();press(B,tries);break;}}
+}}
+window.__rcDbg=function(){var out=[],bs=document.querySelectorAll('button,[role=button]');
+for(var i=0;i<bs.length;i++){var t=tx(bs[i]);if(t!=='Allow once'&&t!=='Always allow')continue;if(!vis(bs[i]))continue;
+var c=cardOf(bs[i]);if(!c){out.push('বোতাম পেলাম ('+t+') কিন্তু কার্ড চিনতে পারিনি');continue;}
+var s=tx(c),d=decide(s);out.push((d.ok?'চাপবে':'চাপবে না')+' — '+d.why+'\nচেষ্টা: '+(c.__rcTry||0)+'\nকার্ডের লেখা: '+s.slice(0,350));}
+return 'স্ক্রিপ্ট চালু আছে। দৃশ্যমান অনুমতি-কার্ড: '+out.length+'\n\n'+out.join('\n---\n');};
 new MutationObserver(function(){scan()}).observe(document.documentElement,{childList:true,subtree:true});
-setInterval(scan,1500);scan();
+setInterval(scan,1000);scan();
 }catch(e){}})();"""
 
     /** ব্যাকগ্রাউন্ডে গেলে সাইট যেন "পেজ লুকানো" ধরে স্ট্রিম/পোলিং না থামায় */
