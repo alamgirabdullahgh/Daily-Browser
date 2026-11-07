@@ -573,7 +573,6 @@ class MainActivity : Activity() {
                 val us = r.url.toString()
                 return when {
                     us.startsWith(AGENT) -> agentLoader.shouldInterceptRequest(r.url)
-                    us.startsWith(AVATAR_BASE) -> avatarLoader.shouldInterceptRequest(r.url)
                     else -> null
                 }
             }
@@ -628,7 +627,7 @@ class MainActivity : Activity() {
                 }
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
                 t.site?.let { sid -> if (!(Uri.parse(u).host ?: "").endsWith("github.com")) detectEmail(t, sid, true) }
-                if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && !u.startsWith(AGENT) && !u.startsWith(AVATAR_BASE) && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
+                if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && !u.startsWith(AGENT) && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
                 if (t === cur) { updateBar(); swipe.isRefreshing = false }
             }
         }
@@ -1717,20 +1716,6 @@ class MainActivity : Activity() {
     }
     private val AGENT = "https://appassets.androidplatform.net/assets/agent-hub.html"
 
-    // ৩ডি অবতার পাতা: আলাদা ডোমেইনে (agent-hub-এর সংরক্ষিত টোকেন যেন এই পাতার স্ক্রিপ্ট পড়তে না পারে)
-    private val AVATAR_BASE = "https://avatar.androidplatform.net/assets/"
-    private val AVATAR = AVATAR_BASE + "avatar.html"
-    private val avatarLoader by lazy {
-        androidx.webkit.WebViewAssetLoader.Builder().setDomain("avatar.androidplatform.net")
-            .addPathHandler("/assets/", androidx.webkit.WebViewAssetLoader.AssetsPathHandler(this)).build()
-    }
-    private fun openAvatar() {
-        tabs.firstOrNull { it.url.startsWith(AVATAR_BASE) }?.let { select(it); return }
-        val t = newTab(AVATAR)
-        t.title = "৩ডি অবতার"
-        select(t)
-    }
-
     /** হাবের চ্যাট-বক্সের এজেন্ট বাছাইয়ের তালিকা: হোমপেজের ওয়ার্কস্পেস থেকে (Claude → Gemini → Grok), জানা থাকলে সংস্করণ সহ */
     private fun pushAgents() {
         val hub = tabs.filter { it.url.startsWith(AGENT) }
@@ -1755,31 +1740,6 @@ class MainActivity : Activity() {
             }
         }
     }
-
-    // ---------- ডেইলি এডিট: বিষয় লিখলে নির্দেশসহ সরাসরি Gemini এজেন্টের চ্যাটে যায় ----------
-    private fun dailyEdit() {
-        val sites = Sites.all(this)
-        val gem = tabs.firstOrNull { t -> t.site != null && sites.firstOrNull { it.id == t.site }?.let { AgentBus.agentOf(it) } == "gemini" }
-        if (gem == null) { Toast.makeText(this, "আগে Gemini ওয়ার্কস্পেসের একটি ট্যাব খুলুন", Toast.LENGTH_LONG).show(); return }
-        val et = EditText(this).apply { hint = "কী ভিডিও বানাতে চান? যেমন: একটি হরিণের গল্প"; minLines = 2 }
-        AlertDialog.Builder(this).setTitle("🎬 ডেইলি এডিট").setView(et)
-            .setPositiveButton("পাঠাও") { _, _ ->
-                val req = et.text.toString().trim()
-                if (req.isNotEmpty()) {
-                    select(gem)
-                    fillInput(gem, "অনুরোধ: $req\n\n" + DAILY_EDIT_STEPS, 0, true)
-                }
-            }
-            .setNeutralButton("🗑 নতুন চ্যাট") { _, _ -> select(gem); gem.web.loadUrl("https://gemini.google.com/app") }
-            .setNegativeButton("বন্ধ", null).show()
-    }
-
-    private val DAILY_EDIT_STEPS = "তুমি আমার ভিডিও এডিটর এজেন্ট। উপরের অনুরোধের ভিডিও ব্রাউজারে ওয়েবসাইট খুলে নিজে ক্লিক করে বানাও (কোনো API বা কোড লাগবে না)। ধাপ:\n" +
-        "১) স্ক্রিপ্ট: ৪–৮টি দৃশ্যের স্ক্রিপ্ট লেখো (প্রতি দৃশ্যে বাংলা narration + ছবির ইংরেজি বর্ণনা; সব ছবির স্টাইল ও মূল চরিত্র একই রাখো)।\n" +
-        "২) অডিও: aistudio.google.com-এর অডিও (Generate speech) ফিচারে পুরো narration দিয়ে ভয়েস বানাও ও নামাও।\n" +
-        "৩) ছবি: প্রতিটি দৃশ্যের ছবি Gemini-র ছবি তৈরির (Nano Banana) ফিচারে বানাও ও নামাও।\n" +
-        "৪) ভিডিও: ছবি ও অডিও Google Vids বা YouTube Shorts-এর ভিডিও তৈরির অপশনে জুড়ে সম্পূর্ণ ভিডিও বানাও।\n" +
-        "৫) শেষে ভিডিওর লিংক বা ফাইলের নাম আমাকে জানাও। কোনো ধাপে আটকালে (লগইন, ক্যাপচা, লিমিট) কোথায় আটকাল বলো।"
 
     private fun openAgentHub() {
         tabs.firstOrNull { it.url.startsWith(AGENT) }?.let { select(it); pushAgents(); detectAgentVersions(); return }
