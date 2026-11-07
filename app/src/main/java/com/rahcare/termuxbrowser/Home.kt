@@ -115,6 +115,9 @@ draw();
 
     private fun mono(s: String): String = if (s.isBlank()) "•" else esc(String(Character.toChars(s.trim().codePointAt(0))).uppercase())
 
+    /** ওয়ার্কস্পেসের নাম জিমেইল হলে শেষের @gmail.com বাদ দিয়ে দেখায় (অন্য ডোমেইনের ইমেইল পুরোটাই) */
+    private fun shortName(n: String): String = if (n.endsWith("@gmail.com", ignoreCase = true)) n.dropLast("@gmail.com".length) else n
+
     fun html(c: Context): String {
         val ready = Runner.installed(c) && Runner.hasPermission(c)
         val cmds = Store.all(c)
@@ -124,7 +127,7 @@ draw();
                 "<a class=ed href='termux://edit/${d.id}'>✎</a></div>"
         }
         fun siteCard(s: Site) =
-            "<div class=card><a class=run href='termux://site/${s.id}'><span class='mo w'>${mono(s.name)}</span><span class=nm>${esc(s.name)}</span></a>" +
+            "<div class=card><a class=run href='termux://site/${s.id}'><span class='mo w'>${mono(shortName(s.name))}</span><span class=nm>${esc(shortName(s.name))}</span></a>" +
                 "<a class=ed href='termux://siteedit/${s.id}'>✎</a></div>"
         // ওয়ার্কস্পেস এজেন্ট অনুযায়ী আলাদা হেডিংয়ে (Claude / Gemini / Grok); চেনা না গেলে "অন্যান্য ওয়ার্কস্পেস" (শুধু সেগুলোই থাকলে "ওয়ার্কস্পেস")
         val siteSection = if (sites.isEmpty()) "<h2>ওয়ার্কস্পেস</h2><div class=empty>এখনো কোনো ওয়ার্কস্পেস নেই। যেকোনো সাইট খুলে মেনু › ওয়ার্কস্পেস থেকে যোগ করুন, বা নিচের বোতামে ঠিকানা দিন।</div>" else {
