@@ -3,7 +3,7 @@
 <style>
 :root{--bg:#f6f3ea;--card:#fff;--tx:#1b2b24;--mu:#6b7a72;--g:#0f5a3f;--bd:#e3ddcc;--w:#c98a00;--r:#b3261e}
 @media(prefers-color-scheme:dark){:root{--bg:#121a16;--card:#1b2620;--tx:#e8efe9;--mu:#93a39a;--g:#59c796;--bd:#2c3a33;--w:#e5b04a;--r:#f08a82}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,"Noto Sans Bengali",sans-serif;display:flex;flex-direction:column;height:100vh}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,"Noto Sans Bengali",sans-serif;display:flex;flex-direction:column;height:100vh;height:100dvh;width:100%}
 header{padding:10px 14px;font-weight:700;color:var(--g);border-bottom:1px solid var(--bd)}
 main{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
 .row{display:flex;gap:8px;flex-wrap:wrap}.ag{flex:1;min-width:95px;background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:8px 10px}
@@ -12,15 +12,27 @@ main{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10
 .bar{height:6px;background:var(--bd);border-radius:4px;margin:6px 0;overflow:hidden}.bar i{display:block;height:100%;background:var(--g)}
 .queued .meta span:first-child{color:var(--w)}.done .meta span:first-child{color:var(--g)}
 .ev{font-size:13px;color:var(--mu);padding:3px 0;border-bottom:1px dashed var(--bd)}.ev.sw{color:var(--w);font-weight:600}
-footer{padding:8px;border-top:1px solid var(--bd);display:flex;gap:8px;background:var(--card)}
-textarea,input{flex:1;font:inherit;padding:9px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);resize:none}
-button{font:inherit;border:0;border-radius:10px;padding:0 16px;background:var(--g);color:#fff;font-weight:700}
+footer{padding:8px 8px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--bd);background:var(--card);display:flex;flex-direction:column;gap:6px;width:100%}
+.box{width:100%;border:1px solid var(--bd);border-radius:24px;background:var(--bg);padding:10px 10px 8px 14px;display:flex;flex-direction:column;gap:6px}
+.box textarea{width:100%;border:0;outline:0;background:transparent;color:var(--tx);font:inherit;font-size:16px;line-height:1.5;min-height:84px;max-height:45vh;resize:none;padding:0}
+.tools{display:flex;align-items:center;justify-content:space-between}
+.ic,.send{width:42px;height:42px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;border:0;cursor:pointer}
+.ic{background:transparent;border:1.5px solid var(--bd);color:var(--tx);font-size:26px;line-height:1;font-weight:300}
+.send{background:var(--g);color:#fff}.send:disabled{opacity:.35}
+.send svg{width:22px;height:22px}
+#chips{display:flex;gap:8px;flex-wrap:wrap}#chips:empty{display:none}
+.chip{display:flex;align-items:center;gap:6px;max-width:100%;background:var(--bg);border:1px solid var(--bd);border-radius:12px;padding:4px 8px;font-size:13px}
+.chip img{width:34px;height:34px;object-fit:cover;border-radius:6px}.chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:46vw}
+.chip b{cursor:pointer;color:var(--mu);padding:0 4px;font-size:16px}
+.fl{font-size:12px;color:var(--mu);margin-top:4px}
+input#tok{flex:1;font:inherit;padding:9px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx)}
+#setup button{font:inherit;border:0;border-radius:10px;background:var(--g);color:#fff;font-weight:700}
 #setup{padding:12px;display:none;flex-direction:column;gap:8px}
-footer{align-items:flex-end} footer textarea{min-height:120px;max-height:50vh;line-height:1.5;font-size:16px;padding:12px} footer button{min-height:52px;padding:0 20px}</style></head><body>
+</style></head><body>
 <header>🧭 এজেন্ট হাব <span id="ts" style="float:right;font-weight:400;font-size:12px;color:var(--mu)"></span></header>
 <div id="setup"><b>প্রথমবার: GitHub টোকেন দিন (শুধু এই ফোনে থাকবে)</b><input id="tok" type="password" placeholder="github_pat_..."><button onclick="saveTok()" style="padding:10px">সংরক্ষণ</button></div>
 <main id="m"><div class="row" id="ags"></div><div id="tasks"></div><div><b style="font-size:13px">ঘটনা</b><div id="evs"></div></div></main>
-<footer id="f"><textarea id="t" rows="5" oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,window.innerHeight*0.5)+'px'" placeholder="কমান্ড লিখুন — নতুন কাজ হিসেবে সারিতে যাবে (যেমন: ২৪:৩১-এর মতো সব মার্ক যাচাই করো)"></textarea><button onclick="send()">পাঠাও</button></footer>
+<footer id="f"><div id="chips"></div><div class="box"><textarea id="t" rows="3" oninput="grow(this);upd()" placeholder="কমান্ড লিখুন — নতুন কাজ হিসেবে সারিতে যাবে (যেমন: ২৪:৩১-এর মতো সব মার্ক যাচাই করো)"></textarea><div class="tools"><button class="ic" type="button" aria-label="ফাইল যোগ করুন" onclick="document.getElementById('fi').click()">+</button><input id="fi" type="file" multiple hidden onchange="addFiles(this)"><button class="send" id="sb" type="button" aria-label="পাঠাও" onclick="send()" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></footer>
 <script>
 const REPO="alamgirabdullahgh/daily-ruqyah",BR="agent-bus",API=`https://api.github.com/repos/${REPO}/contents/bus.json`;
 const tok=()=>localStorage.getItem("gh_tok")||"";
@@ -35,18 +47,37 @@ function draw(d){
   const names=["claude","gemini","grok"];for(const n in d.agents)if(!names.includes(n))names.push(n);
   document.getElementById("ags").innerHTML=names.map(n=>{const a=d.agents[n]||{};return`<div class="ag ${a.state||""}"><b>${esc(n)}</b><span class="st">${SN[a.state]||"অপেক্ষায়"}${a.task?" · #"+a.task:""}</span></div>`}).join("");
   const SS={queued:"সারিতে",running:"চলছে",done:"শেষ"};
-  document.getElementById("tasks").innerHTML=[...d.tasks].reverse().map(t=>`<div class="card ${t.status}" style="margin-bottom:8px"><div class="meta"><span>#${t.id} · ${SS[t.status]||t.status}${t.agent?" · "+esc(t.agent):""}</span><span>${t.progress}%</span></div><div>${esc(t.text)}</div><div class="bar"><i style="width:${t.progress}%"></i></div>${t.note?`<div class="st">${esc(t.note)}</div>`:""}</div>`).join("")||'<div class="st">এখনো কোনো কাজ নেই। নিচে কমান্ড লিখুন।</div>';
+  document.getElementById("tasks").innerHTML=[...d.tasks].reverse().map(t=>`<div class="card ${t.status}" style="margin-bottom:8px"><div class="meta"><span>#${t.id} · ${SS[t.status]||t.status}${t.agent?" · "+esc(t.agent):""}</span><span>${t.progress}%</span></div><div>${esc(t.text)}</div><div class="bar"><i style="width:${t.progress}%"></i></div>${t.note?`<div class="st">${esc(t.note)}</div>`:""}${(t.files||[]).map(f=>`<div class="fl">📎 ${esc(f.name)} (${sz(f.size)})</div>`).join("")}</div>`).join("")||'<div class="st">এখনো কোনো কাজ নেই। নিচে কমান্ড লিখুন।</div>';
   document.getElementById("evs").innerHTML=[...d.events].reverse().slice(0,25).map(e=>`<div class="ev ${e.msg.includes("বদল")||e.msg.includes("লিমিট")?"sw":""}">${esc(e.t.slice(11))} — ${esc(e.msg)}</div>`).join("");
   document.getElementById("ts").textContent="হালনাগাদ "+new Date().toLocaleTimeString("bn-BD");
 }
 async function refresh(){try{draw((await load()).d)}catch(e){document.getElementById("ts").textContent="সংযোগ সমস্যা ("+e.message+")"}}
+const FILES=[];const MAXB=25*1024*1024;
+const sz=n=>n>1048576?(n/1048576).toFixed(1)+" MB":Math.max(1,Math.round(n/1024))+" KB";
+function grow(e){e.style.height="auto";e.style.height=Math.min(e.scrollHeight,innerHeight*0.45)+"px"}
+function upd(){document.getElementById("sb").disabled=!(document.getElementById("t").value.trim()||FILES.length)}
+function icon(f){return f.type.startsWith("audio")?"🎵":f.type.startsWith("video")?"🎬":f.type==="application/pdf"?"📕":"📄"}
+function chips(){document.getElementById("chips").innerHTML=FILES.map((f,i)=>`<div class="chip">${f.type.startsWith("image")?`<img src="${f._u}">`:icon(f)}<span>${esc(f.name)} · ${sz(f.size)}</span><b onclick="rmFile(${i})">✕</b></div>`).join("");upd()}
+function addFiles(inp){for(const f of inp.files){if(f.size>MAXB){alert(f.name+": ২৫ MB-এর বেশি ফাইল যোগ করা যায় না");continue}f._u=f.type.startsWith("image")?URL.createObjectURL(f):"";FILES.push(f)}inp.value="";chips()}
+function rmFile(i){FILES.splice(i,1);chips()}
+const b64=f=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(String(r.result).split(",")[1]||"");r.onerror=()=>no(r.error);r.readAsDataURL(f)});
+async function upload(f,k){
+  const safe=f.name.replace(/[^A-Za-z0-9._-]+/g,"_").slice(-60)||"file",path=`files/${Date.now()}-${k}-${safe}`;
+  const r=await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`,{method:"PUT",headers:H(),body:JSON.stringify({message:"bus: file",branch:BR,content:await b64(f)})});
+  if(!r.ok)throw new Error("ফাইল আপলোড "+r.status);
+  return{name:f.name,path,size:f.size,type:f.type||"application/octet-stream"}}
 async function send(){
-  const t=document.getElementById("t"),text=t.value.trim();if(!text)return;t.value="";
+  const t=document.getElementById("t"),sb=document.getElementById("sb"),text=t.value.trim();if(!text&&!FILES.length)return;
+  const fs=[...FILES];sb.disabled=true;t.disabled=true;let done=[];
+  try{for(let k=0;k<fs.length;k++){document.getElementById("ts").textContent="ফাইল পাঠানো "+(k+1)+"/"+fs.length+"…";done.push(await upload(fs[k],k))}}
+  catch(e){alert("ফাইল পাঠানো যায়নি: "+e.message);t.disabled=false;upd();return}
+  const body=text||"(শুধু ফাইল — সংযুক্ত ফাইলগুলো দেখে কাজ করো)";
   for(let i=0;i<4;i++){try{const{sha,d}=await load();const id=Math.max(0,...d.tasks.map(x=>x.id))+1,now=new Date().toISOString().slice(0,16).replace("T"," ");
-    d.tasks.push({id,text,status:"queued",agent:"",progress:0,note:"",created:now,updated:now});d.events.push({t:now,msg:"নতুন কাজ #"+id+": "+text.slice(0,60)});d.events=d.events.slice(-60);
+    const task={id,text:body,status:"queued",agent:"",progress:0,note:"",created:now,updated:now};if(done.length)task.files=done;
+    d.tasks.push(task);d.events.push({t:now,msg:"নতুন কাজ #"+id+": "+body.slice(0,60)+(done.length?" 📎"+done.length:"")});d.events=d.events.slice(-60);
     const r=await fetch(API,{method:"PUT",headers:H(),body:JSON.stringify({message:"bus: add",branch:BR,sha,content:enc(JSON.stringify(d,null,1))})});
-    if(r.ok){draw(d);return}}catch(e){}await new Promise(r=>setTimeout(r,700))}
-  alert("পাঠানো যায়নি, আবার চেষ্টা করুন");t.value=text}
-function start(){const ok=!!tok();document.getElementById("setup").style.display=ok?"none":"flex";document.getElementById("m").style.display=ok?"flex":"none";document.getElementById("f").style.display=ok?"flex":"none";if(ok){refresh();clearInterval(window._i);window._i=setInterval(refresh,15000)}}
+    if(r.ok){t.value="";t.style.height="";t.disabled=false;FILES.length=0;chips();draw(d);return}}catch(e){}await new Promise(r=>setTimeout(r,700))}
+  alert("পাঠানো যায়নি, আবার চেষ্টা করুন");t.disabled=false;upd()}
+function start(){const ok=!!tok();document.getElementById("setup").style.display=ok?"none":"flex";document.getElementById("m").style.display=ok?"flex":"none";document.getElementById("f").style.display=ok?"flex":"none";upd();if(ok){refresh();clearInterval(window._i);window._i=setInterval(refresh,15000)}}
 start();
 </script></body></html>
