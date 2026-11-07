@@ -7,6 +7,12 @@ import android.content.Intent
 /** ব্যাকগ্রাউন্ড কমান্ডের শেষ ফলাফল ধরে Jobs-এ রাখে (লাইভ আউটপুট থাকলে সেটা মুছে না, শুধু শেষ অবস্থা মেলায়) */
 class ResultReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
+        if (i.getBooleanExtra("probe", false)) {
+            val pb = i.getBundleExtra("result"); val pe = pb?.getString("errmsg", "") ?: ""
+            if (pb != null && pe.isBlank()) Store.prefs(c).edit().putBoolean("termux_ok", true).apply()
+            Runner.probeDone(i.getStringExtra("pid") ?: return, if (pb == null) "noresult" else pe)   // খালি = সফল
+            return
+        }
         val key = i.getStringExtra("job") ?: return
         // আপডেটের পর নতুন প্রসেসে তালিকা খালি থাকে — আগে সংরক্ষিত তালিকা লোড করি, নইলে শেষ ফলাফল হারাত
         if (Jobs.find(key) == null) Jobs.load(c)

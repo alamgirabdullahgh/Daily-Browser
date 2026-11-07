@@ -17,6 +17,22 @@ data class Job(val key: String, val title: String, var status: String, var out: 
     @Volatile var attaches = 0       // কতবার চেষ্টা হয়েছে (ধীরে ধীরে বিরতি বাড়াতে)
     val links = java.util.concurrent.atomic.AtomicInteger(0)   // এখন কয়টি লাইভ সংযোগ খোলা (০ = আউটপুট আর আসছে না)
     @Volatile var reattach = false   // অ্যাপ নতুন করে চালুর পর লগ থেকে আবার স্ট্রিম নেওয়া হচ্ছে
+    @Volatile var connecting = false // কাজ শুরুর আগে Termux সংযোগ যাচাই/জোড়া চলছে (এ সময় লগ থেকে আবার জোড়ার চেষ্টা হয় না)
+    var total = 0                    // মোট ধাপ (সংযোগ যাচাই ধরে); ০ = অজানা
+
+    /** ধাপের শিরোনাম-লাইনগুলো ("▸ ..."), আউটপুট থেকে */
+    fun stepCount(): Int = text().lineSequence().count { it.startsWith("▸ ") }
+
+    /** সম্পূর্ণ কাজের প্রগ্রেস (০–৯৯); ধাপ না থাকলে -১ (অনির্দিষ্ট)। বর্তমান ধাপের "NN%" থাকলে সেটাও ধরে */
+    fun progress(): Int {
+        val lines = text().lines()
+        val starts = lines.indices.filter { lines[it].startsWith("▸ ") }
+        if (starts.isEmpty()) return -1
+        val t = maxOf(total, starts.size, 1)
+        val active = lines.drop(starts.last()).joinToString("\n").takeLast(300)
+        val f = percent.findAll(active).lastOrNull()?.groupValues?.get(1)?.toIntOrNull()?.takeIf { it in 0..100 } ?: 0
+        return (((starts.size - 1) + f / 100.0) / t * 100).toInt().coerceIn(0, 99)
+    }
 
     private val ansi = Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]|\u001B\\][^\u0007]*\u0007")
     private val percent = Regex("(\\d{1,3})\\s?%")
@@ -60,7 +76,7 @@ object Jobs {
             synchronized(list) {
                 list.forEach { j ->
                     a.put(JSONObject().put("k", j.key).put("t", j.title).put("st", j.status).put("o", j.out.takeLast(20000))
-                        .put("tm", j.time).put("e", j.end).put("s", j.script))
+                        .put("tm", j.time).put("e", j.end).put("s", j.script).put("tot", j.total))
                 }
             }
             Store.prefs(c).edit().putString("jobs", a.toString()).let { if (sync) it.commit() else it.apply() }
@@ -77,7 +93,7 @@ object Jobs {
                 val st0 = o.getString("st"); val t0 = o.optLong("e").takeIf { it > 0 } ?: o.getLong("tm")
                 if (st0 != "running" && System.currentTimeMillis() - t0 > 2 * 86400000L) continue
                 val j = Job(o.getString("k"), o.getString("t"), o.getString("st"), o.optString("o"), o.getLong("tm"))
-                j.end = o.optLong("e"); j.script = o.optString("s"); j.refreshPct()
+                j.end = o.optLong("e"); j.script = o.optString("s"); j.total = o.optInt("tot", 0); j.refreshPct()
                 list.add(j)
             }
         } catch (_: Exception) {}
@@ -105,15 +121,26 @@ export DISPLAY=:0
 (tint2 >/dev/null 2>&1 &)
 if command -v dbus-launch >/dev/null 2>&1; then exec dbus-launch --exit-with-session openbox-session; else exec openbox-session; fi""".replace('§', '$')
 
+/** ধাপভিত্তিক ডিফল্ট স্ক্রিপ্ট: "▸ " দিয়ে শুরু লাইন = একটি ধাপের শিরোনাম (কাজের ট্যাবে হেডিং হয়ে দেখায়) */
+const val D1 = "echo '▸ প্যাকেজ তালিকা আপডেট'\npkg update -y || exit 1\necho '▸ প্যাকেজ আপগ্রেড'\npkg upgrade -y || exit 1\necho 'সম্পন্ন'"
+const val D3 = "echo '▸ Python ইনস্টল'\npkg install -y python || exit 1\necho '▸ সংস্করণ যাচাই'\npython --version && pip --version"
+const val D5 = "echo '▸ Node.js ইনস্টল'\npkg install -y nodejs || exit 1\necho '▸ সংস্করণ যাচাই'\nnode -v && npm -v"
+
 object Store {
+    /** আগের সংস্করণের ডিফল্ট স্ক্রিপ্ট → নতুন ধাপভিত্তিক স্ক্রিপ্ট (ব্যবহারকারী বদলে থাকলে ছোঁয়া হয় না) */
+    private val legacy = mapOf(
+        "d1" to Pair("pkg update -y && pkg upgrade -y && echo 'সম্পন্ন'", D1),
+        "d3" to Pair("pkg install -y python && python --version && pip --version", D3),
+        "d5" to Pair("pkg install -y nodejs && node -v && npm -v", D5)
+    )
     private fun sp(c: Context) = c.getSharedPreferences("cmds", Context.MODE_PRIVATE)
 
     private val defaults = listOf(
-        Cmd("d1", "প্যাকেজ আপডেট ও আপগ্রেড", "pkg update -y && pkg upgrade -y && echo 'সম্পন্ন'"),
+        Cmd("d1", "প্যাকেজ আপডেট ও আপগ্রেড", D1),
         Cmd("d2", "স্টোরেজ অনুমতি", "termux-setup-storage", false),
-        Cmd("d3", "Python ইনস্টল", "pkg install -y python && python --version && pip --version"),
+        Cmd("d3", "Python ইনস্টল", D3),
         Cmd("d4", "Git ইনস্টল", "pkg install -y git && git --version"),
-        Cmd("d5", "Node.js ইনস্টল", "pkg install -y nodejs && node -v && npm -v"),
+        Cmd("d5", "Node.js ইনস্টল", D5),
         Cmd("d6", "SSH সার্ভার চালু", "pkg install -y openssh || exit 1\npkill -x sshd 2>/dev/null; sshd && echo 'sshd চালু, পোর্ট 8022'\necho \"ব্যবহারকারী: \$(whoami)\"\necho 'পাসওয়ার্ড সেট করতে Termux স্ক্রিনে passwd চালান'"),
         Cmd("d7", "ডিস্ক ব্যবহার", "df -h \$HOME"),
         Cmd("d8", "আইপি দেখুন", "(command -v ifconfig >/dev/null || pkg install -y net-tools) && ifconfig 2>/dev/null | grep -E \"inet |wlan|rmnet\" || /system/bin/ip -4 addr 2>/dev/null | grep inet"),
@@ -160,6 +187,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 6) { out.filter { it.id == "d10" }.forEach { it.script = DESKTOP }; changed = true }
         // v7: কমান্ডগুলো নিজে-সারানো প্রিলুড ও পূর্ণ কম্পিউটার-মোড স্ক্রিপ্টে নতুন করে বসানো
         if (sp(c).getInt("ver", 1) < 7) { out.forEach { o -> defaults.firstOrNull { it.id == o.id }?.let { n -> o.script = n.script; o.title = n.title } }; changed = true }
+        // v8: অপরিবর্তিত ডিফল্ট কমান্ডগুলো ধাপভিত্তিক স্ক্রিপ্টে
+        if (sp(c).getInt("ver", 1) < 8) { out.forEach { o -> legacy[o.id]?.let { (old, nw) -> if (o.script == old) o.script = nw } }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -168,7 +197,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 7)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 8)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 

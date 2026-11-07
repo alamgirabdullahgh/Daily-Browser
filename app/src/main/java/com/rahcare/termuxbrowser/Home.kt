@@ -12,7 +12,7 @@ object Home {
     private fun mark(j: Job) = when (j.status) { "running" -> "চলছে…"; "ok" -> "সম্পন্ন"; "stopped" -> "বন্ধ করা হয়েছে"; else -> "ব্যর্থ" }
 
     /** একটি কাজের বর্তমান অবস্থা (JSON) — কাজের ট্যাবের পাতা এটা দিয়ে নিজেকে আঁকে */
-    fun state(j: Job): String = org.json.JSONObject().put("s", j.status).put("p", j.pct).put("o", j.text())
+    fun state(j: Job): String = org.json.JSONObject().put("s", j.status).put("p", j.progress()).put("tot", j.total).put("o", j.text())
         .put("t0", j.time).put("t1", j.end).toString()
 
     /** হোম পেজের কাজের তালিকা: প্রতিটিতে চাপলে সেই কাজের ট্যাব খোলে */
@@ -25,55 +25,88 @@ object Home {
                 j.status == "ok" -> "<div class=mb><i class=okb></i></div>"
                 j.status == "stopped" -> "<div class=mb><i class=sb></i></div>"
                 j.status != "running" -> "<div class=mb><i class=fb></i></div>"
-                j.pct >= 0 -> "<div class=mb><i style='width:${j.pct}%'></i></div>"
+                j.progress() >= 0 -> "<div class=mb><i style='width:${j.progress()}%'></i></div>"
                 else -> "<div class=mb><i class=ind></i></div>"
             }
             val last = j.lastLine()
             "<div class=jw><a class='job${if (j.status == "running") " r" else ""}' href='termux://job/${j.key}'><b><span class=dot style='background:$dot'></span>${esc(j.title)}</b> " +
-                "<span class=m>${mark(j)} · ${j.elapsed()} সেকেন্ড</span>$bar" +
+                "<span class=m>${mark(j)} · ${j.elapsed()} সেকেন্ড${if (j.status == "running" && j.stepCount() > 0) " · ধাপ ${j.stepCount()}/${maxOf(j.total, j.stepCount())}" else ""}</span>$bar" +
                 (if (last.isNotBlank()) "<div class=ll>${esc(last)}</div>" else "") + "</a>" +
                 (if (j.status == "running") "<a class=kl href='termux://kill/${j.key}'>⏹ থামান</a>" else "") + "</div>"
         } + more
     }
 
-    /** একটি কাজের নিজস্ব ট্যাব: শিরোনাম, অবস্থা, প্রগ্রেস বার, সময় ও লাইভ আউটপুট */
+    /** একটি কাজের নিজস্ব ট্যাব: শিরোনাম, অবস্থা, মোট প্রগ্রেস বার, ধাপ-গণনা, আর প্রতিটি ধাপ হেডিং হিসেবে — চাপলে ভেতরের আউটপুট খোলে */
     fun jobHtml(j: Job): String = """<!doctype html><html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <style>
-body{font-family:system-ui,sans-serif;margin:0;padding:14px;background:#f3f4f6;color:#111827}
+:root{--bg:#f3f4f6;--card:#fff;--tx:#111827;--mu:#6b7280;--ln:#e5e7eb;--code:#0b1220;--cx:#d1fae5}
+@media(prefers-color-scheme:dark){:root{--bg:#0b1020;--card:#151b2e;--tx:#e5e7eb;--mu:#94a3b8;--ln:#232b45;--code:#05080f;--cx:#bbf7d0}}
+body{font-family:system-ui,-apple-system,"Noto Sans Bengali",sans-serif;margin:0;padding:14px;background:var(--bg);color:var(--tx)}
 .top{display:flex;align-items:center;gap:10px}h1{font-size:18px;margin:0;flex:1;word-break:break-word}
 .chip{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;background:#fef3c7;color:#92400e;white-space:nowrap}
 .chip.ok{background:#dcfce7;color:#166534}.chip.fail{background:#fee2e2;color:#991b1b}.chip.stopped{background:#e5e7eb;color:#374151}
-.m{color:#6b7280;font-size:13px;margin:6px 0}
-.bar{height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden;margin:10px 0}
-.bar i{display:block;height:100%;background:#2563eb;transition:width .3s}
+.sum{display:flex;justify-content:space-between;color:var(--mu);font-size:13px;margin:10px 0 4px}.sum b{color:var(--tx)}
+.bar{height:9px;background:var(--ln);border-radius:5px;overflow:hidden;margin:2px 0 14px}
+.bar i{display:block;height:100%;background:#2563eb;border-radius:5px;transition:width .35s}
 .bar i.ind{width:30%;animation:mv 1.1s ease-in-out infinite}
 @keyframes mv{0%{margin-left:-30%}100%{margin-left:100%}}
 .bar.ok i{background:#16a34a}.bar.fail i{background:#dc2626}.bar.stopped i{background:#9ca3af}
-code.c{display:block;background:#e5e7eb;border-radius:8px;padding:8px;font-size:11.5px;word-break:break-all;margin-bottom:10px;max-height:90px;overflow:auto}
-pre{background:#0b1220;color:#d1fae5;border-radius:10px;padding:10px;font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-all;margin:0;min-height:120px}
+details.cmd{margin-bottom:12px}details.cmd summary{font-size:12px;color:var(--mu);cursor:pointer}
+code.c{display:block;background:var(--ln);border-radius:8px;padding:8px;font-size:11.5px;word-break:break-all;margin-top:6px;max-height:140px;overflow:auto;white-space:pre-wrap}
+.step{background:var(--card);border:1px solid var(--ln);border-radius:12px;margin-bottom:8px;overflow:hidden}
+.step summary{list-style:none;display:flex;gap:10px;align-items:flex-start;padding:11px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.step summary::-webkit-details-marker{display:none}
+.ic{flex:none;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;background:#16a34a;margin-top:1px}
+.ic.run{background:#f59e0b;animation:sp 1.2s linear infinite}.ic.fail{background:#dc2626}.ic.stopped{background:#9ca3af}
+@keyframes sp{0%{opacity:1}50%{opacity:.45}100%{opacity:1}}
+.tt{flex:1;min-width:0}.tt b{font-size:14px;font-weight:600;word-break:break-word}
+.hint{display:block;color:var(--mu);font:11.5px ui-monospace,monospace;margin-top:3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.chev{flex:none;color:var(--mu);font-size:12px;margin-top:3px;transition:transform .15s}details[open]>summary .chev{transform:rotate(90deg)}
+.step pre{background:var(--code);color:var(--cx);margin:0;padding:10px 12px;font-size:12px;line-height:1.45;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow:auto}
+.pend{color:var(--mu);font-size:13px;padding:6px 4px}
 </style></head><body>
 <div class=top><h1>${esc(j.title)}</h1><span id=st class=chip>চলছে…</span></div>
-<div class=m><span id=pc></span><span id=el></span></div>
+<div class=sum><span id=sc></span><span><b id=pc></b> <span id=el></span></span></div>
 <div class=bar id=bar><i id=pb class=ind></i></div>
-<code class=c>${esc(j.script)}</code>
-<pre id=o></pre>
+<details class=cmd><summary>কমান্ডের কোড দেখুন</summary><code class=c>${esc(j.script)}</code></details>
+<div id=steps></div>
 <script>
-var S=${state(j)};
+var S=${state(j)},OPEN={};
 function two(n){return n<10?'0'+n:n}
 function fmt(s){s=Math.floor(s);return Math.floor(s/60)+':'+two(s%60)}
-function tick(){document.getElementById('el').textContent='সময়: '+fmt(((S.t1||Date.now())-S.t0)/1000)}
+function esc(x){return String(x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function tick(){document.getElementById('el').textContent='· '+fmt(((S.t1||Date.now())-S.t0)/1000)}
 function upd(x){S=x;draw()}
+function parse(t){var L=(t||'').split('\n'),st=[],c=null;
+ for(var i=0;i<L.length;i++){var l=L[i];
+  if(l.indexOf('▸ ')===0){c={t:l.slice(2).trim(),b:[]};st.push(c)}
+  else{if(!c){if(!l.trim())continue;c={t:'শুরু',b:[]};st.push(c)}c.b.push(l)}}
+ return st}
+function lastLine(b){for(var i=b.length-1;i>=0;i--){if(b[i].trim())return b[i].trim()}return ''}
 function draw(){
+ var run=S.s==='running',steps=parse(S.o),T=Math.max(S.tot||0,steps.length,1);
  var st=document.getElementById('st'),bar=document.getElementById('bar'),pb=document.getElementById('pb');
- var run=S.s==='running';
- st.className='chip'+(S.s==='ok'?' ok':S.s==='fail'?' fail':S.s==='stopped'?' stopped':'');
+ var cls=S.s==='ok'?' ok':S.s==='fail'?' fail':S.s==='stopped'?' stopped':'';
+ st.className='chip'+cls;
  st.textContent=run?'চলছে…':S.s==='ok'?'সম্পন্ন ✓':S.s==='stopped'?'বন্ধ করা হয়েছে ■':'ব্যর্থ ✗';
- bar.className='bar'+(S.s==='ok'?' ok':S.s==='fail'?' fail':S.s==='stopped'?' stopped':'');
- if(run&&S.p<0){pb.className='ind';pb.style.width=''}else{pb.className='';pb.style.width=(run?S.p:100)+'%'}
- document.getElementById('pc').textContent=(run&&S.p>=0)?S.p+'% · ':'';
- var o=document.getElementById('o'),near=(innerHeight+scrollY)>=document.body.scrollHeight-90;
- o.textContent=S.o||(run?'আউটপুটের অপেক্ষা…':'(কোনো আউটপুট নেই)');
- if(near)scrollTo(0,document.body.scrollHeight);
+ bar.className='bar'+cls;
+ var done=S.s==='ok'?T:Math.max(0,steps.length-1);
+ if(run&&S.p<0){pb.className='ind';pb.style.width=''}
+ else{pb.className='';pb.style.width=(S.s==='ok'?100:(S.p<0?(steps.length?Math.round(done/T*100):0):S.p))+'%'}
+ document.getElementById('sc').textContent=S.s==='ok'?'সব ধাপ সম্পন্ন ('+T+'/'+T+')':'ধাপ: '+done+'/'+T+' সম্পন্ন';
+ document.getElementById('pc').textContent=S.s==='ok'?'100%':(S.p>=0?S.p+'%':'');
+ var h='';
+ for(var i=0;i<steps.length;i++){
+  var last=i===steps.length-1,ic,k;
+  if(!last||S.s==='ok'){ic='✓';k=''}else if(run){ic='●';k=' run'}else if(S.s==='fail'){ic='✕';k=' fail'}else{ic='■';k=' stopped'}
+  var body=steps[i].b.join('\n').trim();
+  var open=OPEN[i]!==undefined?OPEN[i]:(last&&S.s==='fail');
+  var hint=(last&&run)?lastLine(steps[i].b):'';
+  h+='<details class=step'+(open?' open':'')+' ontoggle="OPEN['+i+']=this.open"><summary><span class="ic'+k+'">'+ic+'</span><span class=tt><b>'+esc(steps[i].t)+'</b>'+(hint&&!open?'<span class=hint>'+esc(hint)+'</span>':'')+'</span><span class=chev>▶</span></summary><pre>'+(body?esc(body):'(এখনো আউটপুট নেই)')+'</pre></details>';
+ }
+ if(!steps.length)h='<div class=pend>শুরু হচ্ছে…</div>';
+ else if(run&&T>steps.length)h+='<div class=pend>○ আরও '+(T-steps.length)+'টি ধাপ বাকি</div>';
+ document.getElementById('steps').innerHTML=h;
  tick()
 }
 setInterval(function(){if(S.s==='running')tick()},1000);

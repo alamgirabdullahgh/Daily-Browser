@@ -33,7 +33,7 @@ object Live {
     /** প্রতিটি কমান্ডের আগে বসে: pkg-কে নিজে-সারানো আপডেট/ইনস্টলে বদলায় (তালা মোছা, dpkg মেরামত, পুনরায় চেষ্টা, মিরর বদল) */
     val PKG_SHIM: String = """export DEBIAN_FRONTEND=noninteractive
 PREFIX=§{PREFIX:-/data/data/com.termux/files/usr}
-tb_say() { echo "▸ §*"; }
+tb_say() { echo "↻ §*"; }
 tb_run() { "§@" & p=§!; s=§(date +%s); ( while kill -0 §p 2>/dev/null; do sleep 8; kill -0 §p 2>/dev/null || break; d=§(du -sk "§PREFIX/var/cache/apt/archives/partial" "§PREFIX/var/lib/apt/lists/partial" 2>/dev/null | awk '{t+=§1} END{print t+0}'); echo "… এখনও চলছে (§((§(date +%s)-s)) সেকেন্ড) — নামানো §{d} KB · ধীর নেটে সময় লাগে, অপেক্ষা করুন"; done ) & h=§!; wait §p; r=§?; kill §h 2>/dev/null; wait §h 2>/dev/null; return §r; }
 tb_aptwait() { command -v pgrep >/dev/null 2>&1 || return 0; w=0; while pgrep -x apt >/dev/null || pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null; do [ §w = 0 ] && { echo 'অন্য একটি প্যাকেজ কাজ চলছে — শেষ হওয়ার অপেক্ষা… (আটকে গেলে হোমের ⏹ আটকে থাকা প্যাকেজ কাজ থামান চাপুন)'; }; w=1; sleep 3; done; }
 tb_net() { curl -s -o /dev/null --max-time 15 https://packages-cf.termux.dev/apt/termux-main/dists/stable/InRelease || curl -s -o /dev/null --max-time 15 https://github.com; }
@@ -68,6 +68,7 @@ pkg() { tb_aptwait; c="§1"; shift
         // tail আলাদা করে সেটা অ্যাপে পাঠায় (অ্যাপ ফ্রিজ থাকলে শুধু tail থামে, কমান্ড নয়)
         return "mkdir -p \"\$HOME/.tb\" 2>/dev/null\n" +
             "L=\"\$HOME/.tb/$k.log\"; P=\"\$HOME/.tb/$k.pid\"; : > \"\$L\"; echo \$\$ > \"\$P\"\n" +
+            "echo '▸ Termux-এর সাথে সংযোগ ঠিক আছে' >> \"\$L\"\n" +
             "termux-wake-lock 2>/dev/null\n" +
             // pkg প্রতিবার সব মিরর পরীক্ষা করে (ধীর নেটে বহু মিনিট); তাই pkg-কে সরাসরি apt দিয়ে বদলাই
             PKG_SHIM +

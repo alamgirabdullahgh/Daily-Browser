@@ -52,7 +52,7 @@ object Runner {
      */
     fun reconnect(c: Context, minAge: Long, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        Jobs.list.filter { it.status == "running" && it.links.get() == 0 && now - it.time > minAge }.forEach { j ->
+        Jobs.list.filter { it.status == "running" && !it.connecting && it.links.get() == 0 && now - it.time > minAge }.forEach { j ->
             val gap = if (j.attaches < 4) 15000L else 60000L
             if (j.attaches >= 8 && !force) {
                 // প্রায় ৫ মিনিট টানা চেষ্টার পরেও Termux সাড়া দেয়নি: কাজটা আর চলছে না ধরি (নইলে চিরকাল "চলছে…" ও নোটিফিকেশন থাকত)
@@ -85,38 +85,119 @@ object Runner {
         try { if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i) } catch (_: Exception) {}
     }
 
-    fun run(c: Context, cmd: Cmd): Pair<Job?, String?> {
-        if (!installed(c)) return Pair(null, "Termux ইনস্টল করা নেই (F-Droid থেকে ইনস্টল করুন)")
-        if (!hasPermission(c)) return Pair(null, "Termux-এর RUN_COMMAND অনুমতি দেওয়া নেই")
+    // ---------- Termux সংযোগ যাচাই ----------
+    private val probes = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.CountDownLatch>()
+    private val probeErr = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+    /** ResultReceiver ডাকে: err খালি = Termux সাড়া দিয়েছে */
+    fun probeDone(id: String, err: String) { probeErr[id] = err; probes[id]?.countDown() }
+
+    private fun startSvc(c: Context, i: Intent) {
+        if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
+    }
+
+    /** একটা ছোট কমান্ড পাঠিয়ে Termux সাড়া দেয় কিনা দেখে। null = সংযোগ ঠিক; "timeout" = সাড়া নেই; "perm" = অনুমতি/allow-external-apps; অন্যথায় Termux-এর ত্রুটি */
+    private fun probe(c: Context, waitMs: Long): String? {
+        val id = "p${System.nanoTime()}"
+        val latch = java.util.concurrent.CountDownLatch(1); probes[id] = latch
+        try {
+            val i = Intent(ACTION).setClassName(TERMUX, SERVICE)
+            i.putExtra("com.termux.RUN_COMMAND_PATH", BASH)
+            i.putExtra("com.termux.RUN_COMMAND_WORKDIR", HOME)
+            i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+            i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", "echo tb_ok"))
+            val r = Intent(c, ResultReceiver::class.java).setData(Uri.parse("probe://$id")).putExtra("probe", true).putExtra("pid", id)
+            i.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", PendingIntent.getBroadcast(c, 0, r, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE))
+            startSvc(c, i)
+        } catch (e: SecurityException) { probes.remove(id); return "perm"
+        } catch (e: Exception) { probes.remove(id); return "ত্রুটি: ${e.message}" }
+        val got = try { latch.await(waitMs, java.util.concurrent.TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { false }
+        probes.remove(id); val err = probeErr.remove(id)
+        return if (!got) "timeout" else if (err.isNullOrBlank()) null else err
+    }
+
+    private fun refresh(c: Context) { try { c.sendBroadcast(Intent(MainActivity.REFRESH).setPackage(c.packageName)) } catch (_: Exception) {} }
+
+    private fun failJob(c: Context, job: Job, msg: String) {
+        job.connecting = false
+        job.status = "fail"; job.end = System.currentTimeMillis(); job.out = msg
+        Jobs.save(c, true); refresh(c)
+    }
+
+    private const val CONN_HEAD = "▸ Termux-এর সাথে সংযোগ যাচাই"
+
+    /** কাজ শুরুর আগে: Termux সংযুক্ত কিনা দেখে; না থাকলে নিজে ৩ বার জোড়ার চেষ্টা; জুড়লে কাজ শুরু */
+    private fun connectThenLaunch(c: Context, cmd: Cmd, job: Job, script: String) {
+        val waits = longArrayOf(6000, 8000, 10000)
+        var last = "timeout"
+        for ((n, w) in waits.withIndex()) {
+            job.out = "$CONN_HEAD\nযাচাই চলছে… (চেষ্টা ${n + 1}/${waits.size})"; refresh(c)
+            val r = probe(c, w)
+            if (job.status != "running") return   // ইতিমধ্যে ব্যবহারকারী থামিয়েছেন
+            if (r == null) { last = ""; break }
+            last = r
+            if (r == "perm" || r.contains("allow-external-apps", true)) break   // আবার চেষ্টায় লাভ নেই
+            try { Thread.sleep(1500) } catch (_: InterruptedException) {}
+        }
+        if (last.isNotEmpty()) {
+            val why = if (last == "perm" || last.contains("allow-external-apps", true))
+                "Termux বাইরের অ্যাপকে কমান্ড চালাতে দিচ্ছে না (allow-external-apps চালু নেই বা RUN_COMMAND অনুমতি নেই)।\n\nসেটআপ কমান্ডটা আমি ক্লিপবোর্ডে কপি করে দিয়েছি: Termux খুলে স্ক্রিনে লম্বা চেপে Paste করে Enter দিন, Termux পুরো বন্ধ করে আবার খুলুন, তারপর কমান্ডটা আবার চালান।"
+            else if (last == "timeout")
+                "৩ বার চেষ্টার পরও Termux সাড়া দেয়নি।\n\nTermux অ্যাপটা একবার খুলে আবার চেষ্টা করুন। ফোনের ব্যাটারি-সেটিংসে Termux-কে \"Unrestricted\" করা থাকলে সাধারণত এটা ঠিক থাকে।"
+            else "Termux থেকে ত্রুটি: $last"
+            if (last == "perm" || last.contains("allow-external-apps", true)) {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    try { (c.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("termux-setup", SETUP_CMD)) } catch (_: Exception) {}
+                }
+            }
+            failJob(c, job, "$CONN_HEAD\n✗ সংযোগ হয়নি\n\n$why")
+            return
+        }
+        job.out = ""; job.connecting = false; refresh(c)
+        val err = launchJob(c, job, script)
+        if (err != null) failJob(c, job, "▸ কাজ শুরু\n$err")
+    }
+
+    /** আসল কমান্ড Termux-এ পাঠায় (ব্যাকগ্রাউন্ড); ত্রুটি থাকলে বার্তা ফেরত */
+    private fun launchJob(c: Context, job: Job, userScript: String): String? {
         val i = Intent(ACTION).setClassName(TERMUX, SERVICE)
         i.putExtra("com.termux.RUN_COMMAND_PATH", BASH)
         i.putExtra("com.termux.RUN_COMMAND_WORKDIR", HOME)
-        i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", cmd.background)
-        var job: Job? = null
-        var script = cmd.script
-        if (cmd.background) {
-            job = Jobs.start(cmd.title, cmd.script)
-            KeepAliveService.start(c)
-            script = try { Live.wrap(job, cmd.script) } catch (_: Exception) { cmd.script }
-            val r = Intent(c, ResultReceiver::class.java).setData(Uri.parse("job://${job.key}")).putExtra("job", job.key)
-            val pi = PendingIntent.getBroadcast(c, 0, r, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
-            i.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", pi)
-        } else i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
-        if (!cmd.background) script = Live.PKG_SHIM + script
+        i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", true)
+        val script = try { Live.wrap(job, userScript) } catch (_: Exception) { userScript }
+        val r = Intent(c, ResultReceiver::class.java).setData(Uri.parse("job://${job.key}")).putExtra("job", job.key)
+        i.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", PendingIntent.getBroadcast(c, 0, r, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE))
         i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", script))
-        fun fail(msg: String): Pair<Job?, String?> {
-            job?.status = "fail"; job?.out = msg; job?.end = System.currentTimeMillis()
-            return Pair(null, msg)
+        return try { startSvc(c, i); null }
+        catch (e: SecurityException) { "অনুমতি নেই। Termux-এ চালান: echo 'allow-external-apps=true' >> ~/.termux/termux.properties, তারপর Termux রিস্টার্ট করুন" }
+        catch (e: ActivityNotFoundException) { "Termux সার্ভিস পাওয়া যায়নি" }
+        catch (e: Exception) { "ত্রুটি: ${e.message}" }
+    }
+
+    fun run(c: Context, cmd: Cmd): Pair<Job?, String?> {
+        if (!installed(c)) return Pair(null, "Termux ইনস্টল করা নেই (F-Droid থেকে ইনস্টল করুন)")
+        if (!hasPermission(c)) return Pair(null, "Termux-এর RUN_COMMAND অনুমতি দেওয়া নেই")
+        if (cmd.background) {
+            // স্ক্রিপ্টে ধাপের শিরোনাম ("▸ ...") না থাকলে পুরোটা এক ধাপ, কমান্ডের নামেই
+            val script = if (cmd.script.contains("▸")) cmd.script else "echo '▸ ${cmd.title.replace("'", "")}'\n" + cmd.script
+            val job = Jobs.start(cmd.title, cmd.script)
+            job.total = maxOf(1, script.lines().count { it.contains("▸") }) + 1   // +১ = সংযোগ যাচাই
+            job.connecting = true
+            job.out = "$CONN_HEAD\nযাচাই চলছে…"
+            KeepAliveService.start(c)
+            Thread { try { connectThenLaunch(c, cmd, job, script) } catch (e: Exception) { failJob(c, job, "$CONN_HEAD\n✗ ত্রুটি: ${e.message}") } }.start()
+            return Pair(job, null)
         }
-        return try {
-            if (android.os.Build.VERSION.SDK_INT >= 26) c.startForegroundService(i) else c.startService(i)
-            Pair(job, null)
-        } catch (e: SecurityException) {
-            fail("অনুমতি নেই। Termux-এ চালান: echo 'allow-external-apps=true' >> ~/.termux/termux.properties, তারপর Termux রিস্টার্ট করুন")
-        } catch (e: ActivityNotFoundException) {
-            fail("Termux সার্ভিস পাওয়া যায়নি")
-        } catch (e: Exception) {
-            fail("ত্রুটি: ${e.message}")
-        }
+        // Termux-এর নিজের স্ক্রিনে চলা কমান্ড: Termux নিজেই সামনে আসে
+        val i = Intent(ACTION).setClassName(TERMUX, SERVICE)
+        i.putExtra("com.termux.RUN_COMMAND_PATH", BASH)
+        i.putExtra("com.termux.RUN_COMMAND_WORKDIR", HOME)
+        i.putExtra("com.termux.RUN_COMMAND_BACKGROUND", false)
+        i.putExtra("com.termux.RUN_COMMAND_SESSION_ACTION", "0")
+        i.putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", Live.PKG_SHIM + cmd.script))
+        return try { startSvc(c, i); Pair(null, null) }
+        catch (e: SecurityException) { Pair(null, "অনুমতি নেই। Termux-এ চালান: echo 'allow-external-apps=true' >> ~/.termux/termux.properties, তারপর Termux রিস্টার্ট করুন") }
+        catch (e: ActivityNotFoundException) { Pair(null, "Termux সার্ভিস পাওয়া যায়নি") }
+        catch (e: Exception) { Pair(null, "ত্রুটি: ${e.message}") }
     }
 }
