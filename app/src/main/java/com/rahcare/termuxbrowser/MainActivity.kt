@@ -568,6 +568,8 @@ class MainActivity : Activity() {
         w.setFindListener { idx, n, _ -> if (t === cur) findCount.text = if (n == 0) "০" else "${idx + 1}/$n" }
         w.setOnLongClickListener { _ -> handleLongPress(t) }
         w.webViewClient = object : WebViewClient() {
+            override fun shouldInterceptRequest(v: WebView, r: WebResourceRequest): android.webkit.WebResourceResponse? =
+                if (r.url.toString().startsWith(AGENT)) agentLoader.shouldInterceptRequest(r.url) else null
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                 val u = r.url
                 when (u.scheme) {
@@ -608,9 +610,17 @@ class MainActivity : Activity() {
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
                 // claude.ai-এর নির্দিষ্ট দুটো অনুমতি-কার্ড (রিপো তালিকা / রিপো যোগ, শুধু read) নিজে চাপে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
                 if (u.startsWith("https://claude.ai/") || u.startsWith("https://www.claude.ai/")) v.evaluateJavascript(Browse.CLAUDE_AUTO_JS, null)
+                if (u.startsWith(AGENT)) {
+                    // অ্যাপে সংরক্ষিত GitHub টোকেন (এনক্রিপ্টেড) থাকলে হাব-পেজকে একবার দিই; পেজে আগে থেকে টোকেন থাকলে ছুঁই না
+                    val tk = Secret.get(this@MainActivity)
+                    if (tk.isNotEmpty()) {
+                        val q = org.json.JSONObject.quote(tk)
+                        v.evaluateJavascript("(function(){try{if(!localStorage.getItem('gh_tok')){localStorage.setItem('gh_tok',$q);location.reload()}}catch(e){}})()", null)
+                    }
+                }
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
                 t.site?.let { sid -> if (!(Uri.parse(u).host ?: "").endsWith("github.com")) detectEmail(t, sid, true) }
-                if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
+                if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && !u.startsWith(AGENT) && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
                 if (t === cur) { updateBar(); swipe.isRefreshing = false }
             }
         }
@@ -1622,6 +1632,20 @@ class MainActivity : Activity() {
         sv.post { sv.scrollTo(0, keep) }
     }
 
+    // ---------- এজেন্ট হাব (Claude/Gemini/Grok-এর কাজের তালিকা) ----------
+    private val agentLoader by lazy {
+        androidx.webkit.WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", androidx.webkit.WebViewAssetLoader.AssetsPathHandler(this)).build()
+    }
+    private val AGENT = "https://appassets.androidplatform.net/assets/agent-hub.html"
+
+    private fun openAgentHub() {
+        tabs.firstOrNull { it.url.startsWith(AGENT) }?.let { select(it); return }
+        val t = newTab(AGENT)
+        t.title = "এজেন্ট"
+        select(t)
+    }
+
     // ---------- মেনু ----------
     private fun menu(anchor: View) {
         val m = SheetMenu()
@@ -1654,6 +1678,7 @@ class MainActivity : Activity() {
             m.menu.add(0, 25, 1, "🔗 লিংক কপি")
             m.menu.add(0, 26, 1, "🖨 প্রিন্ট / PDF সেভ")
         }
+        m.menu.add(0, 50, 2, "🤖 এজেন্ট")
         m.menu.add(0, 21, 2, "📚 বুকমার্ক তালিকা")
         m.menu.add(0, 22, 2, "🕘 ইতিহাস")
         m.menu.add(0, 27, 2, "🕶 নতুন ইনকগনিটো ট্যাব")
@@ -1661,6 +1686,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 30, 2, "⬇ ডাউনলোড তালিকা")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
+                50 -> openAgentHub()
                 13 -> editRepo()
                 16 -> editToken()
                 40 -> { ghClear(cur?.site); cur?.let { t -> if (t.web.url?.contains("github.com") == true) t.web.reload() }
@@ -1741,12 +1767,13 @@ class MainActivity : Activity() {
         val groups = listOf(
             "পেজ" to listOf(20, 23, 24, 25, 26, 3, 29, 2, 12, 1),
             "লাইব্রেরি" to listOf(21, 22, 30, 27),
+            "এজেন্ট" to listOf(50),
             "ওয়ার্কস্পেস" to listOf(9, 11, 10, 15, 14, 17),
             "GitHub" to listOf(18, 13, 16, 40, 41, 42),
             "Termux" to listOf(4, 5),
             "অ্যাপ" to listOf(6, 7)
         )
-        val icons = mapOf(18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
+        val icons = mapOf(50 to "🤖", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(22)) }
         fun pick(it: MI) { d.dismiss(); m.click?.invoke(it) }
         m.items.firstOrNull { it.itemId == 8 }?.let { u ->
