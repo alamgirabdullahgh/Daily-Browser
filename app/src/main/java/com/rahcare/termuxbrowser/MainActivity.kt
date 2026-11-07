@@ -1254,12 +1254,16 @@ class MainActivity : Activity() {
     private var gcLogins = 0
     private var gcInstalled = false
     private var gcConnectClicks = 0
+    private var gcPending: String? = null   // switch-er por box-e boshano lekha; connect check er por abar boshiye pathano hobe
+    private var gcPendSend = false
     private fun gcAuto() = Store.prefs(this).getBoolean("gc_auto", false)
 
-    private fun gcBegin(t: Tab) {
+    private fun gcBegin(t: Tab, pending: String? = null, pendSend: Boolean = false, back: String? = null) {
         gcTab = t; gcStartAt = System.currentTimeMillis(); gcLastRun = gcStartAt
         gcBack = (t.web.url ?: t.url).takeIf { it.contains("/chat/") || it.contains("/code") } ?: t.chatUrl
         gcLogins = 0; gcInstalled = false; gcConnectClicks = 0
+        gcPending = pending; gcPendSend = pendSend
+        if (!back.isNullOrBlank()) gcBack = back
         Toast.makeText(this, "Claude-এ GitHub কানেক্ট নেই — নিজে কানেক্ট করা হচ্ছে…", Toast.LENGTH_LONG).show()
         t.web.loadUrl(GitConnect.CONNECTORS)
         handler.postDelayed(gcTick, 5000L)
@@ -1268,7 +1272,14 @@ class MainActivity : Activity() {
     private fun gcFinish(t: Tab, ok: Boolean, msg: String) {
         gcTab = null; gcLastRun = System.currentTimeMillis()
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-        if (ok && gcBack.startsWith("http") && tabs.contains(t)) {
+        val pend = gcPending; val ps = gcPendSend; gcPending = null; gcPendSend = false
+        if (pend != null) {
+            //  workspace switch flow: chat-e fire giye lekha abar boshao; GitHub connected hole (ok) tobei send
+            if (tabs.contains(t)) {
+                t.web.loadUrl(if (gcBack.startsWith("http")) gcBack else "https://claude.ai/new")
+                fillInput(t, pend, 0, ps && ok)
+            }
+        } else if (ok && gcBack.startsWith("http") && tabs.contains(t)) {
             t.web.loadUrl(gcBack)
             fillInput(t, "GitHub এখন কানেক্ট হয়েছে। এই চ্যাটে আগের কাজটা GitHub টুল দিয়ে চালিয়ে যাও।", 0, true)
         }
@@ -1496,7 +1507,11 @@ class MainActivity : Activity() {
                     if (payload.isEmpty()) Toast.makeText(this, "কপি করার মতো লেখা পাওয়া যায়নি — শুধু ${to.name} খোলা হয়েছে", Toast.LENGTH_LONG).show()
                     else {
                         if (!send) Toast.makeText(this, "চ্যাট কপি হয়েছে — ${to.name}-এর ঘরে বসানোর চেষ্টা চলছে (না বসলে পেস্ট করুন)", Toast.LENGTH_LONG).show()
-                        fillInput(tab, payload, 0, send)
+                        //  workspace switch: age box-e lekha boshao, tarpor settings-e giye GitHub connected kina dekho (na thakle connect), shesh hole abar boshiye (send hole) pathao
+                        val toClaude = (Uri.parse(destUrl).host ?: "").endsWith("claude.ai")
+                        if (toClaude && gcAuto() && GitCred.has(this) && gcTab == null)
+                            fillInput(tab, payload, 0, false) { if (tabs.contains(tab) && gcTab == null) gcBegin(tab, payload, send, destUrl) }
+                        else fillInput(tab, payload, 0, send)
                     }
                 }
             }
@@ -1554,15 +1569,15 @@ class MainActivity : Activity() {
             .setNegativeButton("বাতিল", null).show()
     }
 
-    private fun fillInput(t: Tab, text: String, n: Int, send: Boolean) {
-        if (n >= 12) { if (send) Toast.makeText(this, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান", Toast.LENGTH_LONG).show(); return }
+    private fun fillInput(t: Tab, text: String, n: Int, send: Boolean, onFilled: (() -> Unit)? = null) {
+        if (n >= 12) { if (send) Toast.makeText(this, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান", Toast.LENGTH_LONG).show(); onFilled?.invoke(); return }
         handler.postDelayed({
             if (!tabs.contains(t)) return@postDelayed
             t.web.evaluateJavascript(Sites.fillJs(text)) { r ->
                 if (r == null || !r.contains("ok")) {
                     // চ্যাটের ঘর নেই: প্ল্যান/স্বাগত পেজ আটকে থাকলে নিজেই "Use Claude for free" বা ← চেপে পার করি, তারপর আবার চেষ্টা
-                    t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send) }
-                } else if (send) sendInput(t, 0)
+                    t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send, onFilled) }
+                } else if (send) sendInput(t, 0) else onFilled?.invoke()
             }
         }, if (n == 0) 4000L else 3000L)
     }

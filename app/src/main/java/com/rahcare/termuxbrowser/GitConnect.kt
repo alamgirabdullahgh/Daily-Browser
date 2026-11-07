@@ -61,7 +61,7 @@ if(location.hostname.indexOf('claude.ai')<0)return '';
 var els=document.querySelectorAll('[class*="font-claude"]');if(!els.length)return '';
 var e=els[els.length-1];if(e.closest('[data-is-streaming="true"]')||e.getAttribute('data-is-streaming')==='true')return '';
 var s=(e.innerText||'').replace(/\s+/g,' ').trim();if(!s)return '';s=s.slice(-1800);
-var re=/(don['’]?t|do not|can['’]?t|cannot|unable to|not able to|no)\b[^.\n]{0,70}\b(access|connect|connection|tool|tools|integration)\b[^.\n]{0,50}github|github[^.\n]{0,60}(not connected|isn['’]?t connected|is not connected|not available|not enabled|no (tool|tools|access|connection)|disconnected)|no github (tool|tools|access|connection|integration)|(connect|enable|authorize|reconnect) (your )?github/i;
+var re=/(don['’]?t|do not|can['’]?t|cannot|unable to|not able to|no)\b[^.\n]{0,70}\b(access|connect|connection|tool|tools|integration)\b[^.\n]{0,50}github|github[^.\n]{0,60}(not connected|isn['’]?t connected|is not connected|not available|not enabled|no (tool|tools|access|connection)|disconnected)|no github (tool|tools|access|connection|integration)|(connect|enable|authorize|reconnect) (your )?github|গিটহাব[^.\n।]{0,50}(কানেক্ট হয়নি|সংযুক্ত নয়|অ্যাক্সেস নেই|সংযোগ নেই)/i;
 var m=s.match(re);return m?s.slice(Math.max(0,m.index-20),m.index+160):'';
 }catch(x){return ''}})()"""
 
