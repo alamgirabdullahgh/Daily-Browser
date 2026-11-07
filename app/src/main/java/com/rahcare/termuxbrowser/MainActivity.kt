@@ -570,7 +570,7 @@ class MainActivity : Activity() {
         w.setOnLongClickListener { _ -> handleLongPress(t) }
         w.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(v: WebView, r: WebResourceRequest): android.webkit.WebResourceResponse? =
-                if (r.url.toString().startsWith(AGENT)) agentLoader.shouldInterceptRequest(r.url) else null
+                if (r.url.toString().startsWith(ASSET)) agentLoader.shouldInterceptRequest(r.url) else null
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                 val u = r.url
                 when (u.scheme) {
@@ -611,7 +611,7 @@ class MainActivity : Activity() {
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
                 // claude.ai-এর নির্দিষ্ট দুটো অনুমতি-কার্ড (রিপো তালিকা / রিপো যোগ, শুধু read) নিজে চাপে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
                 if (u.startsWith("https://claude.ai/") || u.startsWith("https://www.claude.ai/")) v.evaluateJavascript(Browse.CLAUDE_AUTO_JS, null)
-                if (u.startsWith(AGENT)) {
+                if (u.startsWith(ASSET)) {
                     // অ্যাপে সংরক্ষিত GitHub টোকেন (এনক্রিপ্টেড) থাকলে হাব-পেজকে একবার দিই; পেজে আগে থেকে টোকেন থাকলে ছুঁই না
                     val tk = Secret.get(this@MainActivity)
                     if (tk.isNotEmpty()) {
@@ -622,7 +622,7 @@ class MainActivity : Activity() {
                 }
                 t.url = u; if (t.isHome) t.title = "Termux হোম" else if (t.jobKey == null && !v.title.isNullOrBlank()) t.title = v.title!!
                 t.site?.let { sid -> if (!(Uri.parse(u).host ?: "").endsWith("github.com")) detectEmail(t, sid, true) }
-                if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && !u.startsWith(AGENT) && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
+                if (!t.incognito && !t.isHome && t.jobKey == null && u.startsWith("http") && !u.startsWith(ASSET) && v.title != Browse.ERR_TITLE) History.add(this@MainActivity, v.title ?: u, u)
                 if (t === cur) { updateBar(); swipe.isRefreshing = false }
             }
         }
@@ -1709,11 +1709,13 @@ class MainActivity : Activity() {
         androidx.webkit.WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", androidx.webkit.WebViewAssetLoader.AssetsPathHandler(this)).build()
     }
-    private val AGENT = "https://appassets.androidplatform.net/assets/agent-hub.html"
+    private val ASSET = "https://appassets.androidplatform.net/assets/"
+    private val AGENT = ASSET + "agent-hub.html"
+    private val DEDIT = ASSET + "daily-edit.html"
 
     /** হাবের চ্যাট-বক্সের এজেন্ট বাছাইয়ের তালিকা: হোমপেজের ওয়ার্কস্পেস থেকে (Claude → Gemini → Grok), জানা থাকলে সংস্করণ সহ */
     private fun pushAgents() {
-        val hub = tabs.filter { it.url.startsWith(AGENT) }
+        val hub = tabs.filter { it.url.startsWith(AGENT) || it.url.startsWith(DEDIT) }
         if (hub.isEmpty()) return
         val arr = org.json.JSONArray()
         AgentBus.agentsIn(Sites.all(this)).forEach { id ->
@@ -1734,6 +1736,13 @@ class MainActivity : Activity() {
                 }
             }
         }
+    }
+
+    private fun openDailyEdit() {
+        tabs.firstOrNull { it.url.startsWith(DEDIT) }?.let { select(it); pushAgents(); return }
+        val t = newTab(DEDIT)
+        t.title = "ডেইলি এডিট"
+        select(t)
     }
 
     private fun openAgentHub() {
@@ -1775,6 +1784,7 @@ class MainActivity : Activity() {
             m.menu.add(0, 25, 1, "🔗 লিংক কপি")
             m.menu.add(0, 26, 1, "🖨 প্রিন্ট / PDF সেভ")
         }
+        m.menu.add(0, 60, 2, "🎬 ডেইলি এডিট")
         m.menu.add(0, 50, 2, "🤖 এজেন্ট")
         m.menu.add(0, 51, 2, "📤 কাজ নিজে থেকে এজেন্টকে পাঠানো").apply { isCheckable = true; isChecked = agentAuto() }
         m.menu.add(0, 21, 2, "📚 বুকমার্ক তালিকা")
@@ -1784,6 +1794,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 30, 2, "⬇ ডাউনলোড তালিকা")
         m.setOnMenuItemClickListener {
             when (it.itemId) {
+                60 -> openDailyEdit()
                 50 -> openAgentHub()
                 51 -> { val on = !agentAuto(); Store.prefs(this).edit().putBoolean("agent_auto", on).apply()
                     Toast.makeText(this, if (on) "সারিতে কাজ এলে খোলা ওয়ার্কস্পেসের চ্যাটে নিজে থেকে পাঠানো হবে" else "স্বয়ংক্রিয় পাঠানো বন্ধ — কাজ হাতে পাঠাতে হবে", Toast.LENGTH_LONG).show() }
@@ -1865,14 +1876,14 @@ class MainActivity : Activity() {
         val d = android.app.Dialog(this)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val groups = listOf(
-            "এজেন্ট এবং ওয়ার্কস্পেস" to listOf(50, 51, 9, 11, 10, 15, 14, 17),
+            "এজেন্ট এবং ওয়ার্কস্পেস" to listOf(60, 50, 51, 9, 11, 10, 15, 14, 17),
             "পেজ" to listOf(20, 23, 24, 25, 26, 3, 29, 2, 12, 1),
             "লাইব্রেরি" to listOf(21, 22, 30, 27),
             "GitHub" to listOf(18, 13, 16, 40, 41, 42),
             "Termux" to listOf(4, 5),
             "অ্যাপ" to listOf(6, 7)
         )
-        val icons = mapOf(50 to "🤖", 51 to "📤", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
+        val icons = mapOf(60 to "🎬", 50 to "🤖", 51 to "📤", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(22)) }
         fun pick(it: MI) { d.dismiss(); m.click?.invoke(it) }
         m.items.firstOrNull { it.itemId == 8 }?.let { u ->
