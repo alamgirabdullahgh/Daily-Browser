@@ -50,6 +50,8 @@ object GitCred {
 /**
  * Claude যখন বলে "আমার GitHub টুল/কানেকশন নেই", তখন নিজে থেকে: Customize → Connectors → GitHub Integration → Connect,
  * GitHub-এ সংরক্ষিত ইমেইল/পাসওয়ার্ড দিয়ে লগইন, Authorize/Install চেপে কানেক্ট করে চ্যাটে ফিরে কাজ চালু রাখে।
+ * আগে থেকে ইনস্টল থাকলে রিপোজিটরি-অ্যাক্সেস পাতায় Only select repositories → All repositories → Save (এটা না করলে কানেক্ট অসম্পূর্ণ থাকে),
+ * আর পারমিশন-আপডেটের হলুদ বারে Review request / Accept new permissions-ও চাপে।
  * সীমা: পাসওয়ার্ড শুধু github.com/login বা /session পাতায় বসে; ২-ধাপ যাচাই/ক্যাপচা এলে থেমে আপনাকে জানায়।
  */
 object GitConnect {
@@ -99,6 +101,37 @@ if(lf&&pw&&vis(lf)){
  setv(lf,${JSONObject.quote(email ?: "")});setv(pw,${JSONObject.quote(pass ?: "")});
  var sb=document.querySelector('input[name=commit],button[type=submit],input[type=submit]');if(sb){sb.click();return 'login'}return 'waiting'}
 var bs=[].slice.call(document.querySelectorAll('button,input[type=submit],a.btn,[role=button]')).filter(vis);
+function btn(re){for(var k=0;k<bs.length;k++){var u=tx(bs[k]);if(u.length<45&&re.test(u)&&!bs[k].disabled&&!/uninstall|suspend|delete|cancel|revoke|deny/i.test(u))return bs[k]}return null}
+/* ১) হলুদ বার "Claude is requesting an update to its permissions" → Review request / Accept new permissions */
+var rv=btn(/^(review request|accept new permissions)${'$'}/i);
+if(rv){
+ var RK='drGhRev',rc={n:0,t:0};
+ try{var rq=JSON.parse(sessionStorage.getItem(RK)||'null');if(rq&&Date.now()-rq.t<600000)rc=rq}catch(e){}
+ if(rc.n<3){try{sessionStorage.setItem(RK,JSON.stringify({n:rc.n+1,t:rc.t||Date.now()}))}catch(e){}rv.click();return 'clicked:'+tx(rv).slice(0,30)}}
+/* ২) রিপোজিটরি অ্যাক্সেস পাতা: Only select repositories → আবার All repositories → Save (এরপরই পুরো কানেক্ট হয়)।
+   ধাপ sessionStorage-এ মনে রাখা হয় (৩ সেকেন্ডের প্রতি টিকে একটা করে ক্লিক); ১০ মিনিট পুরোনো হলে নতুন করে শুরু */
+function rlab(r){var l=r.id?document.querySelector('label[for="'+r.id+'"]'):null;var t=l?tx(l):'';if(!t){var c=r.closest('label,.form-checkbox,li,div');t=c?tx(c):''}return t}
+var allR=null,selR=null;
+[].slice.call(document.querySelectorAll('input[type=radio]')).forEach(function(r){var t=rlab(r);if(/^all repositories/i.test(t))allR=r;else if(/^only select repositories/i.test(t))selR=r});
+if(allR&&selR&&/\/installations\//.test(p)){
+ var KEY='drGhRepo',o={s:'',t:0};
+ try{var q=JSON.parse(sessionStorage.getItem(KEY)||'null');if(q&&Date.now()-q.t<600000)o=q}catch(e){}
+ function sst(s,x){try{sessionStorage.setItem(KEY,JSON.stringify({s:s,t:Date.now(),o:x||0}))}catch(e){}}
+ if(o.s==='done')return 'waiting';
+ if(o.s==='saved'){
+  if(o.o&&performance.timeOrigin===o.o)return 'waiting';
+  if(allR.checked){sst('done');return 'repodone'}
+  sst('');o={s:'',t:0}}
+ if(o.s===''){
+  if(allR.checked){selR.click();sst('sel');return 'clicked:OnlySelect'}
+  sst('sel');o.s='sel'}
+ if(o.s==='sel'){allR.click();sst('all');return 'clicked:AllRepos'}
+ if(o.s==='all'){
+  if(!allR.checked){allR.click();return 'clicked:AllRepos'}
+  var sv=btn(/^(save|install|install & authorize|install and authorize|update access)${'$'}/i);
+  if(sv){var tt=tx(sv).slice(0,30);sst('saved',performance.timeOrigin);sv.click();return 'clicked:'+tt}
+  return 'waiting'}}
+/* ৩) বাকি সব (Authorize / Install / Save…) আগের মতো */
 for(var i=0;i<bs.length;i++){var t=tx(bs[i]);
  if(/uninstall|suspend|delete|cancel|revoke|deny/i.test(t))continue;
  if(/^authorize\b/i.test(t)||/^(install|install & authorize|install and authorize|save|update access)${'$'}/i.test(t)){if(bs[i].disabled)continue;bs[i].click();return 'clicked:'+t.slice(0,30)}}

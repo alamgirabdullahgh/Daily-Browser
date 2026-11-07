@@ -1340,6 +1340,8 @@ class MainActivity : Activity() {
                                 "codefilled" -> { CodeBox.clear(); gcLastRun = System.currentTimeMillis(); if (++gcCodeTries > 3) gcFinish(t, false, "GitHub কোড মেলেনি, নিজে দিন") }
                                 "manual" -> gcFinish(t, false, "GitHub ২-ধাপ যাচাই/ক্যাপচা চাইছে — এই পাতায় আপনি হাতে শেষ করুন")
                                 "nocred" -> gcFinish(t, false, "GitHub ইমেইল/পাসওয়ার্ড দেওয়া নেই — মেনু থেকে দিন")
+                                // রিপোজিটরি অ্যাক্সেস: Only select → All → Save হয়ে গেছে; claude.ai-তে ফিরে কানেক্ট যাচাই
+                                "repodone" -> { gcLastRun = System.currentTimeMillis(); Toast.makeText(this@MainActivity, "All repositories সেভ হয়েছে — কানেক্ট যাচাই হচ্ছে…", Toast.LENGTH_SHORT).show(); t.web.loadUrl(GitConnect.CONNECTORS) }
                                 else -> if (r.startsWith("clicked:")) { gcLastRun = System.currentTimeMillis() }
                             }
                         }
