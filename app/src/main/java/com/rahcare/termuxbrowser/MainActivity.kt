@@ -1256,13 +1256,15 @@ class MainActivity : Activity() {
     private var gcConnectClicks = 0
     private var gcPending: String? = null   // switch-er por box-e boshano lekha; connect check er por abar boshiye pathano hobe
     private var gcPendSend = false
+    private var gcCodeTries = 0
+    private var gcAskedNotif = false
     private fun gcAuto() = Store.prefs(this).getBoolean("gc_auto", false)
 
     private fun gcBegin(t: Tab, pending: String? = null, pendSend: Boolean = false, back: String? = null) {
         gcTab = t; gcStartAt = System.currentTimeMillis(); gcLastRun = gcStartAt
         gcBack = (t.web.url ?: t.url).takeIf { it.contains("/chat/") || it.contains("/code") } ?: t.chatUrl
         gcLogins = 0; gcInstalled = false; gcConnectClicks = 0
-        gcPending = pending; gcPendSend = pendSend
+        gcPending = pending; gcPendSend = pendSend; gcCodeTries = 0; gcAskedNotif = false
         if (!back.isNullOrBlank()) gcBack = back
         Toast.makeText(this, "Claude-এ GitHub কানেক্ট নেই — নিজে কানেক্ট করা হচ্ছে…", Toast.LENGTH_LONG).show()
         t.web.loadUrl(GitConnect.CONNECTORS)
@@ -1297,10 +1299,12 @@ class MainActivity : Activity() {
                     host == "github.com" -> {
                         val isLogin = (path == "/login" || path == "/session") && gcLogins < 2
                         val cred = if (isLogin) GitCred.get(this@MainActivity) else null
-                        val js = GitConnect.githubJs(cred?.first, cred?.second)
+                        val js = GitConnect.githubJs(cred?.first, cred?.second, CodeBox.peek(10 * 60000L))
                         t.web.evaluateJavascript(js) { raw ->
                             when (val r = Sites.unquote(raw)) {
                                 "login" -> gcLogins++
+                                "needcode" -> gcNeedCode()
+                                "codefilled" -> { CodeBox.clear(); gcLastRun = System.currentTimeMillis(); if (++gcCodeTries > 3) gcFinish(t, false, "GitHub কোড মেলেনি, নিজে দিন") }
                                 "manual" -> gcFinish(t, false, "GitHub ২-ধাপ যাচাই/ক্যাপচা চাইছে — এই পাতায় আপনি হাতে শেষ করুন")
                                 "nocred" -> gcFinish(t, false, "GitHub ইমেইল/পাসওয়ার্ড দেওয়া নেই — মেনু থেকে দিন")
                                 else -> if (r.startsWith("clicked:")) { gcLastRun = System.currentTimeMillis() }
@@ -1321,6 +1325,16 @@ class MainActivity : Activity() {
             } finally {
                 if (gcTab != null) handler.postDelayed(this, 3000L)
             }
+        }
+    }
+
+    /** GitHub ইমেইলে কোড চেয়েছে: নোটিফিকেশন-অ্যাক্সেস না থাকলে একবার সেটিংস খুলে দেয়; কোড এলে পরের টিকে নিজে বসে যায় */
+    private fun gcNeedCode() {
+        val on = try { android.provider.Settings.Secure.getString(contentResolver, "enabled_notification_listeners")?.contains(packageName) == true } catch (_: Exception) { false }
+        if (!on && !gcAskedNotif) {
+            gcAskedNotif = true
+            Toast.makeText(this, "নোটিফিকেশন অ্যাক্সেস চালু করুন, তাহলে GitHub-এর কোড নিজে বসে যাবে", Toast.LENGTH_LONG).show()
+            try { startActivity(android.content.Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
         }
     }
 

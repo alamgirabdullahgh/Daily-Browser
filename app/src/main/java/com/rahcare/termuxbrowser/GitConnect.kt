@@ -80,10 +80,17 @@ if(dis)return 'connected';
 return 'waiting'}catch(x){return 'err'}})()"""
 
     /** github.com পাতায়: লগইন ফর্ম (শুধু cred != null হলে), ২-ধাপ/যাচাই শনাক্ত, Authorize/Install চাপা */
-    fun githubJs(email: String?, pass: String?) = """(function(){try{
+    fun githubJs(email: String?, pass: String?, code: String? = null) = """(function(){try{
+var CODE=${JSONObject.quote(code ?: "")};
 function vis(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0}
 function tx(e){return(e.innerText||e.value||e.textContent||'').replace(/\s+/g,' ').trim()}
 var p=location.pathname,body=(document.body.innerText||'').slice(0,4000);
+var otp=document.getElementById('otp');
+if(otp&&vis(otp)&&/e-?mail/i.test((document.body.innerText||'').slice(0,4000))&&!/captcha|prove you are human|verify you are human/i.test((document.body.innerText||'').slice(0,4000))){
+ if(!CODE)return 'needcode';
+ var d0=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');d0.set.call(otp,CODE);otp.dispatchEvent(new Event('input',{bubbles:true}));otp.dispatchEvent(new Event('change',{bubbles:true}));
+ var vb=document.querySelector('form button[type=submit],form input[type=submit],button[type=submit]');if(vb){vb.click();return 'codefilled'}
+ var fm=otp.form;if(fm){if(fm.requestSubmit)fm.requestSubmit();else fm.submit();return 'codefilled'}return 'waiting'}
 if(/two-factor|verified-device|recovery|\/sessions\/(sudo|verify)/i.test(p)||/verify your device|two-factor authentication|authentication code|captcha|prove you are human|verify you are human/i.test(body))return 'manual';
 var lf=document.getElementById('login_field'),pw=document.getElementById('password');
 if(lf&&pw&&vis(lf)){
