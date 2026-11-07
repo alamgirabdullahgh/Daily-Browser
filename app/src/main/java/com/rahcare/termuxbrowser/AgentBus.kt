@@ -88,17 +88,18 @@ object AgentBus {
     fun isMedia(a: String?) = a != null && a in MEDIA
     private val OPT = setOf(RegexOption.IGNORE_CASE)
     private val MEDIA_RX = linkedMapOf(
-        "audio" to Regex("audio|অডিও|সাউন্ড|\\btts\\b|voice|ভয়েস|speech|music|suno|eleven|podcast", OPT),
-        "image" to Regex("image|imagen|ইমেজ|ছবি|midjourney|\\bflux\\b|dall-?e|ideogram|leonardo|banana", OPT),
-        "video" to Regex("video|ভিডিও|\\bveo\\b|\\bsora\\b|runway|kling|\\bluma\\b|\\bpika\\b|hailuo", OPT)
+        "audio" to Regex("audio|অডিও|সাউন্ড|\\btts\\b|voice|ভয়েস|speech|music|suno|eleven|podcast|aistudio|ai-studio|notebooklm|lyria", OPT),
+        "image" to Regex("image|imagen|ইমেজ|ছবি|midjourney|\\bflux\\b|dall-?e|ideogram|leonardo|banana|whisk", OPT),
+        "video" to Regex("video|ভিডিও|\\bvids?\\b|\\bveo\\b|\\bflow\\b|\\bsora\\b|runway|kling|\\bluma\\b|\\bpika\\b|hailuo", OPT)
+    )
     )
 
     /** সাইট কোন এজেন্ট/ক্যাটাগরি: হাতে বাছা থাকলে সেটা, নইলে নাম/হোস্ট থেকে অডিও/ইমেজ/ভিডিও, তারপর claude / gemini / grok; না মিললে null */
     fun agentOf(s: Site): String? {
         val ov = try { catOverride(s.id) } catch (_: Exception) { null }
         if (!ov.isNullOrEmpty()) return if (ov == "none") null else ov
-        val host = try { android.net.Uri.parse(s.url).host ?: "" } catch (_: Exception) { "" }
-        val hay = s.name.lowercase() + " " + host.lowercase()
+        //  নাম + হোস্ট + পাথ (যেমন docs.google.com/videos = Google Vids, labs.google/fx/tools/flow)
+        val hay = try { val u = android.net.Uri.parse(s.url); s.name + " " + (u.host ?: "") + (u.path ?: "") } catch (_: Exception) { s.name }.lowercase()
         for ((k, r) in MEDIA_RX) if (r.containsMatchIn(hay)) return k
         val u = s.url.lowercase(); val n = s.name.lowercase()
         return when {

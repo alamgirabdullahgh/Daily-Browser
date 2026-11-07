@@ -42,6 +42,7 @@ class Tab(val web: WebView) {
     var stuckHits = 0          // পরপর কয়বার "আটকে আছে" লেখা দেখা গেছে
     var stuckReloadAt = 0L     // শেষ স্বয়ংক্রিয় রিলোডের সময়
     var stuckReloads = 0       // একটানা কয়বার রিলোড করা হয়েছে (অনন্ত চক্র এড়াতে)
+    var deskScript: androidx.webkit.ScriptHandler? = null  // ডেস্কটপ-মোডের document-start স্ক্রিপ্ট (বন্ধ করলে সরানো হয়)
     var chatUrl = ""           // শেষ জানা চ্যাটের ঠিকানা (/chat/… বা /code/…)
     var limitHits = 0          // পরপর কয়বার লিমিটের লেখা দেখা গেছে (ভুল শনাক্ত এড়াতে ২ বার লাগে)
     var thumb: Bitmap? = null  // ট্যাব তালিকার ছোট প্রিভিউ
@@ -667,7 +668,29 @@ class MainActivity : Activity() {
     private fun applyDesktop(t: Tab) {
         val ds = t.web.settings
         val ua = WebSettings.getDefaultUserAgent(this)
-        ds.userAgentString = if (desktop) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36" else ua
+        //  আসল WebView-এর Chrome ভার্সনই ডেস্কটপ UA-তে বসে (পুরনো/ভুয়া ভার্সন দেখলে সাইট আটকায়)
+        val ver = Regex("Chrome/([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "131.0.0.0"
+        val major = ver.substringBefore('.')
+        ds.userAgentString = if (desktop) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$ver Safari/537.36" else ua
+        //  Client Hints (Sec-CH-UA-Mobile / userAgentData.mobile) : শুধু UA বদলালে Google Vids-এর মতো সাইট এটা দেখেই "কম্পিউটারে যান" বলে
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+                val md = if (desktop) androidx.webkit.UserAgentMetadata.Builder()
+                    .setBrandVersionList(listOf(
+                        androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Chromium").setMajorVersion(major).setFullVersion(ver).build(),
+                        androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Google Chrome").setMajorVersion(major).setFullVersion(ver).build(),
+                        androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build()))
+                    .setFullVersion(ver).setPlatform("Linux").setPlatformVersion("6.5.0").setArchitecture("x86").setBitness(64).setModel("").setMobile(false).build()
+                else androidx.webkit.UserAgentMetadata.Builder().build()
+                androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, md)
+            }
+        } catch (_: Exception) {}
+        //  ডেস্কটপ লেআউট (width=1280), navigator.platform ও userAgentData: পেজ লোডের শুরুতেই বসে
+        try {
+            t.deskScript?.let { try { it.remove() } catch (_: Exception) {} }; t.deskScript = null
+            if (desktop && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
+                t.deskScript = WebViewCompat.addDocumentStartJavaScript(t.web, DesktopMode.JS, setOf("https://*", "http://*"))
+        } catch (_: Exception) {}
     }
 
     /** ট্যাবের ছোট ছবি তোলে (ট্যাব তালিকায় ক্রোমের মতো প্রিভিউ দেখাতে) */
