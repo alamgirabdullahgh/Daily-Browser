@@ -1718,6 +1718,22 @@ class MainActivity : Activity() {
         fun setOnMenuItemClickListener(l: (MI) -> Boolean) { click = l }
     }
 
+    // অ্যাপের APK "Daily Browser.apk" নামে শেয়ার (ফাইলের নাম ApkShareProvider ঠিক করে)
+    private fun shareApp() {
+        try {
+            val u = ApkShareProvider.uri(this)
+            val i = Intent(Intent.ACTION_SEND)
+            i.type = "application/vnd.android.package-archive"
+            i.putExtra(Intent.EXTRA_STREAM, u)
+            i.putExtra(Intent.EXTRA_SUBJECT, "Daily Browser")
+            i.clipData = android.content.ClipData.newRawUri(ApkShareProvider.NAME, u)
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            startActivity(Intent.createChooser(i, "Daily Browser শেয়ার করুন"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "শেয়ার করা যায়নি", Toast.LENGTH_LONG).show()
+        }
+    }
+
     /** ডান পাশ থেকে খোলা সাইডবার মেনু */
     private fun showMenuSheet(m: SheetMenu, anchor: View) {
         val d = android.app.Dialog(this)
@@ -1768,11 +1784,31 @@ class MainActivity : Activity() {
             }
             col.addView(card)
         }
-        val sv = ScrollView(this).apply {
-            addView(col); isVerticalScrollBarEnabled = false
-            background = GradientDrawable().apply { setColor(Color.WHITE); val r = dp(20).toFloat(); cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r) }
+        val sv = ScrollView(this).apply { addView(col); isVerticalScrollBarEnabled = false }
+        // সবার নিচে স্থির: অ্যাপের নাম + সংস্করণ এবং শেয়ার বাটন
+        @Suppress("DEPRECATION")
+        val vName = try { packageManager.getPackageInfo(packageName, 0).versionName ?: "0.1" } catch (_: Exception) { "0.1" }
+        val foot = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(10), dp(14), dp(12)); setBackgroundColor(Color.parseColor("#F5F6FA"))
         }
-        d.setContentView(sv, ViewGroup.LayoutParams(-1, -1))
+        foot.addView(TextView(this).apply {
+            text = "Daily Browser v$vName.${Updater.curVer(this@MainActivity)}"; textSize = 14.5f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#111827")); maxLines = 1
+        }, LinearLayout.LayoutParams(0, -2, 1f).apply { rightMargin = dp(10) })
+        foot.addView(TextView(this).apply {
+            text = "↗ Share"; textSize = 13.5f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#4F46E5"))
+            background = bg(Color.parseColor("#E0E7FF"), 12); setPadding(dp(14), dp(8), dp(14), dp(8))
+            setOnClickListener { shareApp() }
+        })
+        val outer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply { setColor(Color.WHITE); val r = dp(20).toFloat(); cornerRadii = floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r) }
+            clipToOutline = true
+            addView(sv, LinearLayout.LayoutParams(-1, 0, 1f))
+            addView(foot, LinearLayout.LayoutParams(-1, -2))
+        }
+        d.setContentView(outer, ViewGroup.LayoutParams(-1, -1))
         d.setCanceledOnTouchOutside(true)
         // ডান পাশের সাইডবার: টুলবারের নিচের দাগ থেকে শুরু (পর্দার ওপর থেকে মাপা), তাই ⋮ বা বাইরে চাপলে স্বাভাবিকভাবে বন্ধ হয়
         val barView = (anchor.parent as? View) ?: anchor
