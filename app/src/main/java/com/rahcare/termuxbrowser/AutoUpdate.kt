@@ -254,6 +254,7 @@ class AutoUpdateResult : BroadcastReceiver() {
                 val ui = i.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
                 if (i.getBooleanExtra("silent", false)) AutoUpdate.noteSilentFail(c) else AutoUpdate.markPending(c)
                 if (ui != null) {
+                    ClickGate.learn(c, ui)
                     ui.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     if (AutoUpdate.fg) {
                         try { c.startActivity(ui) } catch (e: Exception) { AutoUpdate.confirmNotice(c, ui) }

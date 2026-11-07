@@ -21,6 +21,18 @@ object ClickGate {
     /** আপডেট কমিট করার ঠিক আগে ডাকা হয় */
     fun open(c: Context) { try { sp(c).edit().putLong("until", System.currentTimeMillis() + WINDOW_MS).commit() } catch (_: Exception) {} }
     fun isOpen(c: Context) = System.currentTimeMillis() < sp(c).getLong("until", 0L)
+    /** সিস্টেম ইনস্টল-নিশ্চিত পর্দার আসল প্যাকেজ (ফোনভেদে আলাদা, যেমন Realme/OPPO) শিখে রাখে; শুধু সিস্টেম-অ্যাপ হলেই */
+    fun learn(c: Context, ui: Intent) {
+        try {
+            val pkg = ui.component?.packageName ?: c.packageManager.resolveActivity(ui, 0)?.activityInfo?.packageName ?: return
+            if (pkg == c.packageName) return
+            val ai = c.packageManager.getApplicationInfo(pkg, 0)
+            if ((ai.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) == 0) return
+            val set = learned(c).toMutableSet(); if (set.add(pkg)) sp(c).edit().putStringSet("pkgs", set).commit()
+            InstallClicker.instance?.applyPackages()
+        } catch (_: Exception) {}
+    }
+    fun learned(c: Context): Set<String> = sp(c).getStringSet("pkgs", emptySet()) ?: emptySet()
     fun close(c: Context) { try { sp(c).edit().putLong("until", 0L).apply() } catch (_: Exception) {} }
 
     /** সেটিংসে এই সার্ভিস চালু আছে কি না */
@@ -35,7 +47,8 @@ class InstallClicker : AccessibilityService() {
         @Volatile var instance: InstallClicker? = null
         private val INSTALLERS = setOf(
             "com.google.android.packageinstaller", "com.android.packageinstaller",
-            "com.samsung.android.packageinstaller", "com.miui.packageinstaller"
+            "com.samsung.android.packageinstaller", "com.miui.packageinstaller",
+            "com.oplus.appdetail", "com.coloros.packageinstaller", "com.oppo.packageinstaller"
         )
         // শুধু এই লেখাগুলোই (পুরো মিল)। "install anyway" ইচ্ছা করে বাদ — ওটা নিরাপত্তা-সতর্কতার পর্দা, নিজে চাপা হয় না
         private val OK = setOf("install", "update", "ইনস্টল", "আপডেট", "ইনস্টল করুন", "আপডেট করুন")
@@ -43,10 +56,15 @@ class InstallClicker : AccessibilityService() {
 
     override fun onServiceConnected() {
         instance = this
+        applyPackages()
         // আপডেটের পর সার্ভিস আবার চালু হলে: অ্যাপ এখনও না খুলে থাকলে সার্ভিস থেকে খোলার চেষ্টা (অ্যাক্সেসিবিলিটি সার্ভিস ব্যাকগ্রাউন্ড থেকে অ্যাপ খুলতে পারে)
         if (Reopen.pending(this)) {
             try { startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)) } catch (_: Exception) {}
         }
+    }
+    /** স্থির তালিকা + শেখা ইনস্টলার-প্যাকেজ — শুধু এগুলোর ঘটনাই সার্ভিস পায় */
+    fun applyPackages() {
+        try { serviceInfo?.let { it.packageNames = (INSTALLERS + ClickGate.learned(this)).toTypedArray(); setServiceInfo(it) } } catch (_: Exception) {}
     }
     override fun onUnbind(intent: Intent?): Boolean { instance = null; return super.onUnbind(intent) }
     override fun onInterrupt() {}
@@ -54,7 +72,7 @@ class InstallClicker : AccessibilityService() {
     override fun onAccessibilityEvent(e: AccessibilityEvent?) {
         if (!ClickGate.isOpen(this)) return
         val root = (try { rootInActiveWindow } catch (_: Exception) { null }) ?: return
-        if (root.packageName?.toString() !in INSTALLERS) return
+        if (root.packageName?.toString().let { it !in INSTALLERS && it !in ClickGate.learned(this) }) return
         val label = applicationInfo.loadLabel(packageManager).toString()
         val texts = ArrayList<String>()
         val buttons = ArrayList<AccessibilityNodeInfo>()
@@ -65,7 +83,9 @@ class InstallClicker : AccessibilityService() {
             val t = (b.text ?: b.contentDescription)?.toString()?.trim()?.lowercase() ?: return@firstOrNull false
             t in OK
         } ?: return
-        if (btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) ClickGate.close(this)
+        var hit = btn.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        if (!hit) { var p = btn.parent; var n = 0; while (!hit && p != null && n++ < 3) { if (p.isClickable) hit = p.performAction(AccessibilityNodeInfo.ACTION_CLICK); p = p.parent } }
+        if (hit) ClickGate.close(this)
     }
 
     private fun walk(n: AccessibilityNodeInfo?, texts: MutableList<String>, buttons: MutableList<AccessibilityNodeInfo>) {

@@ -1751,7 +1751,7 @@ class MainActivity : Activity() {
                 val sid = sa.optString(i, "").ifBlank { null }
                 val t = newTab(null, sid)
                 // ওয়ার্কস্পেস ট্যাবের আলাদা প্রোফাইল ফিরিয়ে আনা না গেলে সাইট লোড করি না (লগইন মিশে যেত)
-                if (u == "home" || (sid != null && t.site == null)) loadHome(t) else t.web.loadUrl(u)
+                if (u == "home" || (sid != null && t.site == null)) loadHome(t) else { t.url = u; t.web.loadUrl(u) }
             }
             val c = Store.prefs(this).getInt("cur", 0)
             if (tabs.isNotEmpty()) select(tabs[c.coerceIn(0, tabs.size - 1)])

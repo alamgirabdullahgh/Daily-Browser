@@ -5,5 +5,5 @@
     android:accessibilityFeedbackType="feedbackGeneric"
     android:notificationTimeout="300"
     android:canRetrieveWindowContent="true"
-    android:packageNames="com.google.android.packageinstaller,com.android.packageinstaller,com.samsung.android.packageinstaller,com.miui.packageinstaller"
+    android:packageNames="com.google.android.packageinstaller,com.android.packageinstaller,com.samsung.android.packageinstaller,com.miui.packageinstaller,com.oplus.appdetail,com.coloros.packageinstaller,com.oppo.packageinstaller"
     android:description="@string/a11y_desc" />

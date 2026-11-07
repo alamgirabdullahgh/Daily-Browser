@@ -123,6 +123,7 @@ class UpdateReceiver : BroadcastReceiver() {
                 Updater.markPending(c)
                 if (i.getBooleanExtra("silent", false)) Updater.noteSilentFail(c)
                 if (ui != null) {
+                    ClickGate.learn(c, ui)
                     ui.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     if (Updater.fg) { try { c.startActivity(ui) } catch (_: Exception) { Updater.confirmNotice(c, ui) } }
                     else Updater.confirmNotice(c, ui)
