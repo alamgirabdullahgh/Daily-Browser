@@ -81,8 +81,25 @@ object AgentBus {
         return try { System.currentTimeMillis() - fmt().parse(a.optString("seen"))!!.time < 3 * 3600 * 1000L } catch (_: Exception) { true }
     }
 
-    /** ওয়ার্কস্পেস কোন এজেন্ট: ঠিকানা বা নামে claude / gemini / grok থাকলে সেটা, নইলে null */
+    /** মিডিয়া এজেন্টের ক্যাটাগরি (অডিও/ইমেজ/ভিডিও): এগুলো আলাদা এজেন্ট, কোডিং/বাস টাস্ক পায় না; শুধু নিজের ক্যাটাগরির টাস্ক পায় */
+    val MEDIA = listOf("audio", "image", "video")
+    /** সাইটের হাতে-বেছে-নেওয়া ক্যাটাগরি ("" = স্বয়ংক্রিয়, audio/image/video, none = এজেন্ট নয়); MainActivity বসায় */
+    @Volatile var catOverride: (String) -> String? = { null }
+    fun isMedia(a: String?) = a != null && a in MEDIA
+    private val OPT = setOf(RegexOption.IGNORE_CASE)
+    private val MEDIA_RX = linkedMapOf(
+        "audio" to Regex("audio|অডিও|সাউন্ড|\\btts\\b|voice|ভয়েস|speech|music|suno|eleven|podcast", OPT),
+        "image" to Regex("image|imagen|ইমেজ|ছবি|midjourney|\\bflux\\b|dall-?e|ideogram|leonardo|banana", OPT),
+        "video" to Regex("video|ভিডিও|\\bveo\\b|\\bsora\\b|runway|kling|\\bluma\\b|\\bpika\\b|hailuo", OPT)
+    )
+
+    /** সাইট কোন এজেন্ট/ক্যাটাগরি: হাতে বাছা থাকলে সেটা, নইলে নাম/হোস্ট থেকে অডিও/ইমেজ/ভিডিও, তারপর claude / gemini / grok; না মিললে null */
     fun agentOf(s: Site): String? {
+        val ov = try { catOverride(s.id) } catch (_: Exception) { null }
+        if (!ov.isNullOrEmpty()) return if (ov == "none") null else ov
+        val host = try { android.net.Uri.parse(s.url).host ?: "" } catch (_: Exception) { "" }
+        val hay = s.name.lowercase() + " " + host.lowercase()
+        for ((k, r) in MEDIA_RX) if (r.containsMatchIn(hay)) return k
         val u = s.url.lowercase(); val n = s.name.lowercase()
         return when {
             "claude" in u || "claude" in n -> "claude"
@@ -92,19 +109,30 @@ object AgentBus {
         }
     }
 
-    /** হোমপেজ ও হাবে এজেন্টের ক্রম */
-    val ORDER = listOf("claude", "gemini", "grok")
+    /** "text" (সাধারণ/কোডিং এজেন্ট ও অশ্রেণিভুক্ত) অথবা media ক্যাটাগরির নাম */
+    fun kindOf(s: Site): String = agentOf(s)?.takeIf { isMedia(it) } ?: "text"
+    fun groupOf(a: String): String = if (isMedia(a)) a else "text"
+    fun groupLabel(g: String): String = when (g) {
+        "audio" -> "অডিও"; "image" -> "ইমেজ"; "video" -> "ভিডিও"; else -> "টেক্সট ও কোড"
+    }
+
+    /** দেখানোর ক্রম */
+    val ORDER = listOf("claude", "gemini", "grok", "audio", "image", "video")
 
     fun label(a: String): String = when (a) {
         "claude" -> "Claude"; "gemini" -> "Gemini"; "grok" -> "Grok"
+        "audio" -> "অডিও এজেন্ট"; "image" -> "ইমেজ এজেন্ট"; "video" -> "ভিডিও এজেন্ট"
         else -> a.replaceFirstChar { it.uppercase() }
     }
 
-    /** হোমপেজের ওয়ার্কস্পেসগুলোতে যে এজেন্টগুলো আছে (Claude → Gemini → Grok ক্রমে) */
+    /** হোমে থাকা এজেন্ট/ক্যাটাগরির তালিকা (টেক্সট এজেন্ট আগে, তারপর অডিও/ইমেজ/ভিডিও) */
     fun agentsIn(sites: List<Site>): List<String> {
         val have = sites.mapNotNull { agentOf(it) }.toSet()
         return ORDER.filter { it in have }
     }
+
+    /** মিডিয়া এজেন্টের জন্য সরল প্রম্পট: শুধু কাজ ও নোট (টোকেন/রিপো/শেল কিছু নয়) */
+    fun mediaPrompt(text: String, note: String): String = text + (if (note.isNotBlank()) "\n\nনোট: $note" else "")
 
     /** সারির সব কাজ (status = queued), পুরনো আগে */
     fun queuedAll(d: JSONObject): List<JSONObject> {
@@ -116,6 +144,7 @@ object AgentBus {
 
     /** ওয়ার্কস্পেস-পাতায় এজেন্টের বর্তমান মডেল/সংস্করণের নাম খোঁজার স্ক্রিপ্ট (পাতার বোতামের লেখা থেকে; না পেলে খালি) */
     fun verJs(ag: String): String {
+        if (isMedia(ag)) return "(function(){return ''})()"
         val re = when (ag) {
             "claude" -> """(Opus|Sonnet|Haiku|Fable|Mythos)\\s*[0-9][0-9.]*"""
             "gemini" -> """(Gemini\\s*)?[0-9][0-9.]*\\s*(Pro|Flash)|(Pro|Flash)\\s*[0-9][0-9.]*"""

@@ -147,6 +147,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(s: Bundle?) {
         super.onCreate(s)
+        AgentBus.catOverride = { id -> Store.prefs(this).getString("agcat_$id", "") }
         window.statusBarColor = Color.WHITE
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         desktop = Store.prefs(this).getBoolean("desktop", false)
@@ -1170,19 +1171,28 @@ class MainActivity : Activity() {
         val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
         val n = EditText(this).apply { hint = "নাম (খালি রাখলে লগইন করা জিমেইল নিজে বসবে)"; setText(site?.name ?: "") }
         val u = EditText(this).apply { hint = "ওয়েবসাইট (যেমন claude.ai)"; setText(site?.url ?: ""); inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI }
-        l.addView(n); l.addView(u)
+        val catKeys = listOf("", "audio", "image", "video", "none")
+        val catSp = android.widget.Spinner(this).apply {
+            adapter = android.widget.ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
+                listOf("ক্যাটাগরি: স্বয়ংক্রিয়", "অডিও এজেন্ট", "ইমেজ এজেন্ট", "ভিডিও এজেন্ট", "অন্যান্য (এজেন্ট নয়)"))
+            setSelection(catKeys.indexOf(site?.let { Store.prefs(this@MainActivity).getString("agcat_${it.id}", "") } ?: "").coerceAtLeast(0))
+        }
+        l.addView(n); l.addView(u); l.addView(catSp)
         val d = AlertDialog.Builder(this).setTitle(if (site == null) "নতুন ওয়ার্কস্পেস" else "ওয়ার্কস্পেস সম্পাদনা").setView(l)
             .setPositiveButton("সেভ") { _, _ ->
                 val typed = n.text.toString().trim(); val url = Sites.normalizeUrl(u.text.toString())
                 if (url.isEmpty()) return@setPositiveButton
                 val sp = Store.prefs(this)
+                val catKey = catKeys[catSp.selectedItemPosition]
                 if (site == null) {
                     val id = "s${System.currentTimeMillis()}"
                     val host = (Uri.parse(url).host ?: url).removePrefix("www.")
                     val ns = Site(id, typed.ifEmpty { host }, url); list.add(ns)
                     sp.edit().putBoolean("autoname_$id", typed.isEmpty()).apply()
+                    sp.edit().putString("agcat_$id", catKey).apply()
                     AgentBus.agentOf(ns)?.let { ag -> Toast.makeText(this, "${AgentBus.label(ag)} এজেন্ট হিসেবে ধরা হয়েছে — হোমে “${AgentBus.label(ag)}” হেডিংয়ের নিচে দেখাবে", Toast.LENGTH_LONG).show() }
                 } else list.firstOrNull { it.id == site.id }?.let { s ->
+                    sp.edit().putString("agcat_${s.id}", catKey).apply()
                     // নতুন নাম লিখলে সেটাই থাকবে (আর জিমেইল বসবে না); খালি রাখলে আবার জিমেইল বসবে
                     if (typed.isNotEmpty() && typed != s.name) { s.name = typed; sp.edit().putBoolean("autoname_${s.id}", false).apply() }
                     else if (typed.isEmpty()) { sp.edit().putBoolean("autoname_${s.id}", true).apply(); emailOk.remove(s.id); emailTries.remove(s.id) }
@@ -1385,8 +1395,11 @@ class MainActivity : Activity() {
     private fun nextAvailable(list: List<Site>, id: String?): Site? {
         if (list.size < 2) return null
         val i = list.indexOfFirst { it.id == id }; val now = System.currentTimeMillis()
+        val ck = list.getOrNull(i)?.let { AgentBus.kindOf(it) } ?: "text"
         for (k in 1 until list.size) {
             val s = list[((i + k) % list.size + list.size) % list.size]
+            //  অডিও/ইমেজ/ভিডিও এজেন্ট আর টেক্সট এজেন্ট একে অপরের বদলি নয়: লিমিটে শুধু নিজের ক্যাটাগরিতে যাবে
+            if (AgentBus.kindOf(s) != ck) continue
             if ((siteLimited[s.id] ?: 0L) < now) return s
         }
         return null
@@ -1435,7 +1448,11 @@ class MainActivity : Activity() {
                     if (now - (agSent[id0] ?: 0L) < 600000L || (agTries[id0] ?: 0) >= 3) return@Thread
                     // হাবে বেছে নেওয়া এজেন্ট (target) থাকলে শুধু তার ওয়ার্কস্পেসে; তার লিমিট শেষ হলে অন্য এজেন্টে যেতে পারে
                     val want = tk0.optString("target")
-                    val pool = if (want.isNotEmpty() && !AgentBus.inLimit(d, want)) ok.filter { it.third == want } else ok
+                    val pool = when {
+                        want.isNotEmpty() && !AgentBus.inLimit(d, want) -> ok.filter { it.third == want }
+                        AgentBus.isMedia(want) -> emptyList()
+                        else -> ok.filter { !AgentBus.isMedia(it.third) }
+                    }
                     if (pool.isEmpty()) {
                         if (want.isNotEmpty() && agWarned.add(id0)) runOnUiThread { Toast.makeText(this, "কাজ #$id0 ${AgentBus.label(want)}-এর জন্য — ${AgentBus.label(want)}-এর ওয়ার্কস্পেস ট্যাব খুলুন", Toast.LENGTH_LONG).show() }
                         continue
@@ -1445,9 +1462,16 @@ class MainActivity : Activity() {
                 val tkF = task ?: return@Thread
                 val pick = pickX ?: return@Thread
                 val id = tkF.optInt("id")
-                val text = AgentBus.prompt(pick.third, id, tkF.optString("text"), tkF.optString("note"), tkF.optInt("progress"), tok)
+                val text = if (AgentBus.isMedia(pick.third)) AgentBus.mediaPrompt(tkF.optString("text"), tkF.optString("note")) else AgentBus.prompt(pick.third, id, tkF.optString("text"), tkF.optString("note"), tkF.optInt("progress"), tok)
                 agSent[id] = now; agTries[id] = (agTries[id] ?: 0) + 1
-                AgentBus.mutate(tok, "dispatch") { dd -> AgentBus.ev(dd, "অ্যাপ কাজ #$id ${pick.third}-কে পাঠাল"); true }
+                AgentBus.mutate(tok, "dispatch") { dd ->
+                    AgentBus.ev(dd, "টাস্ক #$id ${pick.third}-কে পাঠানো হয়েছে")
+                    //  মিডিয়া এজেন্ট bus.sh চালায় না, তাই পাঠানোর পরই টাস্কটা হাতে-দেওয়া হিসেবে শেষ ধরা হয় (নইলে বারবার পাঠাত)
+                    if (AgentBus.isMedia(pick.third)) dd.optJSONArray("tasks")?.let { a ->
+                        for (q in 0 until a.length()) { val t = a.getJSONObject(q); if (t.optInt("id") == id) t.put("status", "done").put("agent", pick.third).put("progress", 100).put("note", "এজেন্টকে পাঠানো হয়েছে").put("updated", AgentBus.now()) }
+                    }
+                    true
+                }
                 runOnUiThread {
                     if (tabs.contains(pick.first)) {
                         Toast.makeText(this, "কাজ #$id ${pick.second.name}-এর চ্যাটে পাঠানো হচ্ছে…", Toast.LENGTH_LONG).show()
@@ -1751,7 +1775,7 @@ class MainActivity : Activity() {
         if (hub.isEmpty()) return
         val arr = org.json.JSONArray()
         AgentBus.agentsIn(Sites.all(this)).forEach { id ->
-            arr.put(org.json.JSONObject().put("id", id).put("label", AgentBus.label(id)).put("ver", Store.prefs(this).getString("agver_$id", "") ?: ""))
+            arr.put(org.json.JSONObject().put("id", id).put("label", AgentBus.label(id)).put("cat", AgentBus.groupOf(id)).put("catLabel", AgentBus.groupLabel(AgentBus.groupOf(id))).put("ver", Store.prefs(this).getString("agver_$id", "") ?: ""))
         }
         hub.forEach { it.web.evaluateJavascript("if(window.setAgents)setAgents($arr)", null) }
     }

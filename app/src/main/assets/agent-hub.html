@@ -22,6 +22,7 @@ footer{padding:8px 8px calc(8px + env(safe-area-inset-bottom,0px));border-top:1p
 .v{color:var(--mu);font-weight:400}
 #selm{display:none;position:absolute;bottom:50px;left:0;min-width:200px;max-width:80vw;background:var(--card);border:1px solid var(--bd);border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:4px;z-index:9}
 #selm.open{display:block}
+.grp{padding:8px 12px 2px;font-size:12px;font-weight:700;color:var(--mu)}
 .opt{padding:11px 12px;border-radius:10px;cursor:pointer;font-size:15px}.opt.on{background:var(--bg);font-weight:700}
 .ic,.send{width:42px;height:42px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center;border:0;cursor:pointer}
 .ic{background:transparent;border:1.5px solid var(--bd);color:var(--tx);font-size:26px;line-height:1;font-weight:300}
@@ -69,7 +70,8 @@ let AGS=[{id:"claude",label:"Claude",ver:""}],SEL="";try{SEL=localStorage.getIte
 const curAg=()=>AGS.find(a=>a.id===SEL)||AGS.find(a=>a.id==="claude")||AGS[0];
 function drawSel(){const a=curAg();SEL=a.id;
   document.getElementById("selb").innerHTML=esc(a.label)+(a.ver?' <span class="v">'+esc(a.ver)+'</span>':'')+' ▾';
-  document.getElementById("selm").innerHTML=AGS.map(x=>'<div class="opt'+(x.id===SEL?' on':'')+'" data-id="'+esc(x.id)+'">'+esc(x.label)+(x.ver?' <span class="v">'+esc(x.ver)+'</span>':'')+'</div>').join("")}
+  const multi=new Set(AGS.map(x=>x.cat||'text')).size>1;let lg=null;
+  document.getElementById("selm").innerHTML=AGS.map(x=>{const g=x.cat||'text';let h='';if(multi&&g!==lg){lg=g;h='<div class="grp">'+esc(x.catLabel||'')+'</div>'}return h+'<div class="opt'+(x.id===SEL?' on':'')+'" data-id="'+esc(x.id)+'">'+esc(x.label)+(x.ver?' <span class="v">'+esc(x.ver)+'</span>':'')+'</div>'}).join("")}
 function toggleSel(ev){ev.stopPropagation();document.getElementById("selm").classList.toggle("open")}
 document.addEventListener("click",ev=>{const m=document.getElementById("selm"),o=ev.target.closest&&ev.target.closest(".opt");
   if(o){SEL=o.dataset.id;try{localStorage.setItem("ag_sel",SEL)}catch(e){}drawSel()}m.classList.remove("open")});
