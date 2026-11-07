@@ -49,7 +49,9 @@ object Browse {
     /**
      * শুধু claude.ai-তে: নির্দিষ্ট দুটো অনুমতি-কার্ড হুবহু মিললে নিজে চাপে; আর কিছুতেই না।
      *  ১) "Claude wants to list your repositories"  → "Always allow"
-     *  ২) "Claude wants to add a repository to this session" এবং Access = read (push নয়) → "Allow once"
+     *  ২) "Claude wants to add a repository to this session" এবং Access = read → "Allow once"
+     *  ৩) একই কার্ড, Access = push, কিন্তু Owner হুবহু alamgirabdullahgh (আপনার নিজের অ্যাকাউন্ট) → "Allow once"
+     *     (অন্য কারও রিপোতে push চাইলে এটা চাপে না — আপনাকেই চাপতে হবে)
      * কার্ডের লেখা এই দুইয়ের একটাও না মিললে (কমান্ড চালানো, পুশ, মুছে ফেলা, ক্যামেরা ইত্যাদি) কিছুই চাপে না — আপনাকেই চাপতে হবে।
      * শুধু কার্ডের ভেতরের আসল বোতাম চাপে, তাই চ্যাটের লেখায় একই বাক্য থাকলেও কিছু হয় না।
      */
@@ -59,7 +61,8 @@ if(window.__rcAllow)return;window.__rcAllow=1;
 function tx(e){return(e.innerText||'').replace(/\s+/g,' ').trim();}
 var RULES=[
 {head:'Claude wants to list your repositories',need:[],bad:[],click:['Always allow','Allow once']},
-{head:'Claude wants to add a repository to this session',need:['Access read'],bad:['Access push'],click:['Allow once']}
+{head:'Claude wants to add a repository to this session',need:['Access read'],bad:['Access push'],click:['Allow once']},
+{head:'Claude wants to add a repository to this session',need:['Owner alamgirabdullahgh Repo ','Access push'],bad:[],click:['Allow once']}
 ];
 function find(card,label){var bs=card.querySelectorAll('button,[role=button]');for(var i=0;i<bs.length;i++){if(tx(bs[i])===label)return bs[i];}return null;}
 function scan(){
@@ -71,13 +74,13 @@ if(bs[i].offsetParent===null)continue;
 var c=bs[i],card=null;
 for(var k=0;k<8&&c.parentElement;k++){c=c.parentElement;var ct=tx(c);if(ct.length>420)break;if(ct.indexOf('Decline')>-1)card=c;}
 if(!card||card.__rcDone)continue;
-var s=tx(card);
+var s=tx(card),s2=s.replace(/\s+/g,'');
 for(var r=0;r<RULES.length;r++){
 var R=RULES[r];
 if(s.indexOf(R.head)<0)continue;
 var ok=true;
-for(var n=0;n<R.need.length;n++)if(s.indexOf(R.need[n])<0)ok=false;
-for(var b=0;b<R.bad.length;b++)if(s.indexOf(R.bad[b])>=0)ok=false;
+for(var n=0;n<R.need.length;n++)if(s2.indexOf(R.need[n].replace(/\s+/g,''))<0)ok=false;
+for(var b=0;b<R.bad.length;b++)if(s2.indexOf(R.bad[b].replace(/\s+/g,''))>=0)ok=false;
 if(!ok)continue;
 for(var q=0;q<R.click.length;q++){var B=find(card,R.click[q]);if(B){card.__rcDone=1;B.click();break;}}
 }
