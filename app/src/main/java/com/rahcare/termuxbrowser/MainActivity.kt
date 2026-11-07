@@ -1289,11 +1289,11 @@ class MainActivity : Activity() {
         val destUrl = Sites.handoffUrl(fromUrl, to)
         from.web.evaluateJavascript(Sites.EXTRACT_JS) { raw ->
             val chat = Sites.unquote(raw).trim()
-            fun proceed(repo: String) {
+            fun deliver(repo: String, cands: List<String>) {
                 // সংরক্ষিত GitHub টোকেন শুধু তখনই যায় যখন কাজটা GitHub/Claude Code-সংক্রান্ত (রিপো জানা আছে বা চ্যাটে github আছে)
                 val tok = Secret.get(this)
-                val useTok = tok.isNotBlank() && (isCode || repo.isNotBlank() || chat.contains("github", ignoreCase = true))
-                val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat, repo, if (useTok) tok else "")
+                val useTok = tok.isNotBlank() && (isCode || repo.isNotBlank() || Sites.looksGit(chat))
+                val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat, repo, if (useTok) tok else "", if (useTok) cands else emptyList())
                 if (payload.isNotEmpty()) {
                     val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     val clip = android.content.ClipData.newPlainText("chat", payload)
@@ -1313,12 +1313,22 @@ class MainActivity : Activity() {
                     }
                 }
             }
-            if (!isCode) proceed("")
-            else {
-                // রিপো: মেনু থেকে দেওয়া থাকলে সেটা, নইলে আগের পাতার GitHub লিংক থেকে খুঁজে নেয়
-                val saved = Store.prefs(this).getString("gitrepo", "")?.trim().orEmpty()
-                if (saved.isNotEmpty()) proceed(saved)
-                else from.web.evaluateJavascript(Sites.REPO_JS) { r -> proceed(Sites.unquote(r).trim()) }
+            // রিপো কোনটা: ১) চ্যাটের লেখায় উল্লেখ ২) (Claude Code পেজে) পাতার GitHub লিংক ৩) মেনুর ডিফল্ট। কিছুই না মিললে (কিন্তু কাজটা GitHub-সংক্রান্ত ও টোকেন আছে) GitHub থেকে সাম্প্রতিক রিপোর তালিকা এনে বার্তায় দেয়
+            val gitRelated = isCode || Sites.looksGit(chat)
+            val prefs = Store.prefs(this)
+            val saved = prefs.getString("gitrepo", "")?.trim().orEmpty()
+            fun proceed(repo: String) {
+                val tok = Secret.get(this)
+                if (repo.isBlank() && gitRelated && tok.isNotBlank()) {
+                    Thread { val c = Sites.recentRepos(tok); runOnUiThread { deliver("", c) } }.start()
+                } else deliver(repo, emptyList())
+            }
+            val fromChat = Sites.repoFromChat(chat)
+            when {
+                fromChat.isNotEmpty() -> proceed(fromChat)
+                isCode -> from.web.evaluateJavascript(Sites.REPO_JS) { r -> proceed(Sites.unquote(r).trim().ifEmpty { saved }) }
+                gitRelated -> proceed(saved)
+                else -> proceed("")
             }
         }
     }

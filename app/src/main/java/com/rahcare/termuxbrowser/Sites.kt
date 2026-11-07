@@ -5,6 +5,8 @@ import android.net.Uri
 import org.json.JSONArray
 import org.json.JSONObject
 import org.json.JSONTokener
+import java.net.HttpURLConnection
+import java.net.URL
 
 /** একটি ওয়ার্কস্পেস = যেকোনো ওয়েবসাইট + তার নিজস্ব আলাদা ও স্থায়ী লগইন (কুকি/সেশন)। কোডে কোনো সাইটের নাম নেই — ব্যবহারকারী যোগ/বদল/মোছে */
 data class Site(val id: String, var name: String, var url: String)
@@ -82,10 +84,46 @@ object Sites {
     /** evaluateJavascript-এর ফল (JSON-স্ট্রিং) থেকে সাধারণ লেখা */
     fun unquote(raw: String?): String = try { (JSONTokener(raw ?: "").nextValue() as? String) ?: "" } catch (_: Exception) { "" }
 
-    /** repo খালি না হলে (Claude Code চ্যাট) হ্যান্ডঅফের লেখায় রিপোর নাম যায়, যাতে নতুন সেশন নিজেই রিপোটা যোগ করে নেয় */
-    fun handoffText(from: String, chat: String, repo: String = "", token: String = ""): String {
+    /** চ্যাটের লেখা থেকে সবচেয়ে শেষে উল্লেখ করা GitHub রিপো (মালিক/রিপো) বের করে — github.com লিংক বা আগের হ্যান্ডঅফের "GitHub রিপো:" লাইন থেকে; না পেলে খালি */
+    fun repoFromChat(chat: String): String {
+        val bad = setOf("settings", "apps", "login", "orgs", "marketplace", "features", "topics", "sponsors", "notifications", "user", "users")
+        val found = ArrayList<Pair<Int, String>>()
+        for (re in listOf(Regex("GitHub রিপো:\\s*([\\w.-]+/[\\w.-]+)"), Regex("github\\.com/([\\w.-]+/[\\w.-]+)", RegexOption.IGNORE_CASE))) {
+            for (m in re.findAll(chat)) {
+                var r = m.groupValues[1].removeSuffix(".git").trimEnd('.', '-')
+                val owner = r.substringBefore('/')
+                if (r.contains('/') && owner.lowercase() !in bad && r.substringAfter('/').isNotEmpty()) found.add(m.range.first to r)
+            }
+        }
+        return found.maxByOrNull { it.first }?.second ?: ""
+    }
+
+    /** চ্যাটটা GitHub/রিপোর কাজ নিয়ে কিনা (টোকেন ও রিপো-তথ্য শুধু তখনই যায়) */
+    fun looksGit(chat: String): Boolean {
+        val t = chat.lowercase()
+        return listOf("github", "repo", "রিপো", "commit", "কমিট", "clone", "git push", "বিল্ড", "apk", "workflow").any { t.contains(it) }
+    }
+
+    /** টোকেনধারীর সাম্প্রতিক পুশ-করা রিপোর তালিকা (নতুন থেকে পুরনো, সর্বোচ্চ ৬)। নেটওয়ার্ক-কাজ, তাই ব্যাকগ্রাউন্ড থ্রেডে ডাকতে হবে; ব্যর্থ হলে খালি */
+    fun recentRepos(token: String): List<String> = try {
+        val cn = URL("https://api.github.com/user/repos?per_page=6&sort=pushed").openConnection() as HttpURLConnection
+        cn.connectTimeout = 6000; cn.readTimeout = 6000
+        cn.setRequestProperty("Authorization", "Bearer $token")
+        cn.setRequestProperty("Accept", "application/vnd.github+json")
+        if (cn.responseCode != 200) emptyList() else {
+            val a = JSONArray(cn.inputStream.bufferedReader().readText())
+            (0 until a.length()).map { a.getJSONObject(it).getString("full_name") }
+        }
+    } catch (_: Exception) { emptyList() }
+
+    /** repo জানা থাকলে বার্তায় রিপোর নাম যায়; জানা না থাকলে (কিন্তু টোকেন আছে) cands-এর সাম্প্রতিক রিপোর তালিকা যায়, যাতে নতুন সেশন নিজেই ঠিক রিপোটা বেছে নেয় */
+    fun handoffText(from: String, chat: String, repo: String = "", token: String = "", cands: List<String> = emptyList()): String {
         val head = "[এটা আগের কথোপকথন ($from থেকে নেওয়া)। এটা পড়ে কাজ যেখানে থেমেছিল সেখান থেকেই চালিয়ে যাও। আমার সর্বশেষ প্রশ্নের উত্তর যদি না পেয়ে থাকি, সেটারই উত্তর দাও।]"
-        val gh = if (repo.isBlank()) "" else "\n[GitHub রিপো: $repo — এই সেশনে রিপোটা যোগ (add_repo) করে ক্লোন করে নাও, তারপর কাজ চালাও।]"
+        val gh = when {
+            repo.isNotBlank() -> "\n[GitHub রিপো: $repo — এই কাজ এই রিপোতেই। এই সেশনে রিপোটা যোগ (add_repo) করে ক্লোন করে নাও, তারপর কাজ চালাও।]"
+            cands.isNotEmpty() -> "\n[GitHub রিপো নির্দিষ্ট করা নেই। আমার সাম্প্রতিক পুশ-করা রিপো (নতুন থেকে পুরনো): ${cands.joinToString(", ")} — চ্যাটের কাজ যে রিপোর, সেটা এখান থেকে বেছে নিয়ে ক্লোন করো; মিল না পেলে আমাকে জিজ্ঞেস করো।]"
+            else -> ""
+        }
         val tk = if (token.isBlank()) "" else "\n[GitHub টোকেন (আমার নিজের, এই কাজের জন্যই): $token — রিপো clone/pull/push করতে এটা ব্যবহার করো (যেমন https://x-access-token:টোকেন@github.com/মালিক/রিপো.git)। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে কখনো লিখবে না, রিপোর remote URL-এও রেখে দেবে না। কাজ শেষ হলে আমাকে জানাবে যেন আমি টোকেনটা বাতিল করি।]"
         return "$head$gh$tk\n\n$chat"
     }
