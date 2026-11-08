@@ -45,7 +45,7 @@ tb_apt() { tb_run apt-get -o Dpkg::Options::=--force-confold -o Dpkg::Options::=
 tb_install() {
   [ "§(ls "§PREFIX/var/lib/apt/lists" 2>/dev/null | wc -l)" -gt 3 ] || { tb_say 'প্যাকেজ তালিকা আপডেট হচ্ছে'; tb_update; }
   tb_apt install -y "§@" && return 0
-  tb_say 'ইনস্টল ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা'; tb_fix; tb_update; tb_apt install -y "§@" && return 0
+  tb_say 'ইনস্টল ব্যর্থ — Termux-এর লাইব্রেরি মেলাতে সব প্যাকেজ আপগ্রেড করে আবার চেষ্টা (ধীর নেটে সময় লাগবে)'; tb_fix; tb_upgrade; tb_fix; tb_apt install -y "§@" && return 0
   tb_mirror && tb_update && tb_apt install -y "§@" && return 0
   echo "ইনস্টল ব্যর্থ: §*"; return 1
 }

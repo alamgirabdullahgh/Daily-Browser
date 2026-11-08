@@ -130,6 +130,8 @@ const val D5 = "echo '▸ Node.js ইনস্টল'\npkg install -y nodejs || 
 /** দৈনিক রুকইয়াহ অ্যাপের ৬,২৩৬ আয়াতের অডিও (Alafasy, মনো, ৩২kbps, ২২.০৫kHz, গতি ×১.২০) ফোনেই নামিয়ে সূরাভিত্তিক zip বানায়।
  *  আবার চালালে যা হয়ে গেছে তা বাদ দিয়ে বাকিটা থেকে এগোয়। রিলিজে তোলা আলাদা ধাপ (টোকেন লাগে বলে এই কমান্ডে নেই)। */
 val AUDIO_PACK: String = """echo '▸ ধাপ ১/৩: টুল ইনস্টল'
+echo 'আগে সব প্যাকেজ আপগ্রেড হচ্ছে (Termux-এর লাইব্রেরি মেলাতে — নইলে ffmpeg চলে না)'
+pkg upgrade -y || exit 1
 pkg install -y ffmpeg parallel || exit 1
 command -v ffmpeg >/dev/null 2>&1 && command -v parallel >/dev/null 2>&1 || { echo 'ffmpeg/parallel ইনস্টল ব্যর্থ'; exit 1; }
 echo 'প্রস্তুত'
@@ -242,6 +244,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 7) { out.forEach { o -> defaults.firstOrNull { it.id == o.id }?.let { n -> o.script = n.script; o.title = n.title } }; changed = true }
         // v8: অপরিবর্তিত ডিফল্ট কমান্ডগুলো ধাপভিত্তিক স্ক্রিপ্টে
         if (sp(c).getInt("ver", 1) < 8) { out.forEach { o -> legacy[o.id]?.let { (old, nw) -> if (o.script == old) o.script = nw } }; changed = true }
+        // v9: অডিও-প্যাক কমান্ডে ইনস্টলের আগে আপগ্রেড যোগ (অপরিবর্তিত ডিফল্ট হলে)
+        if (sp(c).getInt("ver", 1) < 9) { out.filter { it.id == "d15" && it.script.contains("pkg install -y ffmpeg parallel") && !it.script.contains("pkg upgrade") }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -250,7 +254,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 8)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 9)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
