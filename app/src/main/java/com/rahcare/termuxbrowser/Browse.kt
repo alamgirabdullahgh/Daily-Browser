@@ -46,55 +46,6 @@ object History {
 }
 
 object Browse {
-    /**
-     * শুধু claude.ai-তে: নির্দিষ্ট দুটো অনুমতি-কার্ড হুবহু মিললে নিজে চাপে; আর কিছুতেই না।
-     *  ১) "Claude wants to list your repositories"  → "Always allow"
-     *  ২) "Claude wants to add a repository to this session" এবং Access = read → "Allow once"
-     *  ৩) একই কার্ড, Access = push, কিন্তু Owner হুবহু alamgirabdullahgh (আপনার নিজের অ্যাকাউন্ট) → "Allow once"
-     *     (অন্য কারও রিপোতে push চাইলে এটা চাপে না — আপনাকেই চাপতে হবে)
-     * কার্ডের লেখা এই দুইয়ের একটাও না মিললে (কমান্ড চালানো, পুশ, মুছে ফেলা, ক্যামেরা ইত্যাদি) কিছুই চাপে না — আপনাকেই চাপতে হবে।
-     * শুধু কার্ডের ভেতরের আসল বোতাম চাপে, তাই চ্যাটের লেখায় একই বাক্য থাকলেও কিছু হয় না।
-     */
-    const val CLAUDE_AUTO_JS = """(function(){try{
-if(location.hostname!=='claude.ai'&&location.hostname!=='www.claude.ai')return;
-if(window.__rcAllow)return;window.__rcAllow=1;
-function tx(e){return(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim();}
-function vis(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0;}
-var OWN=/(Owner\s*:?\s*alamgirabdullahgh(?=\s|\/|Repo|Access|\s*$)|Repo(sitory)?\s*:?\s*alamgirabdullahgh\/)/i;
-function cardOf(btn){var c=btn;for(var k=0;k<12&&c.parentElement;k++){c=c.parentElement;var t=tx(c);if(t.length>1200)return null;if(t.indexOf('Claude wants to')>-1)return c;}return null;}
-function decide(s){
-if(s.indexOf('Claude wants to list your repositories')>-1)return {ok:1,why:'repo-list',click:['Always allow','Allow once']};
-if(s.indexOf('Claude wants to add a repository to this session')>-1){
-var push=/Access\s*:?\s*push/i.test(s),read=/Access\s*:?\s*read/i.test(s);
-if(read&&!push)return {ok:1,why:'add-repo read',click:['Allow once']};
-if(push&&OWN.test(s))return {ok:1,why:'add-repo push, own owner',click:['Allow once']};
-if(push)return {ok:0,why:'push but owner is not alamgirabdullahgh'};
-return {ok:0,why:'access type (read/push) not found in card'};}
-return {ok:0,why:'other card, never auto-clicked'};}
-function findBtn(card,label){var bs=card.querySelectorAll('button,[role=button]');for(var i=0;i<bs.length;i++){if(vis(bs[i])&&tx(bs[i])===label)return bs[i];}return null;}
-function press(B,n){try{B.click();}catch(e){}
-if(n>0){try{var o={bubbles:true,cancelable:true,view:window};B.dispatchEvent(new PointerEvent('pointerdown',o));B.dispatchEvent(new MouseEvent('mousedown',o));B.dispatchEvent(new PointerEvent('pointerup',o));B.dispatchEvent(new MouseEvent('mouseup',o));B.dispatchEvent(new MouseEvent('click',o));}catch(e){}}}
-function scan(){
-var bs=document.querySelectorAll('button,[role=button]');
-for(var i=0;i<bs.length;i++){
-var t=tx(bs[i]);
-if(t!=='Allow once'&&t!=='Always allow')continue;
-if(!vis(bs[i]))continue;
-var card=cardOf(bs[i]);if(!card)continue;
-var tries=card.__rcTry||0;
-if(tries>=3||(card.__rcAt&&Date.now()-card.__rcAt<1200))continue;
-var d=decide(tx(card));if(!d.ok)continue;
-for(var q=0;q<d.click.length;q++){var B=findBtn(card,d.click[q]);if(B){card.__rcTry=tries+1;card.__rcAt=Date.now();press(B,tries);break;}}
-}}
-window.__rcDbg=function(){var out=[],bs=document.querySelectorAll('button,[role=button]');
-for(var i=0;i<bs.length;i++){var t=tx(bs[i]);if(t!=='Allow once'&&t!=='Always allow')continue;if(!vis(bs[i]))continue;
-var c=cardOf(bs[i]);if(!c){out.push('বোতাম পেলাম ('+t+') কিন্তু কার্ড চিনতে পারিনি');continue;}
-var s=tx(c),d=decide(s);out.push((d.ok?'চাপবে':'চাপবে না')+' — '+d.why+'\nচেষ্টা: '+(c.__rcTry||0)+'\nকার্ডের লেখা: '+s.slice(0,350));}
-return 'স্ক্রিপ্ট চালু আছে। দৃশ্যমান অনুমতি-কার্ড: '+out.length+'\n\n'+out.join('\n---\n');};
-new MutationObserver(function(){scan()}).observe(document.documentElement,{childList:true,subtree:true});
-setInterval(scan,1000);scan();
-}catch(e){}})();"""
-
     /** ব্যাকগ্রাউন্ডে গেলে সাইট যেন "পেজ লুকানো" ধরে স্ট্রিম/পোলিং না থামায় */
     const val KEEP_JS = "(function(){try{if(window.__tbKeep)return;window.__tbKeep=1;" +
         "var d=document,P=Object.getPrototypeOf(d);" +

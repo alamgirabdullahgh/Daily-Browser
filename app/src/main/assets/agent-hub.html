@@ -41,7 +41,7 @@ input#tok{flex:1;font:inherit;padding:9px;border:1px solid var(--bd);border-radi
 <header><span>🧭 এজেন্ট হাব</span><span style="display:flex;align-items:center;gap:10px"><span id="ts" style="font-weight:400;font-size:12px;color:var(--mu)"></span><button id="clr" type="button" onclick="clearChat()">🗑 চ্যাট সাফ</button></span></header>
 <div id="setup"><b>প্রথমবার: GitHub টোকেন দিন (শুধু এই ফোনে থাকবে)</b><input id="tok" type="password" placeholder="github_pat_..."><button onclick="saveTok()" style="padding:10px">সংরক্ষণ</button></div>
 <main id="m"><div id="tasks"></div><div><b style="font-size:13px">ঘটনা</b><div id="evs"></div></div></main>
-<footer id="f"><div id="chips"></div><div class="box"><textarea id="t" rows="3" oninput="grow(this);upd()" onkeyup="grow(this)" onpaste="setTimeout(()=>grow(this),0)" placeholder="Write a message"></textarea><div class="tools"><button class="ic" type="button" aria-label="ফাইল যোগ করুন" onclick="document.getElementById('fi').click()">+</button><input id="fi" type="file" multiple hidden onchange="addFiles(this)"><div class="selw"><button id="selb" type="button" aria-label="এজেন্ট বাছুন" onclick="toggleSel(event)">Claude ▾</button><div id="selm"></div></div><span class="sp"></span><button class="send" id="sb" type="button" aria-label="পাঠাও" onclick="send()" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></footer>
+<footer id="f"><div id="chips"></div><div class="box"><textarea id="t" rows="3" oninput="grow(this);upd()" onkeyup="grow(this)" onpaste="setTimeout(()=>grow(this),0)" placeholder="Write a message  ·  একাধিক এজেন্টকে একসাথে: নতুন লাইনে @gemini … @image … @audio …"></textarea><div class="tools"><button class="ic" type="button" aria-label="ফাইল যোগ করুন" onclick="document.getElementById('fi').click()">+</button><input id="fi" type="file" multiple hidden onchange="addFiles(this)"><div class="selw"><button id="selb" type="button" aria-label="এজেন্ট বাছুন" onclick="toggleSel(event)">Claude ▾</button><div id="selm"></div></div><span class="sp"></span><button class="send" id="sb" type="button" aria-label="পাঠাও" onclick="send()" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></footer>
 <script>
 const REPO="alamgirabdullahgh/daily-ruqyah",BR="agent-bus",API=`https://api.github.com/repos/${REPO}/contents/bus.json`;
 const tok=()=>localStorage.getItem("gh_tok")||"";
@@ -105,15 +105,25 @@ async function upload(f,k){
   const r=await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`,{method:"PUT",headers:H(),body:JSON.stringify({message:"bus: file",branch:BR,content:await b64(f)})});
   if(!r.ok)throw new Error("ফাইল আপলোড "+r.status);
   return{name:f.name,path,size:f.size,type:f.type||"application/octet-stream"}}
+/* একটা কমান্ডে একাধিক এজেন্ট: নতুন লাইনের শুরুতে @gemini / @image / @audio / @claude … লিখলে ওই লাইন থেকে পরের মার্কার পর্যন্ত অংশ ওই এজেন্টের নিজের কাজ হয়ে যায়।
+   মার্কার না থাকলে পুরোটা বাছা এজেন্টের কাজ (আগের মতো)। মার্কারের আগের লেখা থাকলে সেটা বাছা এজেন্টের। */
+function splitTargets(body){
+  const ids=AGS.map(a=>a.id),rx=/^[ \t]*@([A-Za-z]+)[ \t]*[:：]?[ \t]*/gm,hits=[];let m;
+  while((m=rx.exec(body))){const k=m[1].toLowerCase();if(ids.includes(k))hits.push({k,i:m.index,e:rx.lastIndex})}
+  if(!hits.length)return[{target:curAg().id,text:body}];
+  const out=[],pre=body.slice(0,hits[0].i).trim();if(pre)out.push({target:curAg().id,text:pre});
+  hits.forEach((h,j)=>{const x=body.slice(h.e,j+1<hits.length?hits[j+1].i:undefined).trim();if(x)out.push({target:h.k,text:x})});
+  return out.length?out:[{target:curAg().id,text:body}]}
 async function send(){
   const t=document.getElementById("t"),sb=document.getElementById("sb"),text=t.value.trim();if(!text&&!FILES.length)return;
   const fs=[...FILES];sb.disabled=true;t.disabled=true;let done=[];
   try{for(let k=0;k<fs.length;k++){document.getElementById("ts").textContent="ফাইল পাঠানো "+(k+1)+"/"+fs.length+"…";done.push(await upload(fs[k],k))}}
   catch(e){alert("ফাইল পাঠানো যায়নি: "+e.message);t.disabled=false;upd();return}
   const body=text||"(শুধু ফাইল — সংযুক্ত ফাইলগুলো দেখে কাজ করো)";
-  for(let i=0;i<4;i++){try{const{sha,d}=await load();const id=Math.max(d.seq||0,0,...d.tasks.map(x=>x.id))+1,now=new Date().toISOString().slice(0,16).replace("T"," ");
-    const task={id,text:body,status:"queued",agent:"",target:curAg().id,progress:0,note:"",created:now,updated:now};if(done.length)task.files=done;d.seq=id;
-    d.tasks.push(task);d.events.push({t:now,msg:"নতুন কাজ #"+id+": "+body.slice(0,60)+(done.length?" 📎"+done.length:"")});d.events=d.events.slice(-60);
+  const parts=splitTargets(body);
+  for(let i=0;i<4;i++){try{const{sha,d}=await load();let id=Math.max(d.seq||0,0,...d.tasks.map(x=>x.id)),now=new Date().toISOString().slice(0,16).replace("T"," ");
+    parts.forEach(p=>{id++;const task={id,text:p.text,status:"queued",agent:"",target:p.target,progress:0,note:"",created:now,updated:now};if(done.length)task.files=done;d.tasks.push(task);d.events.push({t:now,msg:"নতুন কাজ #"+id+" → "+p.target+": "+p.text.slice(0,60)+(done.length?" 📎"+done.length:"")})});
+    d.seq=id;d.events=d.events.slice(-60);
     const r=await fetch(API,{method:"PUT",headers:H(),body:JSON.stringify({message:"bus: add",branch:BR,sha,content:enc(JSON.stringify(d,null,1))})});
     if(r.ok){t.value="";t.style.height="";t.disabled=false;FILES.length=0;chips();draw(d);return}}catch(e){}await new Promise(r=>setTimeout(r,700))}
   alert("পাঠানো যায়নি, আবার চেষ্টা করুন");t.disabled=false;upd()}

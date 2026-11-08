@@ -616,8 +616,8 @@ class MainActivity : Activity() {
             override fun onPageFinished(v: WebView, u: String) {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
-                // claude.ai-এর নির্দিষ্ট দুটো অনুমতি-কার্ড (রিপো তালিকা / রিপো যোগ, শুধু read) নিজে চাপে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
-                if (u.startsWith("https://claude.ai/") || u.startsWith("https://www.claude.ai/")) v.evaluateJavascript(Browse.CLAUDE_AUTO_JS, null)
+                // সাইটভেদে অটো-ক্লিক (যেমন claude.ai-এর অনুমতি-কার্ড) — সব AutoClick.kt-তে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
+                AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
                 if (u.startsWith(AGENT)) {
                     // অ্যাপে সংরক্ষিত GitHub টোকেন (এনক্রিপ্টেড) থাকলে হাব-পেজকে একবার দিই; পেজে আগে থেকে টোকেন থাকলে ছুঁই না
                     val tk = Secret.get(this@MainActivity)
@@ -1529,6 +1529,8 @@ class MainActivity : Activity() {
     private val agSent = HashMap<Int, Long>()
     private val agTries = HashMap<Int, Int>()
     private val agWarned = HashSet<Int>()
+    /** কাজ #id-র জন্য এজেন্টের সাইট নিজে খোলার চেষ্টা কতবার হয়েছে (সর্বোচ্চ ২, অনন্ত খোলা এড়াতে) */
+    private val agOpened = HashMap<Int, Int>()
     private fun agentAuto() = Store.prefs(this).getBoolean("agent_auto", true)
     private val agentTick = object : Runnable {
         override fun run() {
@@ -1550,7 +1552,10 @@ class MainActivity : Activity() {
             val a = AgentBus.agentOf(s) ?: return@mapNotNull null
             if ((siteLimited[s.id] ?: 0L) > System.currentTimeMillis()) null else Triple(t, s, a)
         }
-        if (cands.isEmpty()) return
+        // ট্যাব খোলা নেই এমন এজেন্ট-সাইট: কাজ এলে নিজে খুলবে (অটো-ওপেন)
+        val nowMs = System.currentTimeMillis()
+        val closed = sites.filter { s -> AgentBus.agentOf(s) != null && tabs.none { it.site == s.id } && (siteLimited[s.id] ?: 0L) <= nowMs }
+        if (cands.isEmpty() && closed.isEmpty()) return
         agBusy = true
         Thread {
             try {
@@ -1571,6 +1576,20 @@ class MainActivity : Activity() {
                         else -> ok.filter { !AgentBus.isMedia(it.third) }
                     }
                     if (pool.isEmpty()) {
+                        // এই কাজের এজেন্টের সাইট খোলা না থাকলে নিজে খুলি, কয়েক সেকেন্ড পর আবার পাঠানোর চেষ্টা
+                        val cs = closed.firstOrNull { c ->
+                            val a = AgentBus.agentOf(c) ?: return@firstOrNull false
+                            !AgentBus.inLimit(d, a) && (if (want.isNotEmpty()) a == want else !AgentBus.isMedia(a))
+                        }
+                        if (cs != null && (agOpened[id0] ?: 0) < 2) {
+                            agOpened[id0] = (agOpened[id0] ?: 0) + 1
+                            runOnUiThread {
+                                Toast.makeText(this, "কাজ #$id0 — ${cs.name} খোলা হচ্ছে…", Toast.LENGTH_LONG).show()
+                                openSite(cs.id)
+                                handler.postDelayed({ if (!agBusy && overlay == null) agentDispatch() }, 9000L)
+                            }
+                            return@Thread
+                        }
                         if (want.isNotEmpty() && agWarned.add(id0)) runOnUiThread { Toast.makeText(this, "কাজ #$id0 ${AgentBus.label(want)}-এর জন্য — ${AgentBus.label(want)}-এর ওয়ার্কস্পেস ট্যাব খুলুন", Toast.LENGTH_LONG).show() }
                         continue
                     }
@@ -1724,11 +1743,14 @@ class MainActivity : Activity() {
             .setNegativeButton("বাতিল", null).show()
     }
 
+    /** ট্যাবের সাইট কোন এজেন্ট (claude/gemini/grok/audio/image/video); সাইট না হলে/অচেনা হলে null → সাধারণ আচরণ */
+    private fun agentOfTab(t: Tab): String? = t.site?.let { sid -> Sites.all(this).firstOrNull { it.id == sid }?.let { AgentBus.agentOf(it) } }
+
     private fun fillInput(t: Tab, text: String, n: Int, send: Boolean, onFilled: (() -> Unit)? = null) {
         if (n >= 12) { if (send) Toast.makeText(this, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান", Toast.LENGTH_LONG).show(); onFilled?.invoke(); return }
         handler.postDelayed({
             if (!tabs.contains(t)) return@postDelayed
-            t.web.evaluateJavascript(Sites.fillJs(text)) { r ->
+            t.web.evaluateJavascript(AutoClick.fillJs(agentOfTab(t), text)) { r ->
                 if (r == null || !r.contains("ok")) {
                     // চ্যাটের ঘর নেই: প্ল্যান/স্বাগত পেজ আটকে থাকলে নিজেই "Use Claude for free" বা ← চেপে পার করি, তারপর আবার চেষ্টা
                     t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send, onFilled) }
@@ -1743,7 +1765,8 @@ class MainActivity : Activity() {
         if (n > 12) return
         handler.postDelayed({
             if (!tabs.contains(t)) return@postDelayed
-            val js = if (n == 12) Sites.ENTER_JS else Sites.SEND_JS
+            val ag = agentOfTab(t)
+            val js = if (n == 12) AutoClick.fallbackJs(ag) else AutoClick.sendJs(ag)
             t.web.evaluateJavascript(js) { r -> if (r == null || !r.contains("clicked") && !r.contains("enter")) sendInput(t, n + 1) }
         }, if (n == 0) 2500L else 1500L)
     }
