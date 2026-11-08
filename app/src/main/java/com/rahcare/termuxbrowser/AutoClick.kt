@@ -50,6 +50,8 @@ function press(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatc
     // ───────────────────────── ৩) এজেন্টের প্রোফাইল ─────────────────────────
     /** শুরুর পাতার "নতুন তৈরি" ধরনের বোতাম (পুরো লেখা মিলতে হবে) */
     private const val PREP = "^(create new dialog|new dialog|create dialog|add dialog|create new|new prompt|new script|new project|create project|start creating|start new|get started|start now|try it|open playground)[.!]?$"
+    /** অডিও (Text to speech Playground): শুরুর পাতায় "Create new dialog" নয়, "The Everyday Assistant" কার্ডে চাপলে স্ক্রিপ্ট-ঘর খোলে */
+    private const val AUDIO_PREP = "^the every ?day assistant$"
     private val CLAUDE = Profile(
         "claude",
         listOf("div.ProseMirror[contenteditable=\"true\"]", "div[contenteditable=\"true\"][role=\"textbox\"]", "[contenteditable=\"true\"]", "textarea"),
@@ -94,7 +96,7 @@ function press(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatc
         listOf("button[type=\"submit\"]", "button[aria-label*=\"Run\" i]", "button[aria-label*=\"Generate\" i]", "button[aria-label*=\"Create\" i]"),
         "generate speech|generate audio|generate|create|run|submit|send|তৈরি",
         modEnter = true,
-        prepRe = PREP
+        prepRe = AUDIO_PREP
     )
 
     private val VIDEO = Profile(
