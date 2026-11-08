@@ -27,9 +27,9 @@ object AutoLogin {
 
     private fun pref(c: Context) = Store.prefs(c)
     fun emailOf(c: Context, siteId: String): String = pref(c).getString("al_$siteId", "") ?: ""
-    private fun setEmail(c: Context, siteId: String, email: String) { pref(c).edit().putString("al_$siteId", email.trim()).apply() }
+    fun setEmail(c: Context, siteId: String, email: String) { pref(c).edit().putString("al_$siteId", email.trim()).apply() }
 
-    private fun hostOf(u: String) = (Uri.parse(if (u.contains("://")) u else "https://$u").host ?: "").lowercase().removePrefix("www.")
+    fun hostOf(u: String) = (Uri.parse(if (u.contains("://")) u else "https://$u").host ?: "").lowercase().removePrefix("www.")
 
     /** গুগল-পদ্ধতি: ইমেইল জিমেইল/গুগল ডোমেইনের, বা সাইট নিজেই গুগলের */
     fun isGoogle(email: String, siteUrl: String): Boolean {
@@ -218,12 +218,12 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         // ওয়ার্কস্পেসের কথা থাকলে, অথবা (লগইন-শব্দ + ইমেইল ঠিকানা) থাকলে ধরি। শুধু "login" লেখা কোডিং-কাজ ছুঁই না
         if (!RE_TRIGGER.containsMatchIn(text) && !(RE_LOGIN.containsMatchIn(text) && RE_MAIL.containsMatchIn(text))) return null
         val gMail = RE_MAIL.find(text)?.value ?: ""
-        val gPw = RE_PW.find(text)?.groupValues?.get(1)?.trim('.', ',', '।') ?: ""
+        val gPw = RE_PW.find(text)?.groupValues?.get(1)?.trim('.', ',', '।')?.takeIf { it != "***" } ?: ""
         val saved = Creds.emails(c)
         val out = mutableListOf<Item>()
         for (ln in text.lines()) {
             val mail = RE_MAIL.find(ln)?.value ?: ""
-            val pw = RE_PW.find(ln)?.groupValues?.get(1)?.trim('.', ',', '।') ?: ""
+            val pw = RE_PW.find(ln)?.groupValues?.get(1)?.trim('.', ',', '।')?.takeIf { it != "***" } ?: ""
             val scan = RE_PW.replace(RE_MAIL.replace(ln, " "), " ")
             val urls = RE_URL.findAll(scan).toList()
             val em = mail.ifBlank { gMail }.ifBlank { if (saved.size == 1) saved[0] else "" }
@@ -279,7 +279,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         for (m in RE_PW.findAll(text).toList().reversed()) red = red.replaceRange(m.groups[1]!!.range, "***")
         return red
     }
-    private fun chatPw(text: String) = RE_PW.find(text)?.groupValues?.get(1)?.trim('.', ',', '।') ?: ""
+    fun chatPw(text: String) = RE_PW.find(text)?.groupValues?.get(1)?.trim('.', ',', '।')?.takeIf { it != "***" } ?: ""
 
     /** AI-র আগে-না-দেখা queued টাস্ক কি এখনো ক্লাসিফাই হয়নি? (হলে এজেন্টকে পাঠানো থামে) */
     fun aiPending(c: Context, id: Int): Boolean = AiRouter.hasKey(c) && id.toString() !in pref(c).getStringSet("al_ai_seen", emptySet())!!
@@ -300,17 +300,17 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         }
     }
 
-    private fun pwByEmail(text: String): Map<String, String> {
+    fun pwByEmail(text: String): Map<String, String> {
         val m = mutableMapOf<String, String>()
         for (ln in text.lines()) {
             val mail = RE_MAIL.find(ln)?.value ?: continue
-            val pw = RE_PW.find(ln)?.groupValues?.get(1)?.trim('.', ',', '।') ?: continue
+            val pw = RE_PW.find(ln)?.groupValues?.get(1)?.trim('.', ',', '।')?.takeIf { it != "***" } ?: continue
             if (pw.isNotEmpty()) m[mail.lowercase()] = pw
         }
         return m
     }
 
-    private fun matchSites(all: List<Site>, name: String, url: String): List<Site> {
+    fun matchSites(all: List<Site>, name: String, url: String): List<Site> {
         val n = name.trim()
         if (n == "*") return all
         val byName = all.filter { n.isNotEmpty() && (it.name.equals(n, true) || it.name.contains(n, true)) }
@@ -319,80 +319,57 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         return if (h.isNotEmpty()) all.filter { val x = hostOf(it.url); x == h || x.endsWith(".$h") } else emptyList()
     }
 
+    /** নতুন queued কাজ ধরে Gemini-এজেন্টকে দেয়। পাসওয়ার্ড আগেই ফোনে সংরক্ষিত হয়ে বাস থেকে মুছে যায় */
     private fun aiStep(act: Activity, tok: String, open: (Site) -> Unit) {
         val d = AgentBus.load(tok)?.d ?: return
         val arr = d.optJSONArray("tasks") ?: return
         val seen = pref(act).getStringSet("al_ai_seen", emptySet())!!.toMutableSet()
-        val done = mutableMapOf<Int, String>()   // টাস্ক-আইডি → নোট
+        val jobs = mutableListOf<Triple<Int, String, String>>()   // আইডি, নিরাপদ লেখা (পাসওয়ার্ড ***), এজেন্টের জন্য লেখা (+ নোট)
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i); val id = o.optInt("id")
             if (o.optString("status") != "queued" || id.toString() in seen) continue
             val text = o.optString("text")
-            seen.add(id.toString()); pref(act).edit().putStringSet("al_ai_seen", seen).apply()   // আগে চিহ্ন: AI ব্যর্থ হলেও কাজ এজেন্টে যাবে
+            seen.add(id.toString()); pref(act).edit().putStringSet("al_ai_seen", seen).apply()
             if (text.isBlank()) continue
-            val r = AiRouter.ask(act, stripPw(text))
-            if (r == null) { pref(act).edit().putStringSet("al_ai_fail", (pref(act).getStringSet("al_ai_fail", emptySet())!! + id.toString())).apply(); act.runOnUiThread { Toast.makeText(act, "AI ব্যর্থ (" + AiRouter.lastErr + ") — কাজটা সাধারণভাবে এজেন্টে যাচ্ছে", Toast.LENGTH_LONG).show() }; continue }
-            when (r.type) {
-                "create_workspaces" -> if (r.items.isNotEmpty()) {
-                    val mail0 = RE_MAIL.find(text)?.value ?: ""
-                    val pw0 = chatPw(text)
-                    val items = r.items.map { it -> if (pw0.isNotEmpty() && it.email.equals(mail0, ignoreCase = true)) AutoLogin.Item(it.name, it.url, it.email, pw0) else it }
-                    act.runOnUiThread {
-                        val made = create(act, items)
-                        Toast.makeText(act, "AI বুঝেছে: ${made.size}টি ওয়ার্কস্পেস তৈরি — একে একে খুলে লগইন হবে", Toast.LENGTH_LONG).show()
-                        made.forEachIndexed { k, s -> act.window.decorView.postDelayed({ open(s) }, 4000L * (k + 1)) }
-                    }
-                    done[id] = "AI বুঝে ব্রাউজার ${items.size}টি ওয়ার্কস্পেস বানিয়েছে"
-                }
-                "login_workspaces" -> {
-                    val all = Sites.all(act)
-                    val pwm = pwByEmail(text); val gMail = RE_MAIL.find(text)?.value ?: ""; val gPw = chatPw(text)
-                    val targets = LinkedHashMap<String, Pair<Site, String>>()
-                    for (it in r.items) {
-                        val em = it.email.ifBlank { gMail }; if (em.isBlank()) continue
-                        for (s in matchSites(all, it.name, it.url)) targets[s.id] = s to em
-                    }
-                    if (targets.isEmpty()) {
-                        done[id] = if (gMail.isBlank()) "কোন ইমেইল দিয়ে লগইন হবে? ইমেইল (আর পাসওয়ার্ড) লিখুন" else "কোনো ওয়ার্কস্পেস মেলেনি — ওয়ার্কস্পেসের নাম লিখে আবার বলুন (বা \"সবগুলো\")"
-                    } else {
-                        val noPw = mutableSetOf<String>()
-                        for (p in targets.values) {
-                            val em = p.second
-                            val pw = pwm[em.lowercase()] ?: (if (em.equals(gMail, true)) gPw else "")
-                            if (pw.isNotEmpty()) Creds.put(act, em, pw) else if (Creds.get(act, em).isEmpty()) noPw.add(em)
-                        }
-                        act.runOnUiThread {
-                            targets.values.forEach { setEmail(act, it.first.id, it.second) }
-                            Toast.makeText(act, "AI বুঝেছে: ${targets.size}টি বিদ্যমান ওয়ার্কস্পেসে লগইন শুরু — একে একে হবে", Toast.LENGTH_LONG).show()
-                            targets.values.forEachIndexed { k, pr ->
-                                act.window.decorView.postDelayed({ val m = act as? MainActivity; if (m != null) m.loginOpen(pr.first.id) else open(pr.first) }, 5000L * (k + 1))
-                            }
-                        }
-                        done[id] = "AI বুঝে ${targets.size}টি বিদ্যমান ওয়ার্কস্পেসে লগইন চালু করেছে (" + targets.values.joinToString { it.first.name }.take(120) + ")" +
-                            (if (noPw.isNotEmpty()) " — পাসওয়ার্ড দেওয়া হয়নি: " + noPw.joinToString() + " (মেনু → লগইন তথ্য থেকে দিন)" else "")
-                    }
-                }
-                "open_workspaces" -> {
-                    val all = Sites.all(act)
-                    val hit = r.names.mapNotNull { n -> all.firstOrNull { it.name.equals(n, true) } ?: all.firstOrNull { it.name.contains(n, true) } }.distinctBy { it.id }
-                    if (hit.isNotEmpty()) {
-                        act.runOnUiThread { hit.forEachIndexed { k, s -> act.window.decorView.postDelayed({ open(s) }, 3000L * (k + 1)) } }
-                        done[id] = "AI বুঝে ${hit.size}টি ওয়ার্কস্পেস খোলা হয়েছে"
-                    }
-                }
-                "clarify" -> if (r.question.isNotBlank()) done[id] = "প্রশ্ন: " + r.question
-                "answer" -> if (r.answer.isNotBlank()) done[id] = "🤖 Gemini:\n" + r.answer.take(6000)
-            }
+            val pr = AiAgent.prepare(act, text)
+            jobs.add(Triple(id, pr.first, pr.first + pr.second))
         }
-        if (done.isEmpty()) return
-        AgentBus.mutate(tok, "ai ws tasks") { dd ->
+        if (jobs.isEmpty()) return
+        val safe = jobs.associate { it.first to it.second }
+        AgentBus.mutate(tok, "ai claim") { dd ->
             val a = dd.optJSONArray("tasks") ?: return@mutate false
             var ch = false
             for (i in 0 until a.length()) {
-                val o = a.getJSONObject(i); val n = done[o.optInt("id")] ?: continue
+                val o = a.getJSONObject(i); val t = safe[o.optInt("id")] ?: continue
                 if (o.optString("status") != "queued") continue
-                o.put("status", "done").put("agent", "browser").put("progress", 100).put("updated", AgentBus.now()).put("text", stripPw(o.optString("text"))).put("note", n)
-                AgentBus.ev(dd, "টাস্ক #${o.optInt("id")}: $n"); ch = true
+                o.put("status", "running").put("agent", "browser").put("progress", 15).put("updated", AgentBus.now()).put("text", t).put("note", "🤖 Gemini কাজ করছে…")
+                ch = true
+            }
+            ch
+        }
+        for (j in jobs) AiAgent.submit(Runnable { finishTask(act, tok, j.first, j.second, j.third) })
+    }
+
+    private fun finishTask(act: Activity, tok: String, id: Int, safeText: String, agentText: String) {
+        val out = try { AiAgent.run(act, agentText) } catch (e: Exception) { AiRouter.lastErr = e.javaClass.simpleName + ": " + (e.message ?: "").take(60); null }
+        if (out == null) {
+            pref(act).edit().putStringSet("al_ai_fail", pref(act).getStringSet("al_ai_fail", emptySet())!! + id.toString()).apply()
+            act.runOnUiThread { Toast.makeText(act, "AI ব্যর্থ (" + AiRouter.lastErr + ") — কাজটা সাধারণভাবে চলছে", Toast.LENGTH_LONG).show() }
+        }
+        AgentBus.mutate(tok, "ai done") { dd ->
+            val a = dd.optJSONArray("tasks") ?: return@mutate false
+            var ch = false
+            for (i in 0 until a.length()) {
+                val o = a.getJSONObject(i); if (o.optInt("id") != id) continue
+                if (o.optString("status") != "running") continue
+                o.put("updated", AgentBus.now())
+                when {
+                    out == null -> { o.put("status", "queued").put("agent", "").put("progress", 0).put("note", "Gemini ব্যর্থ (" + AiRouter.lastErr + ") — সাধারণ পথে") }
+                    out.handoff -> { o.put("status", "queued").put("agent", "").put("progress", 0).put("note", "Gemini: কোডিং এজেন্টকে দেওয়া হলো") }
+                    else -> { o.put("status", "done").put("agent", "browser").put("progress", 100).put("note", "🤖 Gemini:\n" + out.text.take(6000)) }
+                }
+                AgentBus.ev(dd, "টাস্ক #$id: Gemini " + (if (out == null) "ব্যর্থ" else if (out.handoff) "এজেন্টে পাঠাল" else "শেষ করল"))
+                ch = true
             }
             ch
         }

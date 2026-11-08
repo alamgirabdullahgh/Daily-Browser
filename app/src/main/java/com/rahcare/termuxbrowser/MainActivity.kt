@@ -1287,6 +1287,27 @@ class MainActivity : Activity() {
         return newTab(url ?: site.url, id)
     }
 
+    /** AI-এজেন্টের জন্য (UI থ্রেডে ডাকুন): খোলা ওয়ার্কস্পেস-ট্যাবের পাতার অবস্থা (লগইন-ফর্ম আছে কিনা) */
+    fun agInspect(cb: (Map<String, String>) -> Unit) {
+        val ts = tabs.filter { it.site != null }
+        if (ts.isEmpty()) { cb(emptyMap()); return }
+        val out = java.util.concurrent.ConcurrentHashMap<String, String>()
+        val left = java.util.concurrent.atomic.AtomicInteger(ts.size)
+        val js = "(function(){try{var t=((document.body&&document.body.innerText)||'').slice(0,5000).toLowerCase();return JSON.stringify({pw:!!document.querySelector('input[type=password]'),li:/sign in|log in|login|লগইন|সাইন ইন|continue with google/.test(t),out:/log out|logout|sign out|new chat|নতুন চ্যাট|লগ আউট/.test(t),u:location.href,t:document.title})}catch(e){return '{}'}})()"
+        for (t in ts) {
+            try {
+                t.web.evaluateJavascript(js) { raw -> out[t.site!!] = Sites.unquote(raw ?: ""); if (left.decrementAndGet() == 0) cb(out) }
+            } catch (e: Exception) { out[t.site!!] = ""; if (left.decrementAndGet() == 0) cb(out) }
+        }
+    }
+
+    /** AI-এজেন্টের জন্য: ওয়ার্কস্পেসগুলো একে একে খোলে (reload=true হলে খোলা থাকলে রিলোড, যাতে অটো-লগইন চলে) */
+    fun agOpenMany(ids: List<String>, reload: Boolean, gapMs: Long) {
+        ids.forEachIndexed { k, id ->
+            handler.postDelayed({ try { if (reload) loginOpen(id) else { openSite(id); refreshHomes() } } catch (_: Exception) {} }, gapMs * (k + 1))
+        }
+    }
+
     /** আগে-থেকে-বানানো ওয়ার্কস্পেসে লগইনের জন্য: খোলা থাকলে রিলোড (যাতে অটো-লগইন চলে), না থাকলে নতুন ট্যাবে খোলে */
     fun loginOpen(id: String) {
         val had = tabs.firstOrNull { it.site == id }

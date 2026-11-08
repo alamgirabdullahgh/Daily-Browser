@@ -101,16 +101,11 @@ object AiRouter {
             "pass_to_agent = ONLY when the user explicitly wants a named AI agent/website to do it (Claude, ChatGPT, Grok, Perplexity, DeepSeek...), or needs real actions inside a website, or file/code work in their repository; when unsure between answer and pass_to_agent choose answer. Output JSON only."
     }
 
-    /** ব্যাকগ্রাউন্ড থ্রেডে ডাকুন। ব্যর্থ হলে null (lastErr-এ কারণ) */
-    fun ask(c: Context, text: String): Result? {
-        try {
-            val key = Creds.get(c, KEY)
-            if (key.isBlank()) return null
-            val body = JSONObject()
-                .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt(c)))))
-                .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", text.take(4000))))))
-                .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("temperature", 0.3).put("maxOutputTokens", 8192))
-            val deadline = System.currentTimeMillis() + 70000
+    /** Gemini-কে একটি অনুরোধ পাঠায় (মডেল স্বয়ংক্রিয়, ব্যর্থ হলে পরের মডেলে)। সফল হলে পুরো JSON উত্তর, নইলে null (lastErr-এ কারণ) */
+    fun call(c: Context, body: JSONObject): JSONObject? {
+        val key = Creds.get(c, KEY)
+        if (key.isBlank()) { lastErr = "কী নেই"; return null }
+            val deadline = System.currentTimeMillis() + 100000
             var resp: String? = null
             var tried = 0
             for (mdl in candidates(c, key)) {
@@ -118,7 +113,7 @@ object AiRouter {
                 tried++
                 try {
                     val cn = URL(BASE + "models/" + mdl + ":generateContent").openConnection() as HttpURLConnection
-                    cn.requestMethod = "POST"; cn.connectTimeout = 12000; cn.readTimeout = 25000; cn.doOutput = true
+                    cn.requestMethod = "POST"; cn.connectTimeout = 12000; cn.readTimeout = 45000; cn.doOutput = true
                     cn.setRequestProperty("Content-Type", "application/json"); cn.setRequestProperty("x-goog-api-key", key)
                     cn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
                     val code = cn.responseCode
@@ -140,7 +135,19 @@ object AiRouter {
                     lastErr = mdl + ": " + e.javaClass.simpleName
                 }
             }
-            if (resp == null) return null
+        return resp?.let { JSONObject(it) }
+    }
+
+    /** ব্যাকগ্রাউন্ড থ্রেডে ডাকুন। ব্যর্থ হলে null (lastErr-এ কারণ) */
+    fun ask(c: Context, text: String): Result? {
+        try {
+            val key = Creds.get(c, KEY)
+            if (key.isBlank()) return null
+            val body = JSONObject()
+                .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt(c)))))
+                .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", text.take(4000))))))
+                .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("temperature", 0.3).put("maxOutputTokens", 8192))
+            val resp = call(c, body)?.toString() ?: return null
             var out = JSONObject(resp).getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text").trim()
             out = out.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
             val j = JSONObject(out)
