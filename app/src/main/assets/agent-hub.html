@@ -122,7 +122,7 @@ async function send(){
   const body=text||"(শুধু ফাইল — সংযুক্ত ফাইলগুলো দেখে কাজ করো)";
   const parts=splitTargets(body);
   for(let i=0;i<4;i++){try{const{sha,d}=await load();let id=Math.max(d.seq||0,0,...d.tasks.map(x=>x.id)),now=new Date().toISOString().slice(0,16).replace("T"," ");
-    parts.forEach(p=>{id++;const task={id,text:p.text,status:"queued",agent:"",target:p.target,progress:0,note:"",created:now,updated:now};if(done.length)task.files=done;d.tasks.push(task);d.events.push({t:now,msg:"নতুন কাজ #"+id+" → "+p.target+": "+p.text.slice(0,60)+(done.length?" 📎"+done.length:"")})});
+    parts.forEach(p=>{id++;const task={id,text:p.text,status:"queued",agent:"",target:p.target,progress:0,note:"",created:now,updated:now};if(done.length)task.files=done;d.tasks.push(task);d.events.push({t:now,msg:"নতুন কাজ #"+id+" → "+p.target+": "+p.text.replace(/([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}[\s:|,;]+)(\S+)/g,function(m,a,b){return /[\u0980-\u09FF]/.test(b)?m:a+"***"}).slice(0,60)+(done.length?" 📎"+done.length:"")})});
     d.seq=id;d.events=d.events.slice(-60);
     const r=await fetch(API,{method:"PUT",headers:H(),body:JSON.stringify({message:"bus: add",branch:BR,sha,content:enc(JSON.stringify(d,null,1))})});
     if(r.ok){t.value="";t.style.height="";t.disabled=false;FILES.length=0;chips();draw(d);return}}catch(e){}await new Promise(r=>setTimeout(r,700))}

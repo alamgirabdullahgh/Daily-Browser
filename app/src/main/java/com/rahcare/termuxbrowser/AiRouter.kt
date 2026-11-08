@@ -105,15 +105,20 @@ object AiRouter {
     fun call(c: Context, body: JSONObject): JSONObject? {
         val key = Creds.get(c, KEY)
         if (key.isBlank()) { lastErr = "কী নেই"; return null }
-            val deadline = System.currentTimeMillis() + 100000
+            val deadline = System.currentTimeMillis() + 150000
             var resp: String? = null
             var tried = 0
+            val retried = HashSet<String>()
+            var stopAll = false
             for (mdl in candidates(c, key)) {
+                var again = true
+                while (again) {
+                again = false
                 if (tried >= 6 || System.currentTimeMillis() > deadline) break
                 tried++
                 try {
                     val cn = URL(BASE + "models/" + mdl + ":generateContent").openConnection() as HttpURLConnection
-                    cn.requestMethod = "POST"; cn.connectTimeout = 12000; cn.readTimeout = 45000; cn.doOutput = true
+                    cn.requestMethod = "POST"; cn.connectTimeout = 15000; cn.readTimeout = 60000; cn.doOutput = true
                     cn.setRequestProperty("Content-Type", "application/json"); cn.setRequestProperty("x-goog-api-key", key)
                     cn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
                     val code = cn.responseCode
@@ -128,12 +133,17 @@ object AiRouter {
                     }
                     cn.disconnect()
                     lastErr = "$mdl: HTTP $code"
-                    if (code == 401 || code == 403) break            // কী/অনুমতির সমস্যা: মডেল বদলে লাভ নেই
+                    if (code == 401 || code == 403) { stopAll = true; break }            // কী/অনুমতির সমস্যা: মডেল বদলে লাভ নেই
                     if (code == 404) Store.prefs(c).edit().remove("ai_models_cache").remove("ai_model_ok").apply() // তালিকা পুরোনো
                     // 400/404/429/5xx: পরের মডেল চেষ্টা
                 } catch (e: Exception) {
-                    lastErr = mdl + ": " + e.javaClass.simpleName
+                    lastErr = mdl + ": " + e.javaClass.simpleName + (e.message?.let { " (" + it.take(25) + ")" } ?: "")
+                    // ধীর নেটে টাইমআউট: মডেল বদলানোর আগে একই মডেলে একবার আবার
+                    if (e is java.net.SocketTimeoutException && retried.add(mdl) && System.currentTimeMillis() < deadline) { tried--; again = true }
                 }
+                if (resp != null || stopAll) break
+                }
+                if (resp != null || stopAll || tried >= 6 || System.currentTimeMillis() > deadline) break
             }
         return resp?.let { JSONObject(it) }
     }

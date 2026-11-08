@@ -63,7 +63,7 @@ object AgentBus {
 
     fun ev(d: JSONObject, msg: String) {
         val a = d.optJSONArray("events") ?: org.json.JSONArray().also { d.put("events", it) }
-        a.put(JSONObject().put("t", now()).put("msg", msg))
+        a.put(JSONObject().put("t", now()).put("msg", AutoLogin.scrubMsg(msg)))
         while (a.length() > 60) a.remove(0)
     }
 

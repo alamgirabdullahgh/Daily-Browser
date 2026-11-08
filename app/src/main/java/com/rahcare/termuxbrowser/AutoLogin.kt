@@ -292,6 +292,17 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         AgentBus.mutate(tok, "sites backup") { dd -> dd.put("sites_backup", cur); true }
     }
 
+    private val RE_MAIL_PW = Regex("([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}[\\s:|,;]+)(\\S+)")
+    /** ঘটনা/লগের লেখায় "ইমেইল পাসওয়ার্ড" ধরন থাকলে পাসওয়ার্ড অংশ *** করে (বাংলা শব্দ হলে ছোঁয় না) */
+    fun scrubMsg(m: String): String = RE_MAIL_PW.replace(m) { r -> if (r.groupValues[2].any { it in '\u0980'..'\u09FF' }) r.value else r.groupValues[1] + "***" }
+    /** বাসের আগের ঘটনাগুলোতে থেকে যাওয়া পাসওয়ার্ড মোছে; বদল হলে true */
+    fun scrubEvents(d: JSONObject): Boolean {
+        val a = d.optJSONArray("events") ?: return false
+        var ch = false
+        for (i in 0 until a.length()) { val o = a.optJSONObject(i) ?: continue; val m = o.optString("msg"); val n = scrubMsg(m); if (n != m) { o.put("msg", n); ch = true } }
+        return ch
+    }
+
     /** AI-কে পাঠানোর আগে পাসওয়ার্ড মুছে দেয় (মূল লেখা বদলায় না) */
     fun stripPw(text: String): String {
         var red = text
@@ -364,6 +375,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
                 o.put("status", "running").put("agent", "browser").put("progress", 15).put("updated", AgentBus.now()).put("text", t).put("note", "🤖 Gemini কাজ করছে…")
                 ch = true
             }
+            if (scrubEvents(dd)) ch = true
             ch
         }
         for (j in jobs) AiAgent.submit(Runnable { finishTask(act, tok, j.first, j.second, j.third) })
