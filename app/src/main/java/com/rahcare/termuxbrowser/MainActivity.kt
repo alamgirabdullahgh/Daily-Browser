@@ -1587,6 +1587,8 @@ class MainActivity : Activity() {
         agBusy = true
         Thread {
             try {
+                // ওয়ার্কস্পেস বানানো/লগইন ব্রাউজারের নিজের কাজ: আগে সেগুলো সেরে নিই, কোনোভাবেই এজেন্টকে (Claude) পাঠাই না
+                try { AutoLogin.pollTasks(this, tok) { st -> openSite(st.id); refreshHomes() } } catch (_: Exception) {}
                 val d = (AgentBus.load(tok) ?: return@Thread).d
                 val now = System.currentTimeMillis()
                 val ok = cands.filter { !AgentBus.inLimit(d, it.third) }
@@ -1594,6 +1596,7 @@ class MainActivity : Activity() {
                 var pickX: Triple<Tab, Site, String>? = null
                 for (tk0 in AgentBus.queuedAll(d)) {
                     val id0 = tk0.optInt("id")
+                    if (AutoLogin.parseChat(this, tk0.optString("text")) != null) continue   // ব্রাউজারের কাজ — এজেন্টকে নয়
                     // একই কাজ ১০ মিনিটের মধ্যে আবার নয়; একই কাজে সর্বোচ্চ ৩ বার (এজেন্ট না ধরলে অনন্ত পাঠানো এড়াতে)
                     if (now - (agSent[id0] ?: 0L) < 600000L || (agTries[id0] ?: 0) >= 3) return@Thread
                     // হাবে বেছে নেওয়া এজেন্ট (target) থাকলে শুধু তার ওয়ার্কস্পেসে; তার লিমিট শেষ হলে অন্য এজেন্টে যেতে পারে

@@ -191,6 +191,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
     private val RE_MAIL = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
     private val RE_URL = Regex("(?i)(https?://[^\\s,;|)]+|\\b(?:[a-z0-9-]+\\.)+(?:com|ai|io|org|net|app|co|dev|me|bd|xyz|tv)\\b(?:/[^\\s,;|)]*)?)")
     private val RE_PW = Regex("(?i)(?:পাসওয়ার্ড|পাসওয়ার্ডটা|password|passwd|pass)\\s*(?:[:=]|হলো|হল|is)\\s*(\\S+)")
+    private val RE_LOGIN = Regex("(?i)(লগইন|লগ\\s?ইন|login|log\\s?in|sign\\s?in)")
     private val RE_TRIGGER = Regex("(?i)(ওয়ার্ক\\s?স্পেস|workspace|work\\s?space)")
     private val KNOWN = mapOf("gemini" to "gemini.google.com", "জেমিনি" to "gemini.google.com", "chatgpt" to "chatgpt.com", "claude" to "claude.ai",
         "ক্লদ" to "claude.ai", "grok" to "grok.com", "perplexity" to "perplexity.ai", "deepseek" to "chat.deepseek.com", "github" to "github.com")
@@ -214,7 +215,8 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
 
     /** চ্যাটের লেখা থেকে ওয়ার্কস্পেসের তালিকা বানায়। পাসওয়ার্ড থাকলে আইটেমে নেয় আর লেখা থেকে মুছে (***) দেয়। null = এটা ওয়ার্কস্পেস-কমান্ড নয় */
     fun parseChat(c: Context, text: String): Parsed? {
-        if (!RE_TRIGGER.containsMatchIn(text)) return null
+        // ওয়ার্কস্পেসের কথা থাকলে, অথবা (লগইন-শব্দ + ইমেইল ঠিকানা) থাকলে ধরি। শুধু "login" লেখা কোডিং-কাজ ছুঁই না
+        if (!RE_TRIGGER.containsMatchIn(text) && !(RE_LOGIN.containsMatchIn(text) && RE_MAIL.containsMatchIn(text))) return null
         val gMail = RE_MAIL.find(text)?.value ?: ""
         val gPw = RE_PW.find(text)?.groupValues?.get(1)?.trim('.', ',', '।') ?: ""
         val saved = Creds.emails(c)
