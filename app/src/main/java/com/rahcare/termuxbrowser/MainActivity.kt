@@ -478,8 +478,19 @@ class MainActivity : Activity() {
         }.start()
     }
 
+    /** সব প্রোফাইলের (প্রতিটি ওয়ার্কস্পেসের) লগইন-কুকি জোর করে ডিস্কে লিখি — নইলে অ্যাপ হঠাৎ বন্ধ/আপডেট হলে সদ্য-লগইনের কুকি হারিয়ে যেতে পারে */
+    private fun flushCookies() {
+        try { CookieManager.getInstance().flush() } catch (_: Exception) {}
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE))
+                ProfileStore.getInstance().allProfileNames.forEach { try { ProfileStore.getInstance().getProfile(it)?.cookieManager?.flush() } catch (_: Exception) {} }
+        } catch (_: Exception) {}
+    }
+    private val flushRun = Runnable { flushCookies() }
+
     override fun onPause() {
         super.onPause()
+        flushCookies()
         Updater.fg = false
         AutoUpdate.fg = false; AutoUpdate.kick(this, 60_000L)
         handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher); handler.removeCallbacks(agentTick)
@@ -496,6 +507,7 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         super.onDestroy()
         try { netCb?.let { getSystemService(android.net.ConnectivityManager::class.java).unregisterNetworkCallback(it) } } catch (_: Exception) {}
+        flushCookies()
         tabs.forEach { it.web.destroy() }
     }
 
@@ -616,6 +628,7 @@ class MainActivity : Activity() {
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
+                handler.removeCallbacks(flushRun); handler.postDelayed(flushRun, 4000L)   // পাতা লোডের পর (লগইন সম্ভবত হয়েছে) কুকি ডিস্কে
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
                 // সাইটভেদে অটো-ক্লিক (যেমন claude.ai-এর অনুমতি-কার্ড) — সব AutoClick.kt-তে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
                 AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
