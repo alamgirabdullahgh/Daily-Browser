@@ -148,22 +148,23 @@ echo 'আয়াতের তালিকা বানানো হচ্ছ�
 echo "§AYN" | awk -F, '{n=0; for(s=1;s<=NF;s++) for(v=1;v<=§s;v++){n++; printf "%03d%03d %d\n", s, v, n}}' > list.txt
 echo "তালিকায় আয়াত: §(wc -l < list.txt)"
 [ "§(wc -l < list.txt)" -eq 6236 ] || { echo 'তালিকা তৈরি ব্যর্থ'; exit 1; }
-if curl -sI --connect-timeout 15 --max-time 30 https://everyayah.com/data/Alafasy_128kbps/001001.mp3 2>/dev/null | head -1 | grep -q ' 200'; then echo 'সার্ভার ঠিক আছে — ডাউনলোড শুরু হচ্ছে'; else echo 'everyayah.com থেকে সাড়া মিলছে না (নেট খুব ধীর বা সাইট বন্ধ) — তবু চেষ্টা চলছে'; fi
+code=§(curl -s -o /dev/null -r 0-0 -w '%{http_code}' --connect-timeout 15 --max-time 30 https://everyayah.com/data/Alafasy_128kbps/001001.mp3 2>/dev/null)
+case "§code" in 200|206) echo 'সার্ভার ঠিক আছে — ডাউনলোড শুরু হচ্ছে';; *) echo "সার্ভারের সাড়া কোড: §code (নেট খুব ধীর বা সাইট বন্ধ হতে পারে) — তবু চেষ্টা চলছে";; esac
 enc() { p=§1; n=§2
   [ -s out/§n.mp3 ] && return 0
   for i in 1 2 3 4 5; do
     # ধীর নেটে বড় ফাইল ৯০ সেকেন্ডে আসে না; তাই সময়সীমা নয়, আটকে গেলেই (৬০ সেকেন্ড প্রায় কিছু আসেনি) থামে, আর অর্ধেক নামা ফাইল থেকে আবার শুরু করে
     if curl -sf -C - --connect-timeout 20 --speed-limit 100 --speed-time 60 -o src/§p.mp3 https://everyayah.com/data/Alafasy_128kbps/§p.mp3; then
-      if ffmpeg -v error -y -i src/§p.mp3 -ac 1 -af atempo=1.2 -ar 22050 -c:a libmp3lame -b:a 32k -f mp3 out/§n.mp3.tmp && mv out/§n.mp3.tmp out/§n.mp3; then rm -f src/§p.mp3; return 0; fi
+      if nice -n 10 ffmpeg -nostdin -threads 1 -v error -y -i src/§p.mp3 -ac 1 -af atempo=1.2 -ar 22050 -c:a libmp3lame -b:a 32k -f mp3 out/§n.mp3.tmp && mv out/§n.mp3.tmp out/§n.mp3; then rm -f src/§p.mp3; return 0; fi
       rm -f src/§p.mp3 out/§n.mp3.tmp
     fi
     sleep §((i*3))
   done; return 1; }
 export -f enc
-( while true; do h=§(ls out/*.mp3 2>/dev/null | wc -l); echo "ডাউনলোড হয়েছে: §h/6236 (§((h*100/6236))%)"; [ "§h" -ge 6236 ] && break; sleep 15; done ) &
+( while true; do h=§(ls out/*.mp3 2>/dev/null | wc -l); echo "ডাউনলোড হয়েছে: §h/6236 (§((h*100/6236))%)"; echo "§(date +%T) §h §(grep MemAvailable /proc/meminfo 2>/dev/null)" >> §HOME/audio/progress.log; [ "§h" -ge 6236 ] && break; sleep 15; done ) &
 MON=§!
 for pass in 1 2 3; do
-  xargs -n2 -P3 bash -c 'enc "§0" "§1"' < list.txt || true
+  xargs -n2 -P2 bash -c 'enc "§0" "§1"' < list.txt || true
   have=§(ls out/*.mp3 2>/dev/null | wc -l); echo "পাস §pass শেষ: §have/6236"
   [ "§have" -ge 6236 ] && break
 done
@@ -255,6 +256,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 9) { out.filter { it.id == "d15" && it.script.contains("pkg install -y ffmpeg parallel") && !it.script.contains("pkg upgrade") }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
         // v10: অডিও-প্যাক কমান্ড python/parallel ছাড়া (awk/xargs/zip), ধীর নেটে resume ও লাইভ বার্তাসহ নতুন স্ক্রিপ্টে
         if (sp(c).getInt("ver", 1) < 10) { out.filter { it.id == "d15" && (it.script.contains("python3") || it.script.contains("parallel")) }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
+        // v11: অডিও-প্যাক ফোনের চাপ কমিয়ে (২ সমান্তরাল, nice, ffmpeg ১ থ্রেড), সার্ভার-যাচাইয়ের ভুল সতর্কবার্তা ঠিক ও progress.log সহ
+        if (sp(c).getInt("ver", 1) < 11) { out.filter { it.id == "d15" && it.script.contains("-P3") }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -263,7 +266,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 10)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 11)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
