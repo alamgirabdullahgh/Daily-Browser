@@ -567,6 +567,7 @@ class MainActivity : Activity() {
             } catch (_: Exception) { null }
         }
         val t = Tab(w)
+        if (url != null && url.startsWith(AGENT)) w.addJavascriptInterface(VoiceBridge(this, { w.url?.startsWith(AGENT) == true }, { js -> w.evaluateJavascript(js, null) }), "DailyVoice")
         t.site = siteOk
         t.profileName = incName
         t.incognito = incName != null
@@ -962,6 +963,7 @@ class MainActivity : Activity() {
                 else { r.deny(); Toast.makeText(this, "অনুমতি পাওয়া যায়নি: ⋮ › অ্যাপ অনুমতি থেকে ক্যামেরা/মাইক দিন", Toast.LENGTH_LONG).show() }
             }
         }
+        if (rc == Voice.PERM_CODE) Voice.onPerm(g.isNotEmpty() && g[0] == android.content.pm.PackageManager.PERMISSION_GRANTED)
         if (rc == 4713) {
             val gp = pendingGeo; pendingGeo = null
             gp?.second?.invoke(gp.first, g.isNotEmpty() && g.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }, false)

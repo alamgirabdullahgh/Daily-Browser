@@ -28,6 +28,8 @@
     <queries>
         <package android:name="com.termux" />
         <package android:name="com.termux.x11" />
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
+        <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
     </queries>
 
     <application

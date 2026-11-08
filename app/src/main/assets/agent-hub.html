@@ -37,11 +37,14 @@ footer{padding:8px 8px calc(8px + env(safe-area-inset-bottom,0px));border-top:1p
 input#tok{flex:1;font:inherit;padding:9px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx)}
 #setup button{font:inherit;border:0;border-radius:10px;background:var(--g);color:#fff;font-weight:700}
 #setup{padding:12px;display:none;flex-direction:column;gap:8px}
+#vrow{display:none;align-items:center;gap:8px;flex-wrap:wrap}
+.vb{min-width:42px;height:42px;border-radius:21px;padding:0 12px;border:1.5px solid var(--bd);background:transparent;color:var(--tx);font:inherit;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+#vst{font-size:13px;color:var(--mu);flex:1;min-width:80px}
 </style></head><body>
 <header><span>🧭 Daily Agent</span><span style="display:flex;align-items:center;gap:10px"><span id="ts" style="font-weight:400;font-size:12px;color:var(--mu)"></span><button id="clr" type="button" onclick="clearChat()">🗑 চ্যাট সাফ</button></span></header>
 <div id="setup"><b>প্রথমবার: GitHub টোকেন দিন (শুধু এই ফোনে থাকবে)</b><input id="tok" type="password" placeholder="github_pat_..."><button onclick="saveTok()" style="padding:10px">সংরক্ষণ</button></div>
-<main id="m"><div id="tasks"></div><div><b style="font-size:13px">ঘটনা</b><div id="evs"></div></div></main>
-<footer id="f"><div id="chips"></div><div class="box"><textarea id="t" rows="3" oninput="grow(this);upd()" onkeyup="grow(this)" onpaste="setTimeout(()=>grow(this),0)" placeholder="Write a message  ·  একাধিক এজেন্টকে একসাথে: নতুন লাইনে @gemini … @image … @audio …"></textarea><div class="tools"><button class="ic" type="button" aria-label="ফাইল যোগ করুন" onclick="document.getElementById('fi').click()">+</button><input id="fi" type="file" multiple hidden onchange="addFiles(this)"><div class="selw"><button id="selb" type="button" aria-label="এজেন্ট বাছুন" onclick="toggleSel(event)">Claude ▾</button><div id="selm"></div></div><span class="sp"></span><button class="send" id="sb" type="button" aria-label="পাঠাও" onclick="send()" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></footer>
+<main id="m"><div id="vlog"></div><div id="tasks"></div><div><b style="font-size:13px">ঘটনা</b><div id="evs"></div></div></main>
+<footer id="f"><div id="chips"></div><div class="box"><textarea id="t" rows="3" oninput="grow(this);upd()" onkeyup="grow(this)" onpaste="setTimeout(()=>grow(this),0)" placeholder="Write a message  ·  একাধিক এজেন্টকে একসাথে: নতুন লাইনে @gemini … @image … @audio …"></textarea><div id="vrow"><button class="vb" id="mic" type="button" aria-label="কথা বলুন" onclick="micTap()">🎙</button><button class="vb" id="cvb" type="button" aria-label="চলমান কথোপকথন" onclick="cvTap()">🗣</button><button class="vb" id="lgb" type="button" aria-label="ভাষা" onclick="lgTap()" style="font-size:14px;font-weight:700">বাং</button><button class="vb" id="mtb" type="button" aria-label="উত্তর শোনানো" onclick="mtTap()">🔊</button><span id="vst"></span></div><div class="tools"><button class="ic" type="button" aria-label="ফাইল যোগ করুন" onclick="document.getElementById('fi').click()">+</button><input id="fi" type="file" multiple hidden onchange="addFiles(this)"><div class="selw"><button id="selb" type="button" aria-label="এজেন্ট বাছুন" onclick="toggleSel(event)">Claude ▾</button><div id="selm"></div></div><span class="sp"></span><button class="send" id="sb" type="button" aria-label="পাঠাও" onclick="send()" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></footer>
 <script>
 const REPO="alamgirabdullahgh/daily-ruqyah",BR="agent-bus",API=`https://api.github.com/repos/${REPO}/contents/bus.json`;
 const tok=()=>localStorage.getItem("gh_tok")||"";
@@ -128,5 +131,45 @@ async function send(){
     if(r.ok){t.value="";t.style.height="";t.disabled=false;FILES.length=0;chips();draw(d);return}}catch(e){}await new Promise(r=>setTimeout(r,700))}
   alert("পাঠানো যায়নি, আবার চেষ্টা করুন");t.disabled=false;upd()}
 function start(){const ok=!!tok();document.getElementById("setup").style.display=ok?"none":"flex";document.getElementById("m").style.display=ok?"flex":"none";document.getElementById("f").style.display=ok?"flex":"none";upd();if(ok){refresh();clearInterval(window._i);window._i=setInterval(refresh,15000)}}
+
+/* ---- Daily Agent ভয়েস: কান (SpeechRecognizer) + মুখ (Gemini TTS) ---- */
+const DV=window.DailyVoice;
+let LANG="bn-BD",MUTE=false,CONV=false,LIS=false,SPK=false,BUSY=false,NOM=0,CUR=null,LASTQ="";
+try{LANG=localStorage.getItem("dv_lang")||"bn-BD";MUTE=localStorage.getItem("dv_mute")==="1";CONV=localStorage.getItem("dv_conv")==="1"}catch(e){}
+function vsave(){try{localStorage.setItem("dv_lang",LANG);localStorage.setItem("dv_mute",MUTE?"1":"0");localStorage.setItem("dv_conv",CONV?"1":"0")}catch(e){}}
+function vst(s){document.getElementById("vst").textContent=s||""}
+function vui(){const g=id=>document.getElementById(id),on=(b,c)=>{b.style.background=c||"transparent";b.style.color=c?"#fff":""};
+  g("mic").textContent=SPK?"⏹":LIS?"👂":BUSY?"…":"🎙";on(g("mic"),LIS?"var(--r)":SPK?"var(--w)":BUSY?"var(--mu)":"");
+  on(g("cvb"),CONV?"var(--g)":"");g("lgb").textContent=LANG==="bn-BD"?"বাং":"EN";g("mtb").textContent=MUTE?"🔇":"🔊"}
+function vlisten(){if(!DV)return;if(SPK){DV.stopSpeak();SPK=false}DV.listen(LANG)}
+function vafter(){if(CONV)setTimeout(()=>{if(CONV&&!LIS&&!SPK&&!BUSY)vlisten()},500)}
+function vask(text){LASTQ=text;const l=document.getElementById("vlog");CUR=document.createElement("div");CUR.className="card";CUR.style.marginBottom="8px";
+  CUR.innerHTML="<div class='meta'><span>🎙 আপনি</span></div><div style='white-space:pre-wrap'>"+esc(text)+"</div><div class='meta' style='margin-top:6px'><span>🤖 Daily Agent</span></div><div class='ans' style='white-space:pre-wrap'>ভাবছি…</div>";
+  l.prepend(CUR);while(l.children.length>10)l.lastChild.remove();BUSY=true;vst("ভাবছি…");DV.ask("[ভয়েস] "+text)}
+function vsay(raw){const s=raw.replace(/```[\s\S]*?```/g," ").replace(/https?:\/\/\S+/g," ").replace(/[*_#`>|~]/g,"").replace(/^\s*[-•]\s+/gm,"").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu,"").replace(/\s+/g," ").trim();
+  if(!s){vafter();return}SPK=true;vst("বলছি…");DV.speak(s,/[\u0980-\u09FF]/.test(s)?"bn-BD":"en-US")}
+window.onVoice=function(type,text){
+  if(type==="ready"){LIS=true;NOM=0;vst("শুনছি…")}
+  else if(type==="partial"){vst(text)}
+  else if(type==="end"){vst("বুঝছি…")}
+  else if(type==="final"){LIS=false;NOM=0;vask(text)}
+  else if(type==="answer"){BUSY=false;const a=CUR&&CUR.querySelector(".ans");if(a)a.textContent=text;vst("");if(MUTE)vafter();else vsay(text)}
+  else if(type==="handoff"){BUSY=false;const a=CUR&&CUR.querySelector(".ans");if(a)a.textContent="এটা কোডিং এজেন্টের কাজ — সারিতে পাঠানো হলো।";vst("");const t=document.getElementById("t");t.value=LASTQ;upd();send();vafter()}
+  else if(type==="ai_err"){BUSY=false;const a=CUR&&CUR.querySelector(".ans");if(a)a.textContent="উত্তর আনা যায়নি ("+text+")। মেনু › AI সহকারী-তে Gemini কী আছে কি না দেখুন।";vst("");CONV=false;vsave()}
+  else if(type==="speak_end"){SPK=false;vst(text==="nolang"?"এই ভাষার কণ্ঠ ফোনে নেই":text==="err"?"কণ্ঠ চালানো যায়নি":"");vafter()}
+  else if(type==="error"){LIS=false;
+    if(text==="perm"){alert("মাইকের অনুমতি দিন: ⋮ › অ্যাপ অনুমতি");CONV=false;vsave()}
+    else if(text==="unavailable"){alert("এই ফোনে স্পিচ-রিকগনিশন সার্ভিস পাওয়া যায়নি (Google অ্যাপ/Speech Services দরকার)");CONV=false;vsave()}
+    else if(text==="nomatch"){vst("কিছু শুনতে পাইনি");NOM++;if(CONV&&NOM<3)setTimeout(()=>{if(CONV&&!LIS&&!SPK&&!BUSY)vlisten()},400);else if(CONV){CONV=false;vsave()}}
+    else{vst("মাইক ত্রুটি ("+text+")");CONV=false;vsave()}}
+  vui()};
+function micTap(){if(!DV){alert("ভয়েস শুধু অ্যাপের ভেতরের হাবে চলে");return}
+  if(SPK){DV.stopSpeak();SPK=false;vst("");vui();return}
+  if(LIS){DV.stopListen();LIS=false;vst("");vui();return}
+  if(BUSY)return;vlisten()}
+function cvTap(){if(!DV)return;CONV=!CONV;vsave();if(CONV){if(!LIS&&!SPK&&!BUSY)vlisten()}else{if(LIS){DV.stopListen();LIS=false}vst("")}vui()}
+function lgTap(){LANG=LANG==="bn-BD"?"en-US":"bn-BD";vsave();vui()}
+function mtTap(){MUTE=!MUTE;vsave();if(MUTE&&SPK){DV.stopSpeak();SPK=false;vafter()}vui()}
+if(DV){document.getElementById("vrow").style.display="flex";vui()}
 start();
 </script></body></html>
