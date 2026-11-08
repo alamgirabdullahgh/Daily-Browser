@@ -129,15 +129,23 @@ draw();
         fun siteCard(s: Site) =
             "<div class=card><a class=run href='termux://site/${s.id}'><span class='mo w'>${mono(shortName(s.name))}</span><span class=nm>${esc(shortName(s.name))}</span></a>" +
                 "<a class=ed href='termux://siteedit/${s.id}'>✎</a></div>"
-        // ওয়ার্কস্পেস এজেন্ট অনুযায়ী আলাদা হেডিংয়ে (Claude / Gemini / Grok); চেনা না গেলে "অন্যান্য ওয়ার্কস্পেস" (শুধু সেগুলোই থাকলে "ওয়ার্কস্পেস")
+        // ওয়ার্কস্পেস বড় ক্যাটাগরিতে (কোডিং/অডিও/ইমেজ/ভিডিও এজেন্ট), প্রতিটা ক্লিকে খোলে (<details>); ভেতরে এজেন্ট অনুযায়ী উপ-হেডিং (Claude/Gemini/Grok)
         val siteSection = if (sites.isEmpty()) "<h2>ওয়ার্কস্পেস</h2><div class=empty>এখনো কোনো ওয়ার্কস্পেস নেই। যেকোনো সাইট খুলে মেনু › ওয়ার্কস্পেস থেকে যোগ করুন, বা নিচের বোতামে ঠিকানা দিন।</div>" else {
             val b = StringBuilder()
-            for (ag in AgentBus.ORDER) {
-                val l = sites.filter { AgentBus.agentOf(it) == ag }
-                if (l.isNotEmpty()) b.append("<h2>${esc(AgentBus.label(ag))}<span class=m>${l.size}</span></h2><div class=g>${l.joinToString("") { siteCard(it) }}</div>")
+            for (cat in AgentBus.CATEGORIES) {
+                val agentsInCat = AgentBus.ORDER.filter { AgentBus.groupOf(it) == cat }
+                val l = sites.filter { val a = AgentBus.agentOf(it); a != null && AgentBus.groupOf(a) == cat }
+                if (l.isEmpty()) continue
+                val inner = if (agentsInCat.size > 1) {
+                    agentsInCat.joinToString("") { ag ->
+                        val la = sites.filter { AgentBus.agentOf(it) == ag }
+                        if (la.isEmpty()) "" else "<h3>${esc(AgentBus.label(ag))}<span class=m>${la.size}</span></h3><div class=g>${la.joinToString("") { siteCard(it) }}</div>"
+                    }
+                } else "<div class=g>${l.joinToString("") { siteCard(it) }}</div>"
+                b.append("<details class=cat><summary>${esc(AgentBus.categoryLabel(cat))}<span class=m>${l.size}</span></summary>$inner</details>")
             }
             val rest = sites.filter { AgentBus.agentOf(it) == null }
-            if (rest.isNotEmpty()) b.append("<h2>${if (rest.size == sites.size) "ওয়ার্কস্পেস" else "অন্যান্য ওয়ার্কস্পেস"}<span class=m>${rest.size}</span></h2><div class=g>${rest.joinToString("") { siteCard(it) }}</div>")
+            if (rest.isNotEmpty()) b.append("<details class=cat open><summary>${if (rest.size == sites.size) "ওয়ার্কস্পেস" else "অন্যান্য ওয়ার্কস্পেস"}<span class=m>${rest.size}</span></summary><div class=g>${rest.joinToString("") { siteCard(it) }}</div></details>")
             b.toString()
         }
         val setupBtn = "<a class=add href='termux://setup'>⚡ এক চাপে সেটআপ</a>"
@@ -164,6 +172,16 @@ body{font-family:system-ui,-apple-system,"Noto Sans Bengali",sans-serif;margin:0
 .stat b{font-size:15px;margin-right:4px}
 h2{font-size:12px;font-weight:700;letter-spacing:.4px;color:var(--mu);margin:24px 4px 10px;display:flex;align-items:center;justify-content:space-between}
 .m{color:var(--mu);font-size:13px}
+details.cat{margin:16px 0 0;background:var(--card);border:1px solid var(--ln);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
+details.cat summary{list-style:none;cursor:pointer;-webkit-tap-highlight-color:transparent;padding:14px 16px;font-size:14px;font-weight:700;display:flex;align-items:center;justify-content:space-between;gap:8px}
+details.cat summary::-webkit-details-marker{display:none}
+details.cat summary::after{content:'▸';color:var(--mu);font-size:13px;margin-left:auto;transition:transform .15s}
+details.cat[open] summary::after{transform:rotate(90deg)}
+details.cat summary .m{margin-left:auto;margin-right:4px}
+details.cat>.g,details.cat>h3,details.cat>h3+.g{padding-left:12px;padding-right:12px}
+details.cat>.g:last-child,details.cat>h3+.g:last-child{padding-bottom:12px}
+details.cat h3{font-size:11.5px;font-weight:700;color:var(--mu);margin:4px 12px 8px;letter-spacing:.3px}
+details.cat h3 .m{margin-left:6px}
 .g{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:10px}@media(min-width:560px){.g{grid-template-columns:repeat(3,1fr)}}
 .card{position:relative;background:var(--card);border:1px solid var(--ln);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
 .run{display:flex;align-items:center;gap:10px;min-height:62px;padding:11px 28px 11px 11px;color:var(--tx);text-decoration:none}

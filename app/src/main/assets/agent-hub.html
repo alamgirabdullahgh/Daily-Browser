@@ -12,6 +12,7 @@ main{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10
 .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px 12px}.card .meta{font-size:12px;color:var(--mu);display:flex;justify-content:space-between}
 .bar{height:6px;background:var(--bd);border-radius:4px;margin:6px 0;overflow:hidden}.bar i{display:block;height:100%;background:var(--g)}
 .queued .meta span:first-child{color:var(--w)}.done .meta span:first-child{color:var(--g)}
+.del{cursor:pointer;color:var(--r);font-weight:700;margin-left:6px;padding:0 2px}
 .ev{font-size:13px;color:var(--mu);padding:3px 0;border-bottom:1px dashed var(--bd)}.ev.sw{color:var(--w);font-weight:600}
 footer{padding:8px 8px calc(8px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--bd);background:var(--card);display:flex;flex-direction:column;gap:6px;width:100%}
 .box{width:100%;border:1px solid var(--bd);border-radius:24px;background:var(--bg);padding:10px 10px 8px 14px;display:flex;flex-direction:column;gap:6px}
@@ -53,18 +54,27 @@ async function load(){const r=await fetch(API+"?ref="+BR+"&t="+Date.now(),{heade
 const SN={working:"কাজ করছে",idle:"অলস",limit:"লিমিট শেষ"};
 function draw(d){
   const SS={queued:"সারিতে",running:"চলছে",done:"শেষ"};
-  document.getElementById("tasks").innerHTML=[...d.tasks].reverse().map(t=>`<div class="card ${t.status}" style="margin-bottom:8px"><div class="meta"><span>#${t.id} · ${SS[t.status]||t.status}${t.agent?" · "+esc(t.agent):(t.target&&t.status==="queued"?" · → "+esc(t.target):"")}</span><span>${t.progress}%</span></div><div>${esc(t.text)}</div><div class="bar"><i style="width:${t.progress}%"></i></div>${t.note?`<div class="st">${esc(t.note)}</div>`:""}${(t.files||[]).map(f=>`<div class="fl">📎 ${esc(f.name)} (${sz(f.size)})</div>`).join("")}</div>`).join("")||'<div class="st">এখনো কোনো কাজ নেই। নিচে কমান্ড লিখুন।</div>';
+  document.getElementById("tasks").innerHTML=[...d.tasks].reverse().map(t=>`<div class="card ${t.status}" style="margin-bottom:8px"><div class="meta"><span>#${t.id} · ${SS[t.status]||t.status}${t.agent?" · "+esc(t.agent):(t.target&&t.status==="queued"?" · → "+esc(t.target):"")}</span><span>${t.progress}%${t.status!=="done"?` <b class="del" title="বাতিল" onclick="delTask(${t.id})">✕</b>`:""}</span></div><div>${esc(t.text)}</div><div class="bar"><i style="width:${t.progress}%"></i></div>${t.note?`<div class="st">${esc(t.note)}</div>`:""}${(t.files||[]).map(f=>`<div class="fl">📎 ${esc(f.name)} (${sz(f.size)})</div>`).join("")}</div>`).join("")||'<div class="st">এখনো কোনো কাজ নেই। নিচে কমান্ড লিখুন।</div>';
   document.getElementById("evs").innerHTML=[...d.events].reverse().slice(0,25).map(e=>`<div class="ev ${e.msg.includes("বদল")||e.msg.includes("লিমিট")?"sw":""}">${esc(e.t.slice(11))} — ${esc(e.msg)}</div>`).join("");
   document.getElementById("ts").textContent="হালনাগাদ "+new Date().toLocaleTimeString("bn-BD");
 }
 async function clearChat(){
   try{const{d}=await load();const nd=d.tasks.filter(t=>t.status==="done").length,ne=d.events.length,keep=d.tasks.length-nd;
     if(!nd&&!ne){alert("সাফ করার মতো কিছু নেই");return}
-    if(!confirm("শেষ হওয়া "+nd+"টি কাজ ও "+ne+"টি ঘটনা মুছবেন?"+(keep?"\n("+keep+"টি সারির/চলমান কাজ থাকবে)":"")))return;
+    if(!confirm("শেষ হওয়া "+nd+"টি কাজ ও "+ne+"টি ঘটনা মুছবেন?"+(keep?"\n("+keep+"টি সারির/চলমান কাজ থাকবে — এগুলো বাতিল করতে কার্ডের ✕ চাপুন)":"")))return;
     for(let i=0;i<4;i++){const{sha,d:x}=await load();x.seq=Math.max(x.seq||0,0,...x.tasks.map(t=>t.id));x.tasks=x.tasks.filter(t=>t.status!=="done");x.events=[];
       const r=await fetch(API,{method:"PUT",headers:H(),body:JSON.stringify({message:"bus: clear",branch:BR,sha,content:enc(JSON.stringify(x,null,1))})});
       if(r.ok){draw(x);return}await new Promise(r=>setTimeout(r,700))}
     alert("সাফ করা যায়নি, আবার চেষ্টা করুন")}catch(e){alert("সাফ করা যায়নি: "+e.message)}}
+async function delTask(id){
+  if(!confirm("কাজ #"+id+" বাতিল করবেন? এটা চলছে হলেও থেমে যাবে (চলমান এজেন্ট পরের বার দেখে আর এগোবে না)।"))return;
+  for(let i=0;i<4;i++){try{const{sha,d}=await load();const before=d.tasks.length;d.tasks=d.tasks.filter(t=>t.id!==id);
+    if(d.tasks.length===before){draw(d);return}
+    d.events.push({t:now_(),msg:"কাজ #"+id+" বাতিল করা হলো"});d.events=d.events.slice(-60);
+    const r=await fetch(API,{method:"PUT",headers:H(),body:JSON.stringify({message:"bus: cancel "+id,branch:BR,sha,content:enc(JSON.stringify(d,null,1))})});
+    if(r.ok){draw(d);return}}catch(e){}await new Promise(r=>setTimeout(r,700))}
+  alert("বাতিল করা যায়নি, আবার চেষ্টা করুন")}
+function now_(){return new Date().toISOString().slice(0,16).replace("T"," ")}
 async function refresh(){try{draw((await load()).d)}catch(e){document.getElementById("ts").textContent="সংযোগ সমস্যা ("+e.message+")"}}
 let AGS=[{id:"claude",label:"Claude",ver:""}],SEL="";try{SEL=localStorage.getItem("ag_sel")||""}catch(e){}
 const curAg=()=>AGS.find(a=>a.id===SEL)||AGS.find(a=>a.id==="claude")||AGS[0];
