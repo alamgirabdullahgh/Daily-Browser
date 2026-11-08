@@ -134,7 +134,7 @@ function start(){const ok=!!tok();document.getElementById("setup").style.display
 
 /* ---- Daily Agent ভয়েস: কান (SpeechRecognizer) + মুখ (Gemini TTS) ---- */
 const DV=window.DailyVoice;
-let MODE="online",LANG="bn-BD",MUTE=false,CONV=false,LIS=false,SPK=false,BUSY=false,NOM=0,CUR=null,LASTQ="";
+let NOTE="",MODE="online",LANG="bn-BD",MUTE=false,CONV=false,LIS=false,SPK=false,BUSY=false,NOM=0,CUR=null,LASTQ="";
 try{LANG=localStorage.getItem("dv_lang")||"bn-BD";MUTE=localStorage.getItem("dv_mute")==="1";CONV=localStorage.getItem("dv_conv")==="1"}catch(e){}
 function vsave(){try{localStorage.setItem("dv_lang",LANG);localStorage.setItem("dv_mute",MUTE?"1":"0");localStorage.setItem("dv_conv",CONV?"1":"0")}catch(e){}}
 function vst(s){document.getElementById("vst").textContent=s||""}
@@ -157,7 +157,8 @@ window.onVoice=function(type,text){
   else if(type==="answer"){BUSY=false;const a=CUR&&CUR.querySelector(".ans");if(a){a.textContent=text;const hd=CUR.querySelectorAll(".meta span")[1];if(hd)hd.textContent="🤖 Daily Agent"+(MODE==="offline"?" · অফলাইন":"")};vst("");if(MUTE)vafter();else vsay(text)}
   else if(type==="handoff"){BUSY=false;const a=CUR&&CUR.querySelector(".ans");if(a)a.textContent="এটা কোডিং এজেন্টের কাজ — সারিতে পাঠানো হলো।";vst("");const t=document.getElementById("t");t.value=LASTQ;upd();send();vafter()}
   else if(type==="ai_err"){BUSY=false;const a=CUR&&CUR.querySelector(".ans");if(a)a.textContent="উত্তর আনা যায়নি ("+text+")। মেনু › AI সহকারী-তে Gemini কী আছে কি না দেখুন।";vst("");CONV=false;vsave()}
-  else if(type==="speak_end"){SPK=false;vst(text==="nolang"?"এই ভাষার কণ্ঠ ফোনে নেই":text==="err"?"কণ্ঠ চালানো যায়নি":"");vafter()}
+  else if(type==="speak_note"){NOTE=text;vst(text)}
+  else if(type==="speak_end"){SPK=false;vst(text==="nolang"?"Gemini কণ্ঠ হয়নি, আর ফোনে এই ভাষার কণ্ঠও নেই (সেটিংস › Text-to-speech-এ বাংলা ডেটা নামান)":text==="err"?"কণ্ঠ চালানো যায়নি — ফোনের Text-to-speech ইঞ্জিন দেখুন":NOTE);NOTE="";vafter()}
   else if(type==="error"){LIS=false;
     if(text==="perm"){alert("মাইকের অনুমতি দিন: ⋮ › অ্যাপ অনুমতি");CONV=false;vsave()}
     else if(text==="unavailable"){alert("এই ফোনে স্পিচ-রিকগনিশন সার্ভিস পাওয়া যায়নি (Google অ্যাপ/Speech Services দরকার)");CONV=false;vsave()}
@@ -171,7 +172,7 @@ function micTap(){if(!DV){alert("ভয়েস শুধু অ্যাপে
   if(BUSY)return;vlisten()}
 function cvTap(){if(!DV)return;CONV=!CONV;vsave();if(CONV){if(!LIS&&!SPK&&!BUSY)vlisten()}else{if(LIS){DV.stopListen();LIS=false}vst("")}vui()}
 function lgTap(){LANG=LANG==="bn-BD"?"en-US":"bn-BD";vsave();vui()}
-function mtTap(){MUTE=!MUTE;vsave();if(MUTE&&SPK){DV.stopSpeak();SPK=false;vafter()}vui()}
-if(DV){document.getElementById("vrow").style.display="flex";vui()}
+function mtTap(){MUTE=!MUTE;vsave();if(MUTE&&SPK){DV.stopSpeak();SPK=false;vafter()}if(!MUTE&&DV){SPK=true;vst("শব্দ পরীক্ষা…");DV.speak(LANG==="bn-BD"?"আমি ডেইলি এজেন্ট। এখন আমি কথা বলছি, আপনি কি আমার কণ্ঠ শুনতে পাচ্ছেন?":"I am Daily Agent. Can you hear my voice?",LANG)}vui()}
+if(DV){document.getElementById("vrow").style.display="flex";vui();vst("🎙 চেপে বলুন · 🔊 চেপে শব্দ পরীক্ষা")}
 start();
 </script></body></html>

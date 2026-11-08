@@ -120,9 +120,15 @@ object Voice {
         if (clean.isEmpty()) { emit("speak_end"); return }
         val app = a.applicationContext
         pool.execute {
-            val ok = try { geminiSpeak(app, clean, gen) } catch (e: Exception) { lastErr = e.javaClass.simpleName; false }
+            try {
+                val am = app.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                if (am.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0) emit("speak_note", "মিডিয়া ভলিউম শূন্য — ফোনের ভলিউম বাড়ান")
+            } catch (_: Exception) {}
+            lastErr = ""
+            val ok = try { geminiSpeak(app, clean, gen) } catch (e: Exception) { lastErr = e.javaClass.simpleName + ": " + (e.message ?: "").take(50); false }
             if (gen != speakGen) return@execute
-            if (ok) emit("speak_end") else androidSpeak(app, clean, lang, gen)
+            if (ok) emit("speak_end")
+            else { emit("speak_note", "Gemini কণ্ঠ হয়নি (" + lastErr.ifBlank { "অজানা" } + ") — ফোনের নিজস্ব কণ্ঠে বলছি"); androidSpeak(app, clean, lang, gen) }
         }
     }
 
