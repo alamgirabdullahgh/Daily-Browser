@@ -273,8 +273,79 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         AgentBus.mutate(tok, "sites backup") { dd -> dd.put("sites_backup", cur); true }
     }
 
-    /** bus.json-এর queued টাস্কে ওয়ার্কস্পেস-কথা থাকলে ব্রাউজারই করে ফেলে, এজেন্টকে পাঠায় না। ব্যাকগ্রাউন্ড থ্রেডে ডাকুন */
+    /** AI-কে পাঠানোর আগে পাসওয়ার্ড মুছে দেয় (মূল লেখা বদলায় না) */
+    fun stripPw(text: String): String {
+        var red = text
+        for (m in RE_PW.findAll(text).toList().reversed()) red = red.replaceRange(m.groups[1]!!.range, "***")
+        return red
+    }
+    private fun chatPw(text: String) = RE_PW.find(text)?.groupValues?.get(1)?.trim('.', ',', '।') ?: ""
+
+    /** AI-র আগে-না-দেখা queued টাস্ক কি এখনো ক্লাসিফাই হয়নি? (হলে এজেন্টকে পাঠানো থামে) */
+    fun aiPending(c: Context, id: Int): Boolean = AiRouter.hasKey(c) && id.toString() !in pref(c).getStringSet("al_ai_seen", emptySet())!!
+
+    private val lock = Any()
+
+    /** ব্রাউজারের নিজের কাজ: প্রথমে রেগুলার ধরন, তারপর (কী থাকলে) AI। ব্যাকগ্রাউন্ড থ্রেডে ডাকুন */
     fun pollTasks(act: Activity, tok: String, open: (Site) -> Unit) {
+        synchronized(lock) {
+            try { pollRegex(act, tok, open) } catch (_: Exception) {}
+            if (AiRouter.hasKey(act)) try { aiStep(act, tok, open) } catch (_: Exception) {}
+        }
+    }
+
+    private fun aiStep(act: Activity, tok: String, open: (Site) -> Unit) {
+        val d = AgentBus.load(tok)?.d ?: return
+        val arr = d.optJSONArray("tasks") ?: return
+        val seen = pref(act).getStringSet("al_ai_seen", emptySet())!!.toMutableSet()
+        val done = mutableMapOf<Int, String>()   // টাস্ক-আইডি → নোট
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i); val id = o.optInt("id")
+            if (o.optString("status") != "queued" || id.toString() in seen) continue
+            val text = o.optString("text")
+            seen.add(id.toString()); pref(act).edit().putStringSet("al_ai_seen", seen).apply()   // আগে চিহ্ন: AI ব্যর্থ হলেও কাজ এজেন্টে যাবে
+            if (text.isBlank()) continue
+            val r = AiRouter.ask(act, stripPw(text))
+            if (r == null) { act.runOnUiThread { Toast.makeText(act, "AI ব্যর্থ (" + AiRouter.lastErr + ") — কাজটা সাধারণভাবে এজেন্টে যাচ্ছে", Toast.LENGTH_LONG).show() }; continue }
+            when (r.type) {
+                "create_workspaces" -> if (r.items.isNotEmpty()) {
+                    val mail0 = RE_MAIL.find(text)?.value ?: ""
+                    val pw0 = chatPw(text)
+                    val items = r.items.map { it -> if (pw0.isNotEmpty() && it.email.equals(mail0, ignoreCase = true)) AutoLogin.Item(it.name, it.url, it.email, pw0) else it }
+                    act.runOnUiThread {
+                        val made = create(act, items)
+                        Toast.makeText(act, "AI বুঝেছে: ${made.size}টি ওয়ার্কস্পেস তৈরি — একে একে খুলে লগইন হবে", Toast.LENGTH_LONG).show()
+                        made.forEachIndexed { k, s -> act.window.decorView.postDelayed({ open(s) }, 4000L * (k + 1)) }
+                    }
+                    done[id] = "AI বুঝে ব্রাউজার ${items.size}টি ওয়ার্কস্পেস বানিয়েছে"
+                }
+                "open_workspaces" -> {
+                    val all = Sites.all(act)
+                    val hit = r.names.mapNotNull { n -> all.firstOrNull { it.name.equals(n, true) } ?: all.firstOrNull { it.name.contains(n, true) } }.distinctBy { it.id }
+                    if (hit.isNotEmpty()) {
+                        act.runOnUiThread { hit.forEachIndexed { k, s -> act.window.decorView.postDelayed({ open(s) }, 3000L * (k + 1)) } }
+                        done[id] = "AI বুঝে ${hit.size}টি ওয়ার্কস্পেস খোলা হয়েছে"
+                    }
+                }
+                "clarify" -> if (r.question.isNotBlank()) done[id] = "প্রশ্ন: " + r.question
+            }
+        }
+        if (done.isEmpty()) return
+        AgentBus.mutate(tok, "ai ws tasks") { dd ->
+            val a = dd.optJSONArray("tasks") ?: return@mutate false
+            var ch = false
+            for (i in 0 until a.length()) {
+                val o = a.getJSONObject(i); val n = done[o.optInt("id")] ?: continue
+                if (o.optString("status") != "queued") continue
+                o.put("status", "done").put("agent", "browser").put("progress", 100).put("updated", AgentBus.now()).put("text", stripPw(o.optString("text"))).put("note", n)
+                AgentBus.ev(dd, "টাস্ক #${o.optInt("id")}: $n"); ch = true
+            }
+            ch
+        }
+    }
+
+    /** রেগুলার ধরন: queued টাস্কে ওয়ার্কস্পেস-কথা থাকলে ব্রাউজারই করে ফেলে */
+    private fun pollRegex(act: Activity, tok: String, open: (Site) -> Unit) {
         val d = AgentBus.load(tok)?.d ?: return
         val arr = d.optJSONArray("tasks") ?: return
         val seen = pref(act).getStringSet("al_task_done", emptySet())!!.toMutableSet()

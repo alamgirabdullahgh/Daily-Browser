@@ -1597,6 +1597,7 @@ class MainActivity : Activity() {
                 for (tk0 in AgentBus.queuedAll(d)) {
                     val id0 = tk0.optInt("id")
                     if (AutoLogin.parseChat(this, tk0.optString("text")) != null) continue   // ব্রাউজারের কাজ — এজেন্টকে নয়
+                    if (AutoLogin.aiPending(this, id0)) continue   // AI এখনো কাজটা দেখেনি — আগে সে ঠিক করুক
                     // একই কাজ ১০ মিনিটের মধ্যে আবার নয়; একই কাজে সর্বোচ্চ ৩ বার (এজেন্ট না ধরলে অনন্ত পাঠানো এড়াতে)
                     if (now - (agSent[id0] ?: 0L) < 600000L || (agTries[id0] ?: 0) >= 3) return@Thread
                     // হাবে বেছে নেওয়া এজেন্ট (target) থাকলে শুধু তার ওয়ার্কস্পেসে; তার লিমিট শেষ হলে অন্য এজেন্টে যেতে পারে
@@ -1986,6 +1987,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 60, 2, "Google লগইন মোড: " + listOf("০ WebView", "১ Chrome-সদৃশ", "২ Chrome-সদৃশ+")[Store.prefs(this).getInt("gmode", 0).coerceIn(0, 2)] + (if (desktop) " (ডেস্কটপ মোড চালু — প্রযোজ্য নয়)" else ""))
         m.menu.add(0, 61, 3, "লগইন তথ্য (ইমেইল-পাসওয়ার্ড)")
         m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
+        m.menu.add(0, 63, 3, "AI সহকারী (Gemini কী)")
         m.menu.add(0, 4, 3, "Termux কমান্ড ম্যানেজ")
         m.menu.add(0, 5, 4, "Termux সেটআপ ও অবস্থা")
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
@@ -2064,6 +2066,7 @@ class MainActivity : Activity() {
                     Toast.makeText(this, listOf("মোড ০: WebView-এর নিজস্ব অবস্থা", "মোড ১: Chrome-সদৃশ (UA + হিন্ট + হেডার মিলানো)", "মোড ২: মোড ১ + window.chrome ইত্যাদি")[n] + "\nএখন নতুন ট্যাবে সাইন-ইন চেষ্টা করুন", Toast.LENGTH_LONG).show() }
                 61 -> AutoLogin.credsDialog(this)
                 62 -> AutoLogin.bulkDialog(this) { st -> openSite(st.id); refreshHomes() }
+                63 -> AiRouter.dialog(this)
                 4 -> manage()
                 5 -> status()
                 6 -> startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))

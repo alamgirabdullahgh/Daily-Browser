@@ -48,7 +48,7 @@ object Creds {
 
     private fun k(email: String) = email.trim().lowercase()
 
-    fun emails(c: Context): List<String> = read(c).keys().asSequence().toList().sorted()
+    fun emails(c: Context): List<String> = read(c).keys().asSequence().filter { !it.startsWith("__") }.toList().sorted()
     fun has(c: Context, email: String) = read(c).has(k(email))
     fun get(c: Context, email: String): String = read(c).optString(k(email), "")
     fun put(c: Context, email: String, pw: String): Boolean {
