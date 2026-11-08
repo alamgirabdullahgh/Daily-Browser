@@ -87,7 +87,9 @@ if(pe&&!g){var ue=q('input[type=email],input[autocomplete=username],input[name*=
  if(!f.p){f.p=1;setv(pe,pw);setTimeout(function(){var b=q('button[type=submit],input[type=submit]')||btn(/^(sign in|log in|login|continue|submit)${'$'}/i);if(b)clk(b)},600)}return}
 if(!pe&&!g){var ue2=q('input[type=email],input[autocomplete=username],input[name*=email i],input[id*=email i]');
  if(ue2&&!f.u2){f.u2=1;setv(ue2,em);setTimeout(function(){var b=q('button[type=submit],input[type=submit]')||btn(/^(next|continue|sign in|log in|login)${'$'}/i);if(b)clk(b)},600);return}}
-if(g&&!f.g){var gb=gbtn();if(gb){f.g=1;clk1(gb);return}}
+var bd=((document.body&&document.body.innerText)||'');
+if(g&&!f.g){var gb=gbtn();if(gb){f.gs=(f.gs||0)+1;if(f.gs>=4&&document.readyState==='complete'){f.g=1;f.gt=n;try{gb.click()}catch(e){}}return}else f.gs=0}
+if(g&&f.g&&!f.r&&n-f.gt>=6&&/error logging you in/i.test(bd)){var gb2=gbtn();if(gb2){f.r=1;try{gb2.click()}catch(e){}}return}
 if(!f.s){var sb=btn(/^(sign in|log in|login|sign in to .{1,30})${'$'}/i);if(sb){f.s=1;clk1(sb)}}
 },800);
 return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObject.quote(pw)},$google)"""
