@@ -684,7 +684,19 @@ class MainActivity : Activity() {
                         androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Google Chrome").setMajorVersion(major).setFullVersion(ver).build(),
                         androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build()))
                     .setFullVersion(ver).setPlatform("Linux").setPlatformVersion("6.5.0").setArchitecture("x86").setBitness(64).setModel("").setMobile(false).build()
-                else androidx.webkit.UserAgentMetadata.Builder().build()
+                else {
+                    //  মোবাইল মোডে আগে খালি Builder দিয়ে WebView-এর ডিফল্ট ব্র্যান্ড ("Android WebView") রয়ে যেত — Google লগইন সেটা দেখেই ঠেকায়।
+                    //  এখন Chrome মোবাইলের মতো ব্র্যান্ড-তালিকা (Chromium / Google Chrome) ও Android তথ্য বসে।
+                    val av = Regex("Android ([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "14"
+                    val pv = av.split('.').let { l -> (l + List(3) { "0" }).take(3).joinToString(".") }
+                    val model = Regex("Android [0-9.]+; ([^;)]*?)(?: Build/[^;)]*)?[;)]").find(ua)?.groupValues?.get(1)?.trim() ?: ""
+                    androidx.webkit.UserAgentMetadata.Builder()
+                        .setBrandVersionList(listOf(
+                            androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Chromium").setMajorVersion(major).setFullVersion(ver).build(),
+                            androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Google Chrome").setMajorVersion(major).setFullVersion(ver).build(),
+                            androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build()))
+                        .setFullVersion(ver).setPlatform("Android").setPlatformVersion(pv).setModel(model).setMobile(true).build()
+                }
                 androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, md)
             }
         } catch (_: Exception) {}
