@@ -102,7 +102,7 @@ object AiAgent {
                 JSONObject().put("assignments", JSONObject().put("type", "array").put("description", "one entry per workspace").put("items",
                     JSONObject().put("type", "object").put("properties", JSONObject().put("workspace", str(ref)).put("email", str("email address"))).put("required", JSONArray(listOf("workspace", "email"))))), listOf("assignments")))
             .put(fn("create_workspace", "Create a NEW workspace for a website and open it (only when the user wants a new one).",
-                JSONObject().put("name", str("workspace name")).put("url", str("site host, e.g. gemini.google.com")).put("email", str("optional email")), listOf("name", "url")))
+                JSONObject().put("name", str("workspace name")).put("url", str("site address. If the user gave a link or named a specific page/tool, give that exact page WITH its path (Google AI Studio text-to-speech = aistudio.google.com/generate-speech); otherwise the host, e.g. gemini.google.com")).put("email", str("optional email")), listOf("name", "url")))
             .put(fn("saved_emails", "List emails whose passwords are saved in the app (passwords are never shown)."))
             .put(fn("wait", "Wait so that pages can load / logins can finish (max 25 seconds).", JSONObject().put("seconds", JSONObject().put("type", "integer").put("description", "1 to 25")), listOf("seconds")))
             .put(fn("hand_to_coding_agent", "Give the user's original request to the coding agent (Claude Code etc.) instead of doing it here."))
