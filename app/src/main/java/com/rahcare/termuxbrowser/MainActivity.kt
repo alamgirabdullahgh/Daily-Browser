@@ -789,6 +789,69 @@ class MainActivity : Activity() {
         try { requestPermissions(arrayOf("com.termux.permission.RUN_COMMAND"), 77) } catch (_: Exception) {}
     }
 
+    // ---------- ক্রমানুসারে কমান্ড (একটা শেষ হলে পরেরটা নিজে চলে; ব্যর্থ হলে নিজে ঠিক করে একবার আবার চেষ্টা) ----------
+    private val chainQ = ArrayList<Cmd>()
+    private var chainJob: Job? = null
+    private var chainTries = 0
+    private var chainPaused = false   // Termux সংযোগ সেটআপের অপেক্ষায়; ঠিক হলে নিজে আবার চলে
+
+    private fun chooseChain() {
+        if (!Runner.installed(this)) { Toast.makeText(this, "আগে F-Droid থেকে Termux ইনস্টল করুন", Toast.LENGTH_LONG).show(); return }
+        if (chainQ.isNotEmpty()) { Toast.makeText(this, "আগের ক্রম এখনো চলছে", Toast.LENGTH_SHORT).show(); return }
+        // যেগুলোর বিশেষ ব্যবস্থা লাগে (ডেস্কটপ মোড, ওয়েব-টার্মিনাল) সেগুলো বাদ; Termux-পর্দায় চলা কমান্ডেরও কাজ-ট্র্যাকিং নেই
+        val all = Store.all(this).filter { it.background && it.id != "d10" && it.id != "d11" && it.id != "d12" }
+        val sel = BooleanArray(all.size)
+        AlertDialog.Builder(this).setTitle("ক্রমানুসারে চালাতে বাছুন (তালিকার ক্রমে চলবে)")
+            .setMultiChoiceItems(all.map { it.title }.toTypedArray(), sel) { _, i, on -> sel[i] = on }
+            .setPositiveButton("▶ শুরু") { _, _ ->
+                val pick = all.filterIndexed { i, _ -> sel[i] }
+                if (pick.isEmpty()) Toast.makeText(this, "কিছু বাছা হয়নি", Toast.LENGTH_SHORT).show() else startChain(pick)
+            }.setNegativeButton("বাতিল", null).show()
+    }
+
+    private fun startChain(list: List<Cmd>) {
+        chainQ.clear(); chainQ.addAll(list); chainJob = null; chainTries = 0; chainPaused = false
+        Toast.makeText(this, "${list.size}টি কমান্ড একটার পর একটা চলবে", Toast.LENGTH_SHORT).show()
+        chainNext()
+    }
+
+    private fun chainNext() {
+        val cmd = chainQ.firstOrNull() ?: run { chainJob = null; Toast.makeText(this, "সব কমান্ড শেষ ✓", Toast.LENGTH_LONG).show(); return }
+        // পুনঃচেষ্টায় আগে আটকে থাকা apt/dpkg থামিয়ে প্যাকেজ-ডেটাবেস মেরামত করি
+        val toRun = if (chainTries > 0) cmd.copy(script = "pkill -x apt 2>/dev/null; pkill -x apt-get 2>/dev/null; pkill -x dpkg 2>/dev/null; sleep 1; tb_fix\n" + cmd.script) else cmd
+        val (job, err) = Runner.run(this, toRun)
+        if (err != null) {
+            chainQ.clear(); chainJob = null
+            AlertDialog.Builder(this).setTitle("ক্রম থেমেছে").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
+            return
+        }
+        chainJob = job
+        if (job == null) { chainQ.removeAt(0); chainNext(); return }
+        openJobTab(job); chainWatch()
+    }
+
+    private fun chainWatch() {
+        handler.postDelayed({
+            val j = chainJob ?: return@postDelayed
+            if (j.status == "running") { chainWatch(); return@postDelayed }
+            val cmd = chainQ.firstOrNull()
+            chainJob = null
+            when {
+                j.status == "ok" -> { if (chainQ.isNotEmpty()) chainQ.removeAt(0); chainTries = 0; chainNext() }
+                j.status == "stopped" -> { chainQ.clear(); Toast.makeText(this, "ক্রম বন্ধ — কাজ থামানো হয়েছিল", Toast.LENGTH_LONG).show() }
+                Runner.pending != null && Runner.pending?.id == cmd?.id -> chainPaused = true   // সংযোগ সেটআপ শেষ হলে নিজে আবার চলবে
+                chainTries < 1 -> { chainTries++; Toast.makeText(this, "ব্যর্থ — নিজে ঠিক করে আবার চেষ্টা হচ্ছে", Toast.LENGTH_LONG).show(); chainNext() }
+                else -> {
+                    val t = cmd?.title ?: ""
+                    chainQ.clear()
+                    AlertDialog.Builder(this).setTitle("ক্রম থেমেছে")
+                        .setMessage("\"$t\" দুইবার চেষ্টায়ও হয়নি। কাজের ট্যাবে কারণ দেখুন; ঠিক হলে আবার চালান।")
+                        .setPositiveButton("ঠিক আছে", null).show()
+                }
+            }
+        }, 2500L)
+    }
+
     private var termuxProbed = false
 
     /** অ্যাপ খোলার সময় একবার (আর সেটআপের পর ফিরলে) Termux-এর সংযোগ যাচাই: ডেটা ক্লিয়ার হয়ে allow-external-apps হারালে নিজে ধরে সেটআপ প্রস্তাব করে; ঠিক হলে আটকে থাকা কমান্ড নিজে আবার চালায় */
@@ -807,7 +870,8 @@ class MainActivity : Activity() {
                 if (r == null) {
                     val id = if (fresh) pend?.id else null
                     Runner.pending = null
-                    if (id != null) { Toast.makeText(this, "Termux সংযুক্ত হয়েছে — কমান্ডটা আবার চালানো হচ্ছে", Toast.LENGTH_SHORT).show(); runById(id) }
+                    if (chainPaused) { chainPaused = false; chainTries = 0; Toast.makeText(this, "Termux সংযুক্ত হয়েছে — ক্রম আবার চলছে", Toast.LENGTH_SHORT).show(); chainNext() }
+                    else if (id != null) { Toast.makeText(this, "Termux সংযুক্ত হয়েছে — কমান্ডটা আবার চালানো হচ্ছে", Toast.LENGTH_SHORT).show(); runById(id) }
                 } else if (r == "perm" || r.contains("allow-external-apps", true)) offerTermuxSetup()
             }
         }.start()
@@ -906,6 +970,7 @@ class MainActivity : Activity() {
         when (kind) {
             "setup" -> setupTermux()
             "run" -> runById(id)
+            "chain" -> chooseChain()
             "job" -> Jobs.find(id)?.let { openJobTab(it) }
             "clear" -> clearFinishedJobs()
             "kill" -> Jobs.find(id)?.let { killJob(it) }

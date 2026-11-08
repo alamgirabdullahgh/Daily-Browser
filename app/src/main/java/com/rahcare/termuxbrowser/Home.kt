@@ -206,7 +206,7 @@ details.cat h3 .m{margin-left:6px}
 <div class=stats><div class=stat><b>${sites.size}</b>ওয়ার্কস্পেস</div><div class=stat><b>${cmds.size}</b>কমান্ড</div><div class=stat><b>${Jobs.list.count { it.status == "running" }}</b>চলছে</div></div></div>
 $warn
 $bmSection$siteSection<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
-<h2>কমান্ড</h2><div class=g>$cards</div><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a>
+<h2>কমান্ড</h2><div class=g>$cards</div><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a><div style='height:8px'></div><a class=add href='termux://chain/x'>▶ কয়েকটা কমান্ড ক্রমানুসারে চালান</a>
 <h2>কাজ <a class=clr href='termux://clear/all'>শেষ হওয়াগুলো মুছুন</a></h2><div id=jobs>${jobsHtml()}</div>
 </body></html>"""
     }
