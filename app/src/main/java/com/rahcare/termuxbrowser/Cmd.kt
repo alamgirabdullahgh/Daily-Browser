@@ -136,33 +136,34 @@ const val D5 = "echo '▸ Node.js ইনস্টল'\npkg install -y nodejs || 
 val AUDIO_PACK: String = """echo '▸ ধাপ ১/৩: টুল ইনস্টল'
 echo 'আগে সব প্যাকেজ আপগ্রেড হচ্ছে (Termux-এর লাইব্রেরি মেলাতে — নইলে ffmpeg চলে না)'
 pkg upgrade -y || exit 1
-pkg install -y ffmpeg parallel || exit 1
-command -v ffmpeg >/dev/null 2>&1 && command -v parallel >/dev/null 2>&1 || { echo 'ffmpeg/parallel ইনস্টল ব্যর্থ'; exit 1; }
+pkg install -y ffmpeg zip || exit 1
+command -v ffmpeg >/dev/null 2>&1 && command -v zip >/dev/null 2>&1 || { echo 'ffmpeg/zip ইনস্টল ব্যর্থ'; exit 1; }
 echo 'প্রস্তুত'
 
 echo '▸ ধাপ ২/৩: ডাউনলোড ও এনকোড (৩২kbps, ২২.০৫kHz, ×১.২০) — ৬,২৩৬ আয়াত, সময় লাগবে'
-mkdir -p §HOME/audio/src §HOME/audio/out §HOME/audio/zips && cd §HOME/audio
+mkdir -p §HOME/audio/src §HOME/audio/out §HOME/audio/zips && cd §HOME/audio || exit 1
+echo "কাজের ফোল্ডার: §HOME/audio"
 AYN="7,286,200,176,120,165,206,75,129,109,123,111,43,52,99,128,111,110,98,135,112,78,118,64,77,227,93,88,69,60,34,30,73,54,45,83,182,88,75,85,54,53,89,59,37,35,38,29,18,45,60,49,62,55,78,96,29,22,24,13,14,11,11,18,12,12,30,52,52,44,28,28,20,56,40,31,50,40,46,42,29,19,36,25,22,17,19,26,30,20,15,21,11,8,8,19,5,8,8,11,11,8,3,9,5,4,7,3,6,3,5,4,5,6"
-python3 - "§AYN" > list.txt <<'PY'
-import sys
-n=0
-for s,c in enumerate([int(x) for x in sys.argv[1].split(',')],1):
-    for v in range(1,c+1):
-        n+=1; print('%03d%03d %d'%(s,v,n))
-PY
+echo 'আয়াতের তালিকা বানানো হচ্ছে…'
+echo "§AYN" | awk -F, '{n=0; for(s=1;s<=NF;s++) for(v=1;v<=§s;v++){n++; printf "%03d%03d %d\n", s, v, n}}' > list.txt
+echo "তালিকায় আয়াত: §(wc -l < list.txt)"
+[ "§(wc -l < list.txt)" -eq 6236 ] || { echo 'তালিকা তৈরি ব্যর্থ'; exit 1; }
+if curl -sI --connect-timeout 15 --max-time 30 https://everyayah.com/data/Alafasy_128kbps/001001.mp3 2>/dev/null | head -1 | grep -q ' 200'; then echo 'সার্ভার ঠিক আছে — ডাউনলোড শুরু হচ্ছে'; else echo 'everyayah.com থেকে সাড়া মিলছে না (নেট খুব ধীর বা সাইট বন্ধ) — তবু চেষ্টা চলছে'; fi
 enc() { p=§1; n=§2
   [ -s out/§n.mp3 ] && return 0
   for i in 1 2 3 4 5; do
-    curl -sf --max-time 90 -o src/§p.mp3 https://everyayah.com/data/Alafasy_128kbps/§p.mp3 && \
-    ffmpeg -v error -y -i src/§p.mp3 -ac 1 -af atempo=1.2 -ar 22050 -c:a libmp3lame -b:a 32k -f mp3 out/§n.mp3.tmp && \
-    mv out/§n.mp3.tmp out/§n.mp3 && rm -f src/§p.mp3 && return 0
+    # ধীর নেটে বড় ফাইল ৯০ সেকেন্ডে আসে না; তাই সময়সীমা নয়, আটকে গেলেই (৬০ সেকেন্ড প্রায় কিছু আসেনি) থামে, আর অর্ধেক নামা ফাইল থেকে আবার শুরু করে
+    if curl -sf -C - --connect-timeout 20 --speed-limit 100 --speed-time 60 -o src/§p.mp3 https://everyayah.com/data/Alafasy_128kbps/§p.mp3; then
+      if ffmpeg -v error -y -i src/§p.mp3 -ac 1 -af atempo=1.2 -ar 22050 -c:a libmp3lame -b:a 32k -f mp3 out/§n.mp3.tmp && mv out/§n.mp3.tmp out/§n.mp3; then rm -f src/§p.mp3; return 0; fi
+      rm -f src/§p.mp3 out/§n.mp3.tmp
+    fi
     sleep §((i*3))
   done; return 1; }
 export -f enc
-( while true; do sleep 15; h=§(ls out/*.mp3 2>/dev/null | wc -l); echo "ডাউনলোড হয়েছে: §h/6236 (§((h*100/6236))%)"; [ "§h" -ge 6236 ] && break; done ) &
+( while true; do h=§(ls out/*.mp3 2>/dev/null | wc -l); echo "ডাউনলোড হয়েছে: §h/6236 (§((h*100/6236))%)"; [ "§h" -ge 6236 ] && break; sleep 15; done ) &
 MON=§!
 for pass in 1 2 3; do
-  cat list.txt | parallel -j3 --colsep ' ' 'enc {1} {2}' || true
+  xargs -n2 -P3 bash -c 'enc "§0" "§1"' < list.txt || true
   have=§(ls out/*.mp3 2>/dev/null | wc -l); echo "পাস §pass শেষ: §have/6236"
   [ "§have" -ge 6236 ] && break
 done
@@ -172,16 +173,18 @@ have=§(ls out/*.mp3 2>/dev/null | wc -l)
 echo 'সব ৬,২৩৬টা আয়াত নামানো হয়েছে'
 
 echo '▸ ধাপ ৩/৩: সূরাভিত্তিক zip তৈরি'
-python3 - "§AYN" <<'PY'
-import sys,zipfile
-n=0
-for s,c in enumerate([int(x) for x in sys.argv[1].split(',')],1):
-    with zipfile.ZipFile('zips/s%03d.zip'%s,'w',zipfile.ZIP_STORED) as z:
-        for v in range(c):
-            n+=1; z.write('out/%d.mp3'%n,'%d.mp3'%n)
-print('zip তৈরি, মোট আয়াত',n)
-PY
-du -sh zips
+cd §HOME/audio/out || exit 1
+n=0; s=0
+for c in §(echo "§AYN" | tr ',' ' '); do
+  s=§((s+1)); z=../zips/§(printf 's%03d' §s).zip
+  : > ../zips/list.tmp
+  for v in §(seq 1 §c); do n=§((n+1)); echo "§n.mp3" >> ../zips/list.tmp; done
+  rm -f "§z"
+  zip -0 -q "§z" -@ < ../zips/list.tmp || { echo "zip ব্যর্থ: সূরা §s"; exit 1; }
+done
+rm -f ../zips/list.tmp
+echo "zip তৈরি, মোট আয়াত §n"
+du -sh ../zips
 echo "সম্পন্ন: §HOME/audio/zips -এ s001.zip … s114.zip। GitHub রিলিজে তুলতে Termux-এ gh auth login করে gh release create চালান।"""".replace('§', '$')
 
 object Store {
@@ -250,6 +253,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 8) { out.forEach { o -> legacy[o.id]?.let { (old, nw) -> if (o.script == old) o.script = nw } }; changed = true }
         // v9: অডিও-প্যাক কমান্ডে ইনস্টলের আগে আপগ্রেড যোগ (অপরিবর্তিত ডিফল্ট হলে)
         if (sp(c).getInt("ver", 1) < 9) { out.filter { it.id == "d15" && it.script.contains("pkg install -y ffmpeg parallel") && !it.script.contains("pkg upgrade") }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
+        // v10: অডিও-প্যাক কমান্ড python/parallel ছাড়া (awk/xargs/zip), ধীর নেটে resume ও লাইভ বার্তাসহ নতুন স্ক্রিপ্টে
+        if (sp(c).getInt("ver", 1) < 10) { out.filter { it.id == "d15" && (it.script.contains("python3") || it.script.contains("parallel")) }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -258,7 +263,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 9)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 10)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
