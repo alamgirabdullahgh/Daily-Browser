@@ -123,15 +123,17 @@ object AgentBus {
 
     /** "text" (সাধারণ/কোডিং এজেন্ট ও অশ্রেণিভুক্ত) অথবা media ক্যাটাগরির নাম */
     fun kindOf(s: Site): String = agentOf(s)?.takeIf { isMedia(it) } ?: "text"
-    fun groupOf(a: String): String = if (isMedia(a)) a else "text"
+    /** গ্রুপ: কোডিং = "text" (Claude/Grok), চ্যাট = "chat" (Gemini: স্ক্রিপ্ট/লেখা), আর মিডিয়া (audio/image/video) */
+    fun isChat(a: String?) = a == "gemini"
+    fun groupOf(a: String): String = if (isMedia(a)) a else if (isChat(a)) "chat" else "text"
     fun groupLabel(g: String): String = when (g) {
-        "audio" -> "অডিও"; "image" -> "ইমেজ"; "video" -> "ভিডিও"; else -> "কোডিং"
+        "audio" -> "অডিও"; "image" -> "ইমেজ"; "video" -> "ভিডিও"; "chat" -> "চ্যাট"; else -> "কোডিং"
     }
 
     /** হোমপেজের বড় ক্যাটাগরি (ক্লিক করলে খোলে): কোডিং (Claude/Gemini/Grok একসাথে) / অডিও / ইমেজ / ভিডিও এজেন্ট */
-    val CATEGORIES = listOf("text", "audio", "image", "video")
+    val CATEGORIES = listOf("text", "chat", "audio", "image", "video")
     fun categoryLabel(g: String): String = when (g) {
-        "audio" -> "Audio Agent"; "image" -> "Image Agent"; "video" -> "Video Agent"; else -> "Coding Agent"
+        "audio" -> "Audio Agent"; "image" -> "Image Agent"; "video" -> "Video Agent"; "chat" -> "Chat Agent"; else -> "Coding Agent"
     }
 
     /** দেখানোর ক্রম */

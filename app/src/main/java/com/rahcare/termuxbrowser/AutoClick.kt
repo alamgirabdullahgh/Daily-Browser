@@ -42,10 +42,14 @@ function press(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatc
         val sendSel: List<String>,
         val sendRe: String,
         val notRe: String = "feedback|stop|cancel|attach|upload|বাতিল",
-        val modEnter: Boolean = false
+        val modEnter: Boolean = false,
+        /** ইনপুট ঘর না থাকলে (শুরুর পাতা) যে লেখার বোতাম/কার্ড চাপলে ঘর আসে — পুরো লেখা মিলতে হবে; খালি = কিছু চাপে না */
+        val prepRe: String = ""
     )
 
     // ───────────────────────── ৩) এজেন্টের প্রোফাইল ─────────────────────────
+    /** শুরুর পাতার "নতুন তৈরি" ধরনের বোতাম (পুরো লেখা মিলতে হবে) */
+    private const val PREP = "^(create new dialog|new dialog|create dialog|add dialog|create new|new prompt|new script|new project|create project|start creating|start new|get started|start now|try it|open playground)[.!]?$"
     private val CLAUDE = Profile(
         "claude",
         listOf("div.ProseMirror[contenteditable=\"true\"]", "div[contenteditable=\"true\"][role=\"textbox\"]", "[contenteditable=\"true\"]", "textarea"),
@@ -78,7 +82,8 @@ function press(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatc
         true,
         listOf("button[type=\"submit\"]", "button[aria-label*=\"Run\" i]", "button[aria-label*=\"Generate\" i]", "button[aria-label*=\"Create\" i]"),
         "generate image|generate|create|imagine|run|submit|send|তৈরি",
-        modEnter = true
+        modEnter = true,
+        prepRe = PREP
     )
 
     /** অডিও এজেন্ট (AI Studio speech / TTS / Suno ইত্যাদি): সবচেয়ে বড় ঘরে (স্ক্রিপ্ট) লেখা বসে, "Run/Generate" চাপে, না পেলে Ctrl+Enter */
@@ -88,7 +93,8 @@ function press(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatc
         true,
         listOf("button[type=\"submit\"]", "button[aria-label*=\"Run\" i]", "button[aria-label*=\"Generate\" i]", "button[aria-label*=\"Create\" i]"),
         "generate speech|generate audio|generate|create|run|submit|send|তৈরি",
-        modEnter = true
+        modEnter = true,
+        prepRe = PREP
     )
 
     private val VIDEO = Profile(
@@ -97,7 +103,8 @@ function press(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatc
         true,
         listOf("button[type=\"submit\"]", "button[aria-label*=\"Generate\" i]", "button[aria-label*=\"Create\" i]", "button[aria-label*=\"Run\" i]"),
         "generate video|generate|create|run|submit|send|তৈরি",
-        modEnter = true
+        modEnter = true,
+        prepRe = PREP
     )
 
     /** অচেনা সাইট: আগের সাধারণ আচরণ (প্রথম দৃশ্যমান ঘর, "send/submit" বোতাম) */
@@ -106,7 +113,8 @@ function press(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatc
         listOf("textarea", "[contenteditable=\"true\"]", "div[role=\"textbox\"]", "input[type=\"text\"]"),
         false,
         emptyList(),
-        "send|submit|পাঠ"
+        "send|submit|পাঠ",
+        prepRe = PREP
     )
 
     // ───────────────────────── ৪) Claude-এর অনুমতি-কার্ড অটো-ক্লিক ─────────────────────────
@@ -191,6 +199,19 @@ var bs=document.querySelectorAll('button,[role="button"]');
 for(var i=0;i<bs.length;i++){var l=((bs[i].getAttribute('aria-label')||'')+' '+(bs[i].getAttribute('title')||'')+' '+(bs[i].getAttribute('data-testid')||'')+' '+tx(bs[i])).trim();if(l&&R.test(l)&&!N.test(l)&&cand.indexOf(bs[i])<0)cand.push(bs[i])}
 for(var k=0;k<cand.length;k++){var b=cand[k];if(vis(b)&&on(b)){press(b);return 'clicked'}}
 return 'no'}catch(e){return 'err'}})(${arr(p.sendSel)},${JSONObject.quote(p.sendRe)},${JSONObject.quote(p.notRe)})"""
+    }
+
+    /** ইনপুট ঘর নেই এমন শুরুর পাতায় "Create new dialog"-জাতীয় বোতাম/কার্ড চাপে (প্রতি পাতায় সর্বোচ্চ ৪ বার)। ফল: clicked:<লেখা> / none / limit / skip */
+    fun prepJs(agent: String?): String {
+        val re = profileFor(agent).prepRe
+        if (re.isEmpty()) return "(function(){return 'skip'})()"
+        return """(function(re){try{$HELPERS
+if((window.__acPrepN||0)>=4)return 'limit';
+var R=new RegExp(re,'i'),els=document.querySelectorAll('button,[role="button"],a,li,div,span'),c=[];
+for(var i=0;i<els.length;i++){var e=els[i];if(!vis(e))continue;var t=tx(e);if(!t||t.length>40)continue;if(R.test(t))c.push(e)}
+c=c.filter(function(e){return !c.some(function(o){return o!==e&&e.contains(o)})});
+if(!c.length)return 'none';
+var e=c[0],b=e.closest('button,[role="button"],a')||e;window.__acPrepN=(window.__acPrepN||0)+1;press(b);return 'clicked:'+tx(e).slice(0,30)}catch(x){return 'err'}})(${JSONObject.quote(re)})"""
     }
 
     /** শেষ ভরসা (বোতাম একেবারে না মিললে): মিডিয়া টুলে Ctrl+Enter, নইলে Enter। ফল: enter */

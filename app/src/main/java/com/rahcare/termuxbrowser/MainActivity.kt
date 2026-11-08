@@ -665,13 +665,16 @@ class MainActivity : Activity() {
         return t
     }
 
+    /** WebView-এর UA থেকে "; wv" ও "Version/4.0" বাদ — Chrome মোবাইলের মতো দেখায় (Google লগইন WebView UA ঠেকায়) */
+    private fun chromeUa(ua: String) = ua.replace("; wv)", ")").replace("Version/4.0 ", "")
+
     private fun applyDesktop(t: Tab) {
         val ds = t.web.settings
         val ua = WebSettings.getDefaultUserAgent(this)
         //  আসল WebView-এর Chrome ভার্সনই ডেস্কটপ UA-তে বসে (পুরনো/ভুয়া ভার্সন দেখলে সাইট আটকায়)
         val ver = Regex("Chrome/([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "131.0.0.0"
         val major = ver.substringBefore('.')
-        ds.userAgentString = if (desktop) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$ver Safari/537.36" else ua
+        ds.userAgentString = if (desktop) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$ver Safari/537.36" else chromeUa(ua)
         //  Client Hints (Sec-CH-UA-Mobile / userAgentData.mobile) : শুধু UA বদলালে Google Vids-এর মতো সাইট এটা দেখেই "কম্পিউটারে যান" বলে
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
@@ -684,6 +687,11 @@ class MainActivity : Activity() {
                 else androidx.webkit.UserAgentMetadata.Builder().build()
                 androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, md)
             }
+        } catch (_: Exception) {}
+        //  Google লগইন "This browser or app may not be secure" দেয় WebView ধরলে: X-Requested-With হেডার (অ্যাপের প্যাকেজ নাম) বাদ
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST))
+                androidx.webkit.WebSettingsCompat.setRequestedWithHeaderOriginAllowList(ds, emptySet())
         } catch (_: Exception) {}
         //  ডেস্কটপ লেআউট (width=1280), navigator.platform ও userAgentData: পেজ লোডের শুরুতেই বসে
         try {
@@ -1573,13 +1581,13 @@ class MainActivity : Activity() {
                     val pool = when {
                         want.isNotEmpty() && !AgentBus.inLimit(d, want) -> ok.filter { it.third == want }
                         AgentBus.isMedia(want) -> emptyList()
-                        else -> ok.filter { !AgentBus.isMedia(it.third) }
+                        else -> ok.filter { AgentBus.groupOf(it.third) == "text" }
                     }
                     if (pool.isEmpty()) {
                         // এই কাজের এজেন্টের সাইট খোলা না থাকলে নিজে খুলি, কয়েক সেকেন্ড পর আবার পাঠানোর চেষ্টা
                         val cs = closed.firstOrNull { c ->
                             val a = AgentBus.agentOf(c) ?: return@firstOrNull false
-                            !AgentBus.inLimit(d, a) && (if (want.isNotEmpty()) a == want else !AgentBus.isMedia(a))
+                            !AgentBus.inLimit(d, a) && (if (want.isNotEmpty()) a == want else AgentBus.groupOf(a) == "text")
                         }
                         if (cs != null && (agOpened[id0] ?: 0) < 2) {
                             agOpened[id0] = (agOpened[id0] ?: 0) + 1
@@ -1598,12 +1606,12 @@ class MainActivity : Activity() {
                 val tkF = task ?: return@Thread
                 val pick = pickX ?: return@Thread
                 val id = tkF.optInt("id")
-                val text = if (AgentBus.isMedia(pick.third)) AgentBus.mediaPrompt(tkF.optString("text"), tkF.optString("note")) else AgentBus.prompt(pick.third, id, tkF.optString("text"), tkF.optString("note"), tkF.optInt("progress"), tok)
+                val text = if (AgentBus.isMedia(pick.third) || AgentBus.isChat(pick.third)) AgentBus.mediaPrompt(tkF.optString("text"), tkF.optString("note")) else AgentBus.prompt(pick.third, id, tkF.optString("text"), tkF.optString("note"), tkF.optInt("progress"), tok)
                 agSent[id] = now; agTries[id] = (agTries[id] ?: 0) + 1
                 AgentBus.mutate(tok, "dispatch") { dd ->
                     AgentBus.ev(dd, "টাস্ক #$id ${pick.third}-কে পাঠানো হয়েছে")
                     //  মিডিয়া এজেন্ট bus.sh চালায় না, তাই পাঠানোর পরই টাস্কটা হাতে-দেওয়া হিসেবে শেষ ধরা হয় (নইলে বারবার পাঠাত)
-                    if (AgentBus.isMedia(pick.third)) dd.optJSONArray("tasks")?.let { a ->
+                    if (AgentBus.isMedia(pick.third) || AgentBus.isChat(pick.third)) dd.optJSONArray("tasks")?.let { a ->
                         for (q in 0 until a.length()) { val t = a.getJSONObject(q); if (t.optInt("id") == id) t.put("status", "done").put("agent", pick.third).put("progress", 100).put("note", "এজেন্টকে পাঠানো হয়েছে").put("updated", AgentBus.now()) }
                     }
                     true
@@ -1752,8 +1760,11 @@ class MainActivity : Activity() {
             if (!tabs.contains(t)) return@postDelayed
             t.web.evaluateJavascript(AutoClick.fillJs(agentOfTab(t), text)) { r ->
                 if (r == null || !r.contains("ok")) {
-                    // চ্যাটের ঘর নেই: প্ল্যান/স্বাগত পেজ আটকে থাকলে নিজেই "Use Claude for free" বা ← চেপে পার করি, তারপর আবার চেষ্টা
-                    t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send, onFilled) }
+                    // ইনপুট ঘর নেই: ১) মিডিয়া/অচেনা সাইটে "Create new dialog"-জাতীয় শুরুর বোতাম চাপি; ২) নইলে প্ল্যান/স্বাগত পেজ আটকালে "Use Claude for free" বা ← চেপে পার করি; তারপর আবার চেষ্টা
+                    t.web.evaluateJavascript(AutoClick.prepJs(agentOfTab(t))) { pr ->
+                        if (pr != null && pr.contains("clicked")) fillInput(t, text, n + 1, send, onFilled)
+                        else t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send, onFilled) }
+                    }
                 } else if (send) sendInput(t, 0) else onFilled?.invoke()
             }
         }, if (n == 0) 4000L else 3000L)
