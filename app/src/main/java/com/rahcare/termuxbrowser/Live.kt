@@ -124,11 +124,16 @@ pkg() { echo 'শুরু হচ্ছে…'; tb_aptwait; c="§1"; shift
             if (!first.startsWith("@@KEY:")) return
             job = Jobs.find(first.removePrefix("@@KEY:")) ?: return
             job.links.incrementAndGet(); linked = true; job.attaches = 0
-            if (job.reattach) { job.out = ""; job.reattach = false }
+            // প্রতিটি সংযোগই লগ শুরু থেকে পাঠায়; তাই একসাথে দুটো চললে প্রতিটি লাইন দুইবার আসত।
+            // নতুন সংযোগ এলে পুরনোটা বন্ধ করে আউটপুট খালি করি — সবসময় একটাই স্ট্রিম
+            val old = job.sock; job.sock = s
+            try { if (old != null && old !== s) old.close() } catch (_: Exception) {}
+            job.out = ""; job.reattach = false
             val buf = CharArray(4096)
             while (true) {
                 val n = r.read(buf)
                 if (n < 0) break
+                if (job.sock !== s) break   // নতুন সংযোগ এসে গেছে — এটার বাকি ডেটা ফেলে দিই
                 job.out = (job.out + String(buf, 0, n)).takeLast(60000)
                 var done = false
                 if (job.out.contains("@@LOST")) {

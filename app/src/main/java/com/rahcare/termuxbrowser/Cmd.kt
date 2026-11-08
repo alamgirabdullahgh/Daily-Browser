@@ -16,6 +16,7 @@ data class Job(val key: String, val title: String, var status: String, var out: 
     @Volatile var lastAttach = 0L    // শেষ কখন লাইভ সংযোগ আবার জোড়ার চেষ্টা হয়েছে
     @Volatile var attaches = 0       // কতবার চেষ্টা হয়েছে (ধীরে ধীরে বিরতি বাড়াতে)
     val links = java.util.concurrent.atomic.AtomicInteger(0)   // এখন কয়টি লাইভ সংযোগ খোলা (০ = আউটপুট আর আসছে না)
+    @Volatile var sock: java.net.Socket? = null   // এখন যে সংযোগ থেকে আউটপুট নেওয়া হচ্ছে (একটাই; নতুন এলে পুরনো বন্ধ)
     @Volatile var reattach = false   // অ্যাপ নতুন করে চালুর পর লগ থেকে আবার স্ট্রিম নেওয়া হচ্ছে
     @Volatile var connecting = false // কাজ শুরুর আগে Termux সংযোগ যাচাই/জোড়া চলছে (এ সময় লগ থেকে আবার জোড়ার চেষ্টা হয় না)
     var total = 0                    // মোট ধাপ (সংযোগ যাচাই ধরে); ০ = অজানা
