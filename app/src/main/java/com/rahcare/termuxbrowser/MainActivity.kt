@@ -2111,11 +2111,12 @@ class MainActivity : Activity() {
             "এজেন্ট এবং ওয়ার্কস্পেস" to listOf(50, 51, 9, 11, 10, 15, 14, 17),
             "পেজ" to listOf(20, 23, 24, 25, 26, 3, 29, 2, 12, 1),
             "লাইব্রেরি" to listOf(21, 22, 30, 27),
+            "লগইন ও AI" to listOf(62, 61, 63, 60),
             "GitHub" to listOf(18, 13, 16, 40, 41, 42),
             "Termux" to listOf(4, 5),
             "অ্যাপ" to listOf(6, 7)
         )
-        val icons = mapOf(50 to "🤖", 51 to "📤", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹")
+        val icons = mapOf(50 to "🤖", 51 to "📤", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹", 60 to "G", 61 to "🔑", 62 to "👥", 63 to "✨")
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(22)) }
         fun pick(it: MI) { d.dismiss(); m.click?.invoke(it) }
         m.items.firstOrNull { it.itemId == 8 }?.let { u ->
