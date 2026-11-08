@@ -71,7 +71,7 @@ object Voice {
             override fun onBufferReceived(b: ByteArray?) {}
             override fun onEndOfSpeech() { emit("end") }
             override fun onError(e: Int) {
-                emit("error", if (e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) "nomatch" else "code$e")
+                emit("error", if (e == SpeechRecognizer.ERROR_NO_MATCH || e == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) "nomatch" else if (e == 12 || e == 13) "offline_pack" else "code$e")
             }
             override fun onResults(b: Bundle?) {
                 val t = b?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull().orEmpty()
@@ -89,6 +89,7 @@ object Voice {
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, a.packageName)
+            if (!LocalBrain.online(a)) putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L)
         }
         r.startListening(i)
@@ -189,6 +190,7 @@ object Voice {
 
     /** Gemini TTS: বাক্য-টুকরো করে আনে, প্রথম টুকরো আসতেই বাজানো শুরু (বাকিগুলো পেছনে আসতে থাকে) */
     private fun geminiSpeak(c: Context, text: String, gen: Int): Boolean {
+        if (!LocalBrain.online(c)) { lastErr = "অফলাইন"; return false }
         val key = Creds.get(c, AiRouter.KEY)
         if (key.isBlank()) { lastErr = "কী নেই"; return false }
         val model = ttsModel(c, key)
@@ -284,20 +286,26 @@ class VoiceBridge(private val act: Activity, private val ok: () -> Boolean, priv
     @JavascriptInterface fun speak(text: String, lang: String) { guard { Voice.speak(act, text, lang, sink) } }
     @JavascriptInterface fun stopSpeak() { guard { Voice.stopSpeak() } }
     @JavascriptInterface fun lastError(): String = Voice.lastErr
-    /** সরাসরি Gemini-কে প্রশ্ন (GitHub বাস না ঘুরে — দ্রুত)। উত্তর onVoice("answer"|"handoff"|"ai_err") */
+    /** সরাসরি প্রশ্ন (GitHub বাস না ঘুরে)। অনলাইনে Gemini, নইলে/ব্যর্থ হলে অফলাইন মস্তিষ্ক। উত্তর onVoice("answer"|"handoff"|"ai_err") */
     @JavascriptInterface fun ask(text: String) {
         act.runOnUiThread { if (!ok()) return@runOnUiThread
-            AiAgent.submit(Runnable {
-                var type = "ai_err"; var body = ""
+            Thread {
+                var type = "answer"; var body = ""; var mode = "online"
                 try {
-                    val pr = AiAgent.prepare(act, text)
-                    val out = AiAgent.run(act, pr.first + pr.second)
-                    if (out == null) body = AiRouter.lastErr.ifBlank { "কী নেই?" }
-                    else if (out.handoff) { type = "handoff" }
-                    else { type = "answer"; body = out.text }
-                } catch (e: Exception) { body = e.javaClass.simpleName + ": " + (e.message ?: "").take(60) }
-                act.runOnUiThread { sink(type, body) }
-            })
+                    var done = false
+                    if (LocalBrain.online(act) && AiRouter.hasKey(act)) {
+                        val pr = AiAgent.prepare(act, text)
+                        val out = AiAgent.run(act, pr.first + pr.second)
+                        if (out != null && out.handoff) { type = "handoff"; done = true }
+                        else if (out != null) { body = out.text; done = true }
+                    }
+                    if (!done) { mode = "offline"; body = LocalBrain.answer(act, text) }
+                } catch (e: Exception) {
+                    mode = "offline"
+                    body = try { LocalBrain.answer(act, text) } catch (e2: Exception) { type = "ai_err"; e.javaClass.simpleName + ": " + (e.message ?: "").take(60) }
+                }
+                act.runOnUiThread { sink("mode", mode); sink(type, body) }
+            }.start()
         }
     }
 }

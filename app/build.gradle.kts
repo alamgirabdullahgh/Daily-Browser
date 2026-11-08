@@ -47,4 +47,6 @@ dependencies {
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     // কিবোর্ডের ক্লিপবোর্ড থেকে ছবি বসানো (InputConnectionCompat)
     implementation("androidx.core:core:1.13.1")
+    // অফলাইন AI মডেল (ফোনের ভেতরে চলে; Gemma .task ফাইল দিলে)
+    implementation("com.google.mediapipe:tasks-genai:0.10.27")
 }

@@ -4,6 +4,7 @@
 
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- ওয়েবসাইটের ক্যামেরা/মাইক (ছবি-ভিডিও তোলা, ভয়েস ইনপুট) — প্রতিবার ব্যবহারকারীকে জিজ্ঞেস করে তবেই দেওয়া হয় -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -30,6 +31,7 @@
         <package android:name="com.termux.x11" />
         <intent><action android:name="android.speech.RecognitionService" /></intent>
         <intent><action android:name="android.intent.action.TTS_SERVICE" /></intent>
+        <intent><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent>
     </queries>
 
     <application

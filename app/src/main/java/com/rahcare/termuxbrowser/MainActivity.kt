@@ -300,6 +300,7 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(rc: Int, res: Int, data: Intent?) {
         super.onActivityResult(rc, res, data)
+        if (rc == LocalBrain.PICK_CODE) { if (res == RESULT_OK) data?.data?.let { LocalBrain.importModel(this, it) }; return }
         if (rc == 4711) {
             val cb = fileCb; fileCb = null
             if (cb == null) return
@@ -2033,6 +2034,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 61, 3, "লগইন তথ্য (ইমেইল-পাসওয়ার্ড)")
         m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
         m.menu.add(0, 63, 3, "AI সহকারী (Gemini কী)")
+        m.menu.add(0, 64, 3, "🧠 অফলাইন মস্তিষ্ক (মডেল)")
         m.menu.add(0, 4, 3, "Termux কমান্ড ম্যানেজ")
         m.menu.add(0, 5, 4, "Termux সেটআপ ও অবস্থা")
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
@@ -2112,6 +2114,7 @@ class MainActivity : Activity() {
                 61 -> AutoLogin.credsDialog(this)
                 62 -> AutoLogin.bulkDialog(this) { st -> openSite(st.id); refreshHomes() }
                 63 -> AiRouter.dialog(this)
+                64 -> LocalBrain.dialog(this)
                 4 -> manage()
                 5 -> status()
                 6 -> startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
