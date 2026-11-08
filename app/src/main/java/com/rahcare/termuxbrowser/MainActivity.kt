@@ -619,6 +619,7 @@ class MainActivity : Activity() {
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
                 // সাইটভেদে অটো-ক্লিক (যেমন claude.ai-এর অনুমতি-কার্ড) — সব AutoClick.kt-তে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
                 AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
+                AutoLogin.onPage(this@MainActivity, t.site, u, v) { m -> Toast.makeText(this@MainActivity, m, Toast.LENGTH_LONG).show() }
                 if (u.startsWith(AGENT)) {
                     // অ্যাপে সংরক্ষিত GitHub টোকেন (এনক্রিপ্টেড) থাকলে হাব-পেজকে একবার দিই; পেজে আগে থেকে টোকেন থাকলে ছুঁই না
                     val tk = Secret.get(this@MainActivity)
@@ -1552,6 +1553,7 @@ class MainActivity : Activity() {
     private val agentTick = object : Runnable {
         override fun run() {
             try { if (agentAuto() && !agBusy && overlay == null) agentDispatch() } catch (_: Exception) {}
+            try { val tk = Secret.get(this@MainActivity); if (tk.isNotEmpty()) Thread { try { AutoLogin.pollBus(this@MainActivity, tk) { st -> openSite(st.id); refreshHomes() } } catch (_: Exception) {} }.start() } catch (_: Exception) {}
             handler.postDelayed(this, 30000L)
         }
     }
@@ -1970,6 +1972,8 @@ class MainActivity : Activity() {
         if (cur?.web?.canGoForward() == true) m.menu.add(0, 12, 1, "এগিয়ে যান →")
         m.menu.add(0, 3, 2, "ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = desktop }
         m.menu.add(0, 60, 2, "Google লগইন মোড: " + listOf("০ WebView", "১ Chrome-সদৃশ", "২ Chrome-সদৃশ+")[Store.prefs(this).getInt("gmode", 0).coerceIn(0, 2)] + (if (desktop) " (ডেস্কটপ মোড চালু — প্রযোজ্য নয়)" else ""))
+        m.menu.add(0, 61, 3, "লগইন তথ্য (ইমেইল-পাসওয়ার্ড)")
+        m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
         m.menu.add(0, 4, 3, "Termux কমান্ড ম্যানেজ")
         m.menu.add(0, 5, 4, "Termux সেটআপ ও অবস্থা")
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
@@ -2046,6 +2050,8 @@ class MainActivity : Activity() {
                 60 -> { val n = (Store.prefs(this).getInt("gmode", 0) + 1) % 3; Store.prefs(this).edit().putInt("gmode", n).apply()
                     tabs.forEach { t -> applyDesktop(t) }
                     Toast.makeText(this, listOf("মোড ০: WebView-এর নিজস্ব অবস্থা", "মোড ১: Chrome-সদৃশ (UA + হিন্ট + হেডার মিলানো)", "মোড ২: মোড ১ + window.chrome ইত্যাদি")[n] + "\nএখন নতুন ট্যাবে সাইন-ইন চেষ্টা করুন", Toast.LENGTH_LONG).show() }
+                61 -> AutoLogin.credsDialog(this)
+                62 -> AutoLogin.bulkDialog(this) { st -> openSite(st.id); refreshHomes() }
                 4 -> manage()
                 5 -> status()
                 6 -> startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
