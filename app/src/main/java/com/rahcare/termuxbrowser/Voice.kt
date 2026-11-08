@@ -135,34 +135,43 @@ object Voice {
     private class Item(val pcm: ByteArray?, val end: Boolean)
 
     private fun split(t: String): List<String> {
-        val out = ArrayList<String>(); val sb = StringBuilder(); var limit = 110
+        val out = ArrayList<String>(); val sb = StringBuilder(); var limit = 420
         for (ch in t) {
             sb.append(ch)
             val end = ch == '\u0964' || ch == '.' || ch == '!' || ch == '?' || ch == '\n'
-            if ((end && sb.length >= limit) || sb.length >= limit + 160) { out.add(sb.toString().trim()); sb.setLength(0); limit = 240 }
+            if ((end && sb.length >= limit) || sb.length >= limit + 150) { out.add(sb.toString().trim()); sb.setLength(0); limit = 420 }
         }
         if (sb.isNotBlank()) out.add(sb.toString().trim())
         return out.filter { it.isNotBlank() }
     }
 
-    private fun ttsModel(c: Context, key: String): String {
+    /** TTS-সক্ষম সব মডেল (flash আগে)। একটার সীমা শেষ হলে পরেরটা */
+    private fun ttsModels(c: Context, key: String): List<String> {
         val p = Store.prefs(c)
-        val saved = p.getString("tts_model", "") ?: ""
-        if (saved.isNotBlank()) return saved
-        var best = "gemini-2.5-flash-preview-tts"
+        val saved = p.getString("tts_models", "") ?: ""
+        if (saved.isNotBlank()) return saved.split(",").filter { it.isNotBlank() }
+        var list = listOf("gemini-2.5-flash-preview-tts", "gemini-2.5-pro-preview-tts")
         try {
             val cn = URL(BASE + "models?pageSize=200").openConnection() as HttpURLConnection
             cn.connectTimeout = 10000; cn.readTimeout = 15000; cn.setRequestProperty("x-goog-api-key", key)
             if (cn.responseCode == 200) {
                 val arr = JSONObject(cn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }).optJSONArray("models") ?: JSONArray()
                 val names = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("name")?.removePrefix("models/") }.filter { it.contains("tts") }
-                val pick = names.firstOrNull { it.contains("flash") && !it.contains("lite") } ?: names.firstOrNull()
-                if (pick != null) best = pick
+                if (names.isNotEmpty()) list = names.sortedWith(compareBy({ if (it.contains("flash") && !it.contains("lite")) 0 else if (it.contains("lite")) 1 else 2 }, { it.length }))
             }
             cn.disconnect()
         } catch (_: Exception) {}
-        p.edit().putString("tts_model", best).apply()
-        return best
+        p.edit().putString("tts_models", list.joinToString(",")).apply()
+        return list
+    }
+    @Volatile private var lastCode = 0
+    @Volatile private var lastBody = ""
+    private fun ttsCoolLeft(c: Context, m: String) = (Store.prefs(c).getLong("cool_tts_" + m, 0L) - System.currentTimeMillis()).coerceAtLeast(0L)
+    private fun ttsSetCool(c: Context, m: String, body: String) {
+        val perDay = body.contains("PerDay", true) || body.contains("per day", true)
+        val rd = Regex("\"retryDelay\"\\s*:\\s*\"(\\d+)").find(body)?.groupValues?.get(1)?.toLongOrNull()
+        val ms = if (perDay) 3L * 3600_000 else ((rd ?: 55L) + 5L) * 1000
+        Store.prefs(c).edit().putLong("cool_tts_" + m, System.currentTimeMillis() + ms).apply()
     }
 
     private fun fetchPcm(key: String, model: String, text: String, voice: String): ByteArray? {
@@ -178,6 +187,7 @@ object Voice {
                 cn.setRequestProperty("Content-Type", "application/json"); cn.setRequestProperty("x-goog-api-key", key)
                 cn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
                 val code = cn.responseCode
+                lastCode = code
                 if (code == 200) {
                     val r = cn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
                     cn.disconnect()
@@ -186,7 +196,8 @@ object Voice {
                     if (d.isNotEmpty()) return Base64.decode(d, Base64.DEFAULT)
                     lastErr = "tts: খালি"
                 } else {
-                    lastErr = "tts HTTP $code"; cn.disconnect()
+                    lastBody = try { cn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "" } catch (_: Exception) { "" }
+                    lastErr = "tts " + model.removePrefix("gemini-") + " HTTP $code"; cn.disconnect()
                     if (code == 401 || code == 403 || code == 404 || code == 429) return null
                 }
             } catch (e: Exception) { lastErr = "tts " + e.javaClass.simpleName }
@@ -199,7 +210,7 @@ object Voice {
         if (!LocalBrain.online(c)) { lastErr = "অফলাইন"; return false }
         val key = Creds.get(c, AiRouter.KEY)
         if (key.isBlank()) { lastErr = "কী নেই"; return false }
-        val model = ttsModel(c, key)
+        val models = ttsModels(c, key)
         val voice = Store.prefs(c).getString("tts_voice", "Charon") ?: "Charon"
         val chunks = split(text)
         if (chunks.isEmpty()) return true
@@ -207,7 +218,15 @@ object Voice {
         pool.execute {
             for (ch in chunks) {
                 if (gen != speakGen) break
-                val pcm = fetchPcm(key, model, ch, voice)
+                var pcm: ByteArray? = null
+                for (m in models) {
+                    if (gen != speakGen) break
+                    if (ttsCoolLeft(c, m) > 0) continue
+                    pcm = fetchPcm(key, m, ch, voice)
+                    if (pcm != null) break
+                    if (lastCode == 429) ttsSetCool(c, m, lastBody)
+                    else if (lastCode == 404 || lastCode == 400) ttsSetCool(c, m, "")
+                }
                 if (pcm == null) { q.put(Item(null, true)); return@execute }
                 q.put(Item(pcm, false))
             }
@@ -258,9 +277,15 @@ object Voice {
             fun go() {
                 val t = tts ?: run { emit("speak_end", "err"); return }
                 val r = t.setLanguage(Locale.forLanguageTag(lang))
-                if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) { emit("speak_end", "nolang"); return }
+                if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                    emit("speak_end", "nolang")
+                    try { c.startActivity(Intent(TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {}
+                    return
+                }
+                val started = java.util.concurrent.atomic.AtomicBoolean(false)
+                main.postDelayed({ if (gen == speakGen && !started.get()) { emit("speak_end", "err") } }, 6000)
                 t.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                    override fun onStart(id: String?) {}
+                    override fun onStart(id: String?) { started.set(true) }
                     override fun onDone(id: String?) { emit("speak_end") }
                     @Deprecated("Deprecated in Java")
                     override fun onError(id: String?) { emit("speak_end", "err") }
