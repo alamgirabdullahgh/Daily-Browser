@@ -1556,6 +1556,7 @@ class MainActivity : Activity() {
             try {
                 val tk = Secret.get(this@MainActivity)
                 if (tk.isNotEmpty()) Thread {
+                    try { AutoLogin.syncSites(this@MainActivity, tk) { refreshHomes() } } catch (_: Exception) {}
                     try { AutoLogin.pollTasks(this@MainActivity, tk) { st -> openSite(st.id); refreshHomes() } } catch (_: Exception) {}
                     try { AutoLogin.pollBus(this@MainActivity, tk) { st -> openSite(st.id); refreshHomes() } } catch (_: Exception) {}
                     runOnUiThread { try { if (agentAuto() && !agBusy && overlay == null) agentDispatch() } catch (_: Exception) {} }

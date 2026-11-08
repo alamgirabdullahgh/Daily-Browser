@@ -195,6 +195,21 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
     private val KNOWN = mapOf("gemini" to "gemini.google.com", "জেমিনি" to "gemini.google.com", "chatgpt" to "chatgpt.com", "claude" to "claude.ai",
         "ক্লদ" to "claude.ai", "grok" to "grok.com", "perplexity" to "perplexity.ai", "deepseek" to "chat.deepseek.com", "github" to "github.com")
 
+    private val BN_DIGITS = "০১২৩৪৫৬৭৮৯"
+    private val WORDS = mapOf("এক" to 1, "দুই" to 2, "দুটি" to 2, "তিন" to 3, "চার" to 4, "পাঁচ" to 5, "ছয়" to 6, "সাত" to 7, "আট" to 8, "নয়" to 9, "দশ" to 10,
+        "এগার" to 11, "এগারো" to 11, "বার" to 12, "বারো" to 12, "তের" to 13, "তেরো" to 13, "চৌদ্দ" to 14, "পনের" to 15, "পনেরো" to 15, "ষোল" to 16, "ষোলো" to 16,
+        "সতের" to 17, "সতেরো" to 17, "আঠার" to 18, "আঠারো" to 18, "উনিশ" to 19, "বিশ" to 20)
+    private val RE_COUNT = Regex("([0-9০-৯]+|" + WORDS.keys.sortedByDescending { it.length }.joinToString("|") + ")\\s*(?:টি|টা|ট)?\\s*(?:ওয়ার্ক\\s?স্পেস|(?i:workspaces?|work\\s?spaces?))")
+
+    /** "১২টি ওয়ার্কস্পেস", "বারটি ওয়ার্ক স্পেস", "5 workspaces" থেকে সংখ্যা; না পেলে ০ */
+    fun countOf(text: String): Int {
+        val m = RE_COUNT.find(text) ?: return 0
+        val w = m.groupValues[1]
+        val digits = w.map { ch -> val i = BN_DIGITS.indexOf(ch); if (i >= 0) ('0' + i) else ch }.joinToString("")
+        digits.toIntOrNull()?.let { return it.coerceIn(0, 100) }
+        return WORDS[w] ?: 0
+    }
+
     class Parsed(val items: List<Item>, val redacted: String, val savedPw: Boolean, val note: String)
 
     /** চ্যাটের লেখা থেকে ওয়ার্কস্পেসের তালিকা বানায়। পাসওয়ার্ড থাকলে আইটেমে নেয় আর লেখা থেকে মুছে (***) দেয়। null = এটা ওয়ার্কস্পেস-কমান্ড নয় */
@@ -218,13 +233,42 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
             }
             if (urls.isEmpty()) for ((k, v) in KNOWN) if (scan.contains(k, ignoreCase = true) && !RE_TRIGGER.matches(scan.trim())) out.add(Item(k, v, em, p))
         }
-        val uniq = out.distinctBy { hostOf(it.url) + "|" + it.name + "|" + it.email }
-        if (uniq.isEmpty()) return null
+        val uniq0 = out.distinctBy { hostOf(it.url) + "|" + it.name + "|" + it.email }
+        if (uniq0.isEmpty()) return null
+        // "এই লিংক দিয়ে বারটি ওয়ার্কস্পেস" — একটাই লিংক আর সংখ্যা N হলে N টি বানায়; একাধিক ইমেইল দিলে পরপর একটা করে বসে
+        val n = countOf(text)
+        val uniq = if (uniq0.size == 1 && n > 1) {
+            val b = uniq0[0]
+            val ms = RE_MAIL.findAll(text).map { it.value }.distinct().toList()
+            (0 until n).map { i ->
+                val em = ms.getOrNull(i) ?: b.email
+                Item(b.name.ifBlank { hostOf(b.url) } + " " + (i + 1), b.url, em, if (em == b.email) b.pw else null)
+            }
+        } else uniq0
         var red = text
         for (m in RE_PW.findAll(text).toList().reversed()) red = red.replaceRange(m.groups[1]!!.range, "***")
         val noMail = uniq.count { it.email.isBlank() }
         val note = if (noMail > 0) "${noMail}টির ইমেইল দেওয়া ছিল না — লগইন ছাড়াই খোলা হবে" else ""
         return Parsed(uniq, red, gPw.isNotEmpty() || uniq.any { !it.pw.isNullOrEmpty() }, note)
+    }
+
+    /** ওয়ার্কস্পেসের তালিকা (নাম+সাইট; পাসওয়ার্ড/কুকি নয়) bus.json-এ ব্যাকআপ রাখে; একদম নতুন ইনস্টলে (তালিকা কখনো ছিল না) সেখান থেকে ফিরিয়ে আনে। ব্যাকগ্রাউন্ড থ্রেডে ডাকুন */
+    fun syncSites(act: Activity, tok: String, onRestored: () -> Unit) {
+        val fresh = !act.getSharedPreferences("sites", Context.MODE_PRIVATE).contains("list")
+        val d = AgentBus.load(tok)?.d ?: return
+        val remote = d.optJSONArray("sites_backup")
+        if (fresh) {
+            if (remote != null && remote.length() > 0) {
+                val l = (0 until remote.length()).map { val o = remote.getJSONObject(it); Site(o.getString("id"), o.getString("n"), o.getString("u")) }.toMutableList()
+                Sites.save(act, l)
+                act.runOnUiThread { Toast.makeText(act, "ব্যাকআপ থেকে ${l.size}টি ওয়ার্কস্পেস ফিরে এসেছে — লগইন আবার করতে হবে", Toast.LENGTH_LONG).show(); onRestored() }
+            }
+            return
+        }
+        val cur = org.json.JSONArray()
+        Sites.all(act).forEach { cur.put(JSONObject().put("id", it.id).put("n", it.name).put("u", it.url)) }
+        if (cur.length() == 0 || remote?.toString() == cur.toString()) return
+        AgentBus.mutate(tok, "sites backup") { dd -> dd.put("sites_backup", cur); true }
     }
 
     /** bus.json-এর queued টাস্কে ওয়ার্কস্পেস-কথা থাকলে ব্রাউজারই করে ফেলে, এজেন্টকে পাঠায় না। ব্যাকগ্রাউন্ড থ্রেডে ডাকুন */
