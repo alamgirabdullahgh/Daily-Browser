@@ -25,7 +25,65 @@ object AiRouter {
 
     class Result(val type: String, val items: List<AutoLogin.Item>, val names: List<String>, val question: String)
 
-    private fun model(c: Context) = Store.prefs(c).getString("ai_model", "gemini-2.5-flash")?.ifBlank { "gemini-2.5-flash" } ?: "gemini-2.5-flash"
+    /** হাতে দেওয়া মডেল (খালি = স্বয়ংক্রিয়) */
+    private fun manualModel(c: Context) = (Store.prefs(c).getString("ai_model", "") ?: "").trim()
+    /** সর্বশেষ যে মডেল সফল হয়েছে */
+    fun lastModel(c: Context) = Store.prefs(c).getString("ai_model_ok", "") ?: ""
+
+    private const val BASE = "https://generativelanguage.googleapis.com/v1beta/"
+
+    /** Google-এর তালিকা থেকে generateContent-সক্ষম মডেলের নাম (ব্যর্থ হলে খালি) */
+    private fun fetchModels(key: String): List<String> {
+        return try {
+            val cn = URL(BASE + "models?pageSize=200").openConnection() as HttpURLConnection
+            cn.connectTimeout = 10000; cn.readTimeout = 15000
+            cn.setRequestProperty("x-goog-api-key", key)
+            if (cn.responseCode != 200) { cn.disconnect(); return emptyList() }
+            val r = cn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            cn.disconnect()
+            val arr = JSONObject(r).optJSONArray("models") ?: return emptyList()
+            (0 until arr.length()).mapNotNull { i ->
+                val m = arr.optJSONObject(i) ?: return@mapNotNull null
+                val methods = m.optJSONArray("supportedGenerationMethods") ?: return@mapNotNull null
+                val ok = (0 until methods.length()).any { methods.optString(it) == "generateContent" }
+                if (ok) m.optString("name").removePrefix("models/") else null
+            }
+        } catch (e: Exception) { emptyList() }
+    }
+
+    private val BAD = listOf("tts", "image", "embed", "live", "audio", "native", "robotics", "computer", "thinking", "exp", "learnlm", "vision", "aqa", "customtools", "deep-research")
+
+    /** সেরা থেকে কম ভালো: স্থিতিশীল (preview নয়) আগে, তারপর flash > flash-lite > pro, তারপর নতুন সংস্করণ আগে */
+    private fun rank(all: List<String>): List<String> {
+        val re = Regex("^gemini-(\\d+(?:\\.\\d+)?)-(flash-lite|flash|pro)(.*)$")
+        data class M(val name: String, val ver: Double, val fam: Int, val stable: Boolean)
+        return all.mapNotNull { n ->
+            if (BAD.any { n.contains(it) }) return@mapNotNull null
+            val m = re.find(n) ?: return@mapNotNull null
+            val rest = m.groupValues[3]
+            val stable = !rest.contains("preview") && !Regex("-\\d{2,}").containsMatchIn(rest)
+            M(n, m.groupValues[1].toDouble(), when (m.groupValues[2]) { "flash" -> 3; "flash-lite" -> 2; else -> 1 }, stable)
+        }.sortedWith(compareByDescending<M> { it.stable }.thenByDescending { it.fam }.thenByDescending { it.ver }.thenBy { it.name.length })
+            .map { it.name }
+    }
+
+    /** চেষ্টার ক্রম: হাতে দেওয়া → সর্বশেষ সফল → তালিকা থেকে সেরাগুলো → স্থির বিকল্প */
+    private fun candidates(c: Context, key: String): List<String> {
+        val p = Store.prefs(c)
+        val now = System.currentTimeMillis()
+        var cached = p.getString("ai_models_cache", "") ?: ""
+        if (cached.isBlank() || now - p.getLong("ai_models_at", 0) > 12L * 3600 * 1000) {
+            val l = fetchModels(key)
+            if (l.isNotEmpty()) { cached = l.joinToString(","); p.edit().putString("ai_models_cache", cached).putLong("ai_models_at", now).apply() }
+        }
+        val out = LinkedHashSet<String>()
+        manualModel(c).let { if (it.isNotBlank()) out.add(it) }
+        lastModel(c).let { if (it.isNotBlank()) out.add(it) }
+        out.addAll(rank(cached.split(",").filter { it.isNotBlank() }).take(5))
+        out.add("gemini-flash-latest"); out.add("gemini-2.5-flash")
+        return out.toList()
+    }
+
     fun hasKey(c: Context) = Creds.has(c, KEY)
 
     private fun prompt(c: Context): String {
@@ -50,14 +108,37 @@ object AiRouter {
                 .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt(c)))))
                 .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", text.take(4000))))))
                 .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("temperature", 0))
-            val cn = URL("https://generativelanguage.googleapis.com/v1beta/models/" + model(c) + ":generateContent").openConnection() as HttpURLConnection
-            cn.requestMethod = "POST"; cn.connectTimeout = 15000; cn.readTimeout = 30000; cn.doOutput = true
-            cn.setRequestProperty("Content-Type", "application/json"); cn.setRequestProperty("x-goog-api-key", key)
-            cn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
-            val code = cn.responseCode
-            if (code != 200) { lastErr = "HTTP $code"; cn.disconnect(); return null }
-            val resp = cn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
-            cn.disconnect()
+            val deadline = System.currentTimeMillis() + 70000
+            var resp: String? = null
+            var tried = 0
+            for (mdl in candidates(c, key)) {
+                if (tried >= 6 || System.currentTimeMillis() > deadline) break
+                tried++
+                try {
+                    val cn = URL(BASE + "models/" + mdl + ":generateContent").openConnection() as HttpURLConnection
+                    cn.requestMethod = "POST"; cn.connectTimeout = 12000; cn.readTimeout = 25000; cn.doOutput = true
+                    cn.setRequestProperty("Content-Type", "application/json"); cn.setRequestProperty("x-goog-api-key", key)
+                    cn.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+                    val code = cn.responseCode
+                    if (code == 200) {
+                        val r = cn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                        cn.disconnect()
+                        // খালি/ব্লক হওয়া উত্তর হলে পরের মডেলে
+                        if (JSONObject(r).optJSONArray("candidates")?.optJSONObject(0)?.optJSONObject("content") == null) { lastErr = "$mdl: খালি উত্তর"; continue }
+                        resp = r
+                        Store.prefs(c).edit().putString("ai_model_ok", mdl).apply()
+                        break
+                    }
+                    cn.disconnect()
+                    lastErr = "$mdl: HTTP $code"
+                    if (code == 401 || code == 403) break            // কী/অনুমতির সমস্যা: মডেল বদলে লাভ নেই
+                    if (code == 404) Store.prefs(c).edit().remove("ai_models_cache").remove("ai_model_ok").apply() // তালিকা পুরোনো
+                    // 400/404/429/5xx: পরের মডেল চেষ্টা
+                } catch (e: Exception) {
+                    lastErr = mdl + ": " + e.javaClass.simpleName
+                }
+            }
+            if (resp == null) return null
             var out = JSONObject(resp).getJSONArray("candidates").getJSONObject(0).getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text").trim()
             out = out.removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
             val j = JSONObject(out)
@@ -84,10 +165,11 @@ object AiRouter {
         l.addView(TextView(a).apply {
             textSize = 12f
             text = (if (hasKey(a)) "✔ কী সংরক্ষিত আছে।\n" else "এখনো কী নেই।\n") +
+                (if (lastModel(a).isNotBlank()) "চলছে: " + lastModel(a) + " (মডেল নিজে বাছাই হয়; ব্যর্থ হলে পরেরটায় যায়)\n" else "মডেল নিজে বাছাই হবে; ব্যর্থ হলে পরেরটায় যাবে।\n") +
                 "Google AI Studio (aistudio.google.com) থেকে বিনামূল্যে API কী নিন। কী ফোনে এনক্রিপ্টেড থাকে। হাব-চ্যাটের লেখা (পাসওয়ার্ড বাদে) Google-এর Gemini-তে যায়।\nখালি রেখে সেভ করলে কী মুছে যাবে।"
         })
         val k = EditText(a).apply { hint = "Gemini API কী"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val m = EditText(a).apply { hint = "মডেল (ডিফল্ট gemini-2.5-flash)"; setText(Store.prefs(a).getString("ai_model", "") ?: ""); inputType = InputType.TYPE_CLASS_TEXT }
+        val m = EditText(a).apply { hint = "মডেল (খালি রাখুন = স্বয়ংক্রিয় সেরা মডেল)"; setText(Store.prefs(a).getString("ai_model", "") ?: ""); inputType = InputType.TYPE_CLASS_TEXT }
         l.addView(k); l.addView(m)
         AlertDialog.Builder(a).setTitle("AI সহকারী (Gemini)").setView(l)
             .setPositiveButton("সংরক্ষণ") { _, _ ->
