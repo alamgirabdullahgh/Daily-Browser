@@ -63,7 +63,11 @@ object Jobs {
 
     /** শেষ হওয়া সব কাজ মুছে ফেলে (চলমানগুলো থাকে); কয়টা মুছল তা ফেরত দেয় */
     fun clearFinished(): Int { val n = list.count { it.status != "running" }; list.removeIf { it.status != "running" }; return n }
+    /** নতুন কমান্ড চালানোর আগে আগের ব্যর্থ কাজগুলো নিজে মুছে ফেলি (চলমান ও সফল/থামানোগুলো থাকে) */
+    fun clearFailed() { list.removeIf { it.status == "fail" } }
+
     fun start(title: String, script: String = ""): Job {
+        clearFailed()
         val j = Job("j${System.nanoTime()}", title, "running", "", System.currentTimeMillis())
         j.script = script
         list.add(j); if (list.size > 30) list.removeAt(0); return j
