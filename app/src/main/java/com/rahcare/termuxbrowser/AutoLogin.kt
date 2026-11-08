@@ -289,9 +289,34 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
     /** ব্রাউজারের নিজের কাজ: প্রথমে রেগুলার ধরন, তারপর (কী থাকলে) AI। ব্যাকগ্রাউন্ড থ্রেডে ডাকুন */
     fun pollTasks(act: Activity, tok: String, open: (Site) -> Unit) {
         synchronized(lock) {
-            try { pollRegex(act, tok, open) } catch (_: Exception) {}
-            if (AiRouter.hasKey(act)) try { aiStep(act, tok, open) } catch (_: Exception) {}
+            if (AiRouter.hasKey(act)) {
+                // কী থাকলে AI-ই আগে বোঝে (আগে-থেকে-বানানো ওয়ার্কস্পেসে লগইন বনাম নতুন বানানো); রেগুলার ধরন শুধু AI ব্যর্থ হলে বিকল্প
+                try { aiStep(act, tok, open) } catch (_: Exception) {}
+                val failed = pref(act).getStringSet("al_ai_fail", emptySet())!!.toSet()
+                if (failed.isNotEmpty()) try { pollRegex(act, tok, open, failed) } catch (_: Exception) {}
+            } else {
+                try { pollRegex(act, tok, open, null) } catch (_: Exception) {}
+            }
         }
+    }
+
+    private fun pwByEmail(text: String): Map<String, String> {
+        val m = mutableMapOf<String, String>()
+        for (ln in text.lines()) {
+            val mail = RE_MAIL.find(ln)?.value ?: continue
+            val pw = RE_PW.find(ln)?.groupValues?.get(1)?.trim('.', ',', '।') ?: continue
+            if (pw.isNotEmpty()) m[mail.lowercase()] = pw
+        }
+        return m
+    }
+
+    private fun matchSites(all: List<Site>, name: String, url: String): List<Site> {
+        val n = name.trim()
+        if (n == "*") return all
+        val byName = all.filter { n.isNotEmpty() && (it.name.equals(n, true) || it.name.contains(n, true)) }
+        if (byName.isNotEmpty()) return byName
+        val h = if (url.isBlank()) "" else hostOf(url)
+        return if (h.isNotEmpty()) all.filter { val x = hostOf(it.url); x == h || x.endsWith(".$h") } else emptyList()
     }
 
     private fun aiStep(act: Activity, tok: String, open: (Site) -> Unit) {
@@ -306,7 +331,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
             seen.add(id.toString()); pref(act).edit().putStringSet("al_ai_seen", seen).apply()   // আগে চিহ্ন: AI ব্যর্থ হলেও কাজ এজেন্টে যাবে
             if (text.isBlank()) continue
             val r = AiRouter.ask(act, stripPw(text))
-            if (r == null) { act.runOnUiThread { Toast.makeText(act, "AI ব্যর্থ (" + AiRouter.lastErr + ") — কাজটা সাধারণভাবে এজেন্টে যাচ্ছে", Toast.LENGTH_LONG).show() }; continue }
+            if (r == null) { pref(act).edit().putStringSet("al_ai_fail", (pref(act).getStringSet("al_ai_fail", emptySet())!! + id.toString())).apply(); act.runOnUiThread { Toast.makeText(act, "AI ব্যর্থ (" + AiRouter.lastErr + ") — কাজটা সাধারণভাবে এজেন্টে যাচ্ছে", Toast.LENGTH_LONG).show() }; continue }
             when (r.type) {
                 "create_workspaces" -> if (r.items.isNotEmpty()) {
                     val mail0 = RE_MAIL.find(text)?.value ?: ""
@@ -318,6 +343,34 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
                         made.forEachIndexed { k, s -> act.window.decorView.postDelayed({ open(s) }, 4000L * (k + 1)) }
                     }
                     done[id] = "AI বুঝে ব্রাউজার ${items.size}টি ওয়ার্কস্পেস বানিয়েছে"
+                }
+                "login_workspaces" -> {
+                    val all = Sites.all(act)
+                    val pwm = pwByEmail(text); val gMail = RE_MAIL.find(text)?.value ?: ""; val gPw = chatPw(text)
+                    val targets = LinkedHashMap<String, Pair<Site, String>>()
+                    for (it in r.items) {
+                        val em = it.email.ifBlank { gMail }; if (em.isBlank()) continue
+                        for (s in matchSites(all, it.name, it.url)) targets[s.id] = s to em
+                    }
+                    if (targets.isEmpty()) {
+                        done[id] = if (gMail.isBlank()) "কোন ইমেইল দিয়ে লগইন হবে? ইমেইল (আর পাসওয়ার্ড) লিখুন" else "কোনো ওয়ার্কস্পেস মেলেনি — ওয়ার্কস্পেসের নাম লিখে আবার বলুন (বা \"সবগুলো\")"
+                    } else {
+                        val noPw = mutableSetOf<String>()
+                        for (p in targets.values) {
+                            val em = p.second
+                            val pw = pwm[em.lowercase()] ?: (if (em.equals(gMail, true)) gPw else "")
+                            if (pw.isNotEmpty()) Creds.put(act, em, pw) else if (Creds.get(act, em).isEmpty()) noPw.add(em)
+                        }
+                        act.runOnUiThread {
+                            targets.values.forEach { setEmail(act, it.first.id, it.second) }
+                            Toast.makeText(act, "AI বুঝেছে: ${targets.size}টি বিদ্যমান ওয়ার্কস্পেসে লগইন শুরু — একে একে হবে", Toast.LENGTH_LONG).show()
+                            targets.values.forEachIndexed { k, pr ->
+                                act.window.decorView.postDelayed({ val m = act as? MainActivity; if (m != null) m.loginOpen(pr.first.id) else open(pr.first) }, 5000L * (k + 1))
+                            }
+                        }
+                        done[id] = "AI বুঝে ${targets.size}টি বিদ্যমান ওয়ার্কস্পেসে লগইন চালু করেছে (" + targets.values.joinToString { it.first.name }.take(120) + ")" +
+                            (if (noPw.isNotEmpty()) " — পাসওয়ার্ড দেওয়া হয়নি: " + noPw.joinToString() + " (মেনু → লগইন তথ্য থেকে দিন)" else "")
+                    }
                 }
                 "open_workspaces" -> {
                     val all = Sites.all(act)
@@ -346,7 +399,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
     }
 
     /** রেগুলার ধরন: queued টাস্কে ওয়ার্কস্পেস-কথা থাকলে ব্রাউজারই করে ফেলে */
-    private fun pollRegex(act: Activity, tok: String, open: (Site) -> Unit) {
+    private fun pollRegex(act: Activity, tok: String, open: (Site) -> Unit, onlyIds: Set<String>?) {
         val d = AgentBus.load(tok)?.d ?: return
         val arr = d.optJSONArray("tasks") ?: return
         val seen = pref(act).getStringSet("al_task_done", emptySet())!!.toMutableSet()
@@ -355,6 +408,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
             val o = arr.getJSONObject(i)
             val id = o.optInt("id")
             if (o.optString("status") != "queued" || id.toString() in seen) continue
+            if (onlyIds != null && id.toString() !in onlyIds) continue
             val p = parseChat(act, o.optString("text")) ?: continue
             hits.add(id to p)
         }

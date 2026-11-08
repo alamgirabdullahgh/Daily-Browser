@@ -87,11 +87,12 @@ object AiRouter {
     fun hasKey(c: Context) = Creds.has(c, KEY)
 
     private fun prompt(c: Context): String {
-        val have = Sites.all(c).joinToString(", ") { "\"" + it.name.replace("\"", "") + "\"" }
+        val have = Sites.all(c).joinToString(", ") { "\"" + it.name.replace("\"", "") + "\" (" + (try { URL(if (it.url.contains("://")) it.url else "https://" + it.url).host } catch (e: Exception) { "" }) + ")" }
         return "You are the command interpreter of an Android browser app. The app has 'workspaces': each workspace is one website with its own separate, persistent login. " +
             "The user writes Bengali or English. Decide what they want and answer ONLY with JSON: " +
-            "{\"type\":\"create_workspaces|open_workspaces|clarify|answer|pass_to_agent\",\"items\":[{\"name\":\"\",\"url\":\"\",\"email\":\"\"}],\"names\":[\"\"],\"question\":\"\",\"answer\":\"\"}. " +
-            "Rules: create_workspaces = user wants new workspaces and/or to log in to sites with an email; produce one item per workspace (if a number like 12 is given, produce that many items with numbered names); " +
+            "{\"type\":\"create_workspaces|login_workspaces|open_workspaces|clarify|answer|pass_to_agent\",\"items\":[{\"name\":\"\",\"url\":\"\",\"email\":\"\"}],\"names\":[\"\"],\"question\":\"\",\"answer\":\"\"}. " +
+            "Rules: login_workspaces = the user wants to log in inside workspaces that ALREADY EXIST (e.g. says they were already created, or asks to log in to each/all workspaces) using an email: produce items [{name,url,email}] where name is an existing workspace name copied exactly from this list: ["+have+"]; use name \"*\" with the email when the user means ALL existing workspaces; if different emails go to different workspaces make one item per workspace; never create new workspaces for this. NEVER output any password. "+
+            "create_workspaces = user wants NEW workspaces (and optionally to log in to them); produce one item per workspace (if a number like 12 is given, produce that many items with numbered names); " +
             "url must be the real site host (gemini->gemini.google.com, chatgpt->chatgpt.com, claude->claude.ai, grok->grok.com, perplexity->perplexity.ai, deepseek->chat.deepseek.com); " +
             "email only if the user wrote one, never invent; NEVER output any password. " +
             "open_workspaces = open already existing workspaces; names must come from this list: [" + have + "]. " +
@@ -146,7 +147,7 @@ object AiRouter {
             val its = j.optJSONArray("items") ?: JSONArray()
             val items = (0 until its.length()).mapNotNull { k ->
                 val e = its.optJSONObject(k) ?: return@mapNotNull null
-                val u = e.optString("url"); if (u.isBlank()) null else AutoLogin.Item(e.optString("name"), u, e.optString("email"))
+                val u = e.optString("url"); if (u.isBlank() && e.optString("name").isBlank()) null else AutoLogin.Item(e.optString("name"), u, e.optString("email"))
             }.take(100)
             val ns = j.optJSONArray("names") ?: JSONArray()
             val names = (0 until ns.length()).map { ns.optString(it) }.filter { it.isNotBlank() }

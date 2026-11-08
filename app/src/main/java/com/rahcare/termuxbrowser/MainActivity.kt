@@ -1287,6 +1287,14 @@ class MainActivity : Activity() {
         return newTab(url ?: site.url, id)
     }
 
+    /** আগে-থেকে-বানানো ওয়ার্কস্পেসে লগইনের জন্য: খোলা থাকলে রিলোড (যাতে অটো-লগইন চলে), না থাকলে নতুন ট্যাবে খোলে */
+    fun loginOpen(id: String) {
+        val had = tabs.firstOrNull { it.site == id }
+        val t = openSite(id) ?: return
+        if (had != null) try { t.web.reload() } catch (_: Exception) {}
+        refreshHomes()
+    }
+
     /** খোলা যেকোনো সাইটকে এক চাপে ওয়ার্কস্পেস বানায় (নাম = সাইটের ডোমেইন) এবং আলাদা লগইনে নতুন ট্যাবে খোলে */
     private fun makeWorkspace(t: Tab) {
         val host = (Uri.parse(t.url).host ?: return).removePrefix("www.")
