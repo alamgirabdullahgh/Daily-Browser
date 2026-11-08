@@ -4,6 +4,7 @@ package com.rahcare.termuxbrowser
 object DesktopMode {
     const val JS = "(function(){try{" +
         "if(!/^https?:/.test(location.href)||location.hostname==='appassets.androidplatform.net')return;" +
+        "if(/^accounts\\.(google\\.|youtube\\.com)/.test(location.hostname))return;" +
         "var W=1280;" +
         "function vp(){try{var h=document.head||document.documentElement;if(!h)return;var m=document.querySelector('meta[name=viewport]');" +
         "if(!m){m=document.createElement('meta');m.name='viewport';h.appendChild(m)}if(m.content!=='width='+W)m.content='width='+W}catch(e){}}" +

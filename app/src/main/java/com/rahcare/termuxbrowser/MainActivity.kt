@@ -42,6 +42,8 @@ class Tab(val web: WebView) {
     var stuckHits = 0          // পরপর কয়বার "আটকে আছে" লেখা দেখা গেছে
     var stuckReloadAt = 0L     // শেষ স্বয়ংক্রিয় রিলোডের সময়
     var stuckReloads = 0       // একটানা কয়বার রিলোড করা হয়েছে (অনন্ত চক্র এড়াতে)
+    var authSafe = false   // Google লগইন পাতায় সব নকল/বদল বন্ধ (ce5ed95-এর আগের মতো)
+    var mdSet = false      // setUserAgentMetadata বসানো আছে কিনা (বসানো না থাকলে মোবাইলে ছুঁই না)
     var deskScript: androidx.webkit.ScriptHandler? = null  // ডেস্কটপ-মোডের document-start স্ক্রিপ্ট (বন্ধ করলে সরানো হয়)
     var chatUrl = ""           // শেষ জানা চ্যাটের ঠিকানা (/chat/… বা /code/…)
     var limitHits = 0          // পরপর কয়বার লিমিটের লেখা দেখা গেছে (ভুল শনাক্ত এড়াতে ২ বার লাগে)
@@ -581,7 +583,7 @@ class MainActivity : Activity() {
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                 val u = r.url
                 when (u.scheme) {
-                    "http", "https" -> return false
+                    "http", "https" -> { authMode(t, u); return false }
                     "termux" -> {
                         // শুধু আমাদের নিজস্ব হোম পেজ থেকেই Termux কমান্ড চলবে; অন্য কোনো সাইট পারবে না
                         // v.url ডেটা-লোড করা পেজে অনির্ভরযোগ্য (null/about:blank হতে পারে), তাই ট্যাবের নিজের url-ও দেখি
@@ -612,7 +614,7 @@ class MainActivity : Activity() {
                 h.cancel()
                 if (e.url == v.url) v.loadDataWithBaseURL(e.url, Browse.errorHtml(e.url, "সংযোগ নিরাপদ নয় (SSL): সাইটের সার্টিফিকেট যাচাই করা যায়নি"), "text/html", "utf-8", e.url)
             }
-            override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
+            override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { try { authMode(t, Uri.parse(u)) } catch (_: Exception) {}; t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
@@ -665,10 +667,33 @@ class MainActivity : Activity() {
         return t
     }
 
+    /** Google লগইন পাতা (accounts.google.* / accounts.youtube.com)? */
+    private fun isGoogleAuth(u: Uri): Boolean { val h = (u.host ?: "").lowercase(); return h.startsWith("accounts.google.") || h == "accounts.youtube.com" }
+
+    /**
+     * Google লগইন পাতায় আমাদের সব বদল (UA, Client Hints, X-Requested-With, ডেস্কটপ-স্ক্রিপ্ট) বন্ধ — WebView-এর নিজস্ব অবস্থায় ফেরে,
+     * যেমনটা ডেস্কটপ-মোড কোড (ce5ed95) আসার আগে ছিল এবং লগইন চলত। পাতা ছাড়লে আবার আগের সেটিং ফেরে।
+     */
+    private fun authMode(t: Tab, u: Uri) {
+        val auth = isGoogleAuth(u)
+        if (auth == t.authSafe) return
+        if (auth) {
+            t.authSafe = true
+            val ds = t.web.settings
+            try { ds.userAgentString = WebSettings.getDefaultUserAgent(this) } catch (_: Exception) {}
+            try { if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, androidx.webkit.UserAgentMetadata.Builder().build()); t.mdSet = false } catch (_: Exception) {}
+            try { if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST)) androidx.webkit.WebSettingsCompat.setRequestedWithHeaderOriginAllowList(ds, setOf("*")) } catch (_: Exception) {}
+        } else {
+            t.authSafe = false
+            applyDesktop(t)
+        }
+    }
+
     /** WebView-এর UA থেকে "; wv" ও "Version/4.0" বাদ — Chrome মোবাইলের মতো দেখায় (Google লগইন WebView UA ঠেকায়) */
     private fun chromeUa(ua: String) = ua.replace("; wv)", ")").replace("Version/4.0 ", "")
 
     private fun applyDesktop(t: Tab) {
+        if (t.authSafe) return
         val ds = t.web.settings
         val ua = WebSettings.getDefaultUserAgent(this)
         //  আসল WebView-এর Chrome ভার্সনই ডেস্কটপ UA-তে বসে (পুরনো/ভুয়া ভার্সন দেখলে সাইট আটকায়)
@@ -684,20 +709,9 @@ class MainActivity : Activity() {
                         androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Google Chrome").setMajorVersion(major).setFullVersion(ver).build(),
                         androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build()))
                     .setFullVersion(ver).setPlatform("Linux").setPlatformVersion("6.5.0").setArchitecture("x86").setBitness(64).setModel("").setMobile(false).build()
-                else {
-                    //  মোবাইল মোডে আগে খালি Builder দিয়ে WebView-এর ডিফল্ট ব্র্যান্ড ("Android WebView") রয়ে যেত — Google লগইন সেটা দেখেই ঠেকায়।
-                    //  এখন Chrome মোবাইলের মতো ব্র্যান্ড-তালিকা (Chromium / Google Chrome) ও Android তথ্য বসে।
-                    val av = Regex("Android ([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "14"
-                    val pv = av.split('.').let { l -> (l + List(3) { "0" }).take(3).joinToString(".") }
-                    val model = Regex("Android [0-9.]+; ([^;)]*?)(?: Build/[^;)]*)?[;)]").find(ua)?.groupValues?.get(1)?.trim() ?: ""
-                    androidx.webkit.UserAgentMetadata.Builder()
-                        .setBrandVersionList(listOf(
-                            androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Chromium").setMajorVersion(major).setFullVersion(ver).build(),
-                            androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Google Chrome").setMajorVersion(major).setFullVersion(ver).build(),
-                            androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build()))
-                        .setFullVersion(ver).setPlatform("Android").setPlatformVersion(pv).setModel(model).setMobile(true).build()
-                }
-                androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, md)
+                else null
+                if (md != null) { androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, md); t.mdSet = true }
+                else if (t.mdSet) { androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, androidx.webkit.UserAgentMetadata.Builder().build()); t.mdSet = false }
             }
         } catch (_: Exception) {}
         //  Google লগইন "This browser or app may not be secure" দেয় WebView ধরলে: X-Requested-With হেডার (অ্যাপের প্যাকেজ নাম) বাদ
