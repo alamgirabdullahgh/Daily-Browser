@@ -97,6 +97,9 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
     private val tries = HashMap<String, MutableList<Long>>()
     private val warned = HashSet<String>()
 
+    /** ব্যবহারকারী/এজেন্ট স্পষ্ট করে লগইন চাইলে ওই ওয়ার্কস্পেসের আগের চেষ্টার গোনা ও সতর্কতা মুছে নতুন করে শুরু */
+    fun reset(siteId: String) { tries.remove(siteId); warned.remove("lim$siteId"); warned.remove(siteId) }
+
     private fun allow(siteId: String): Boolean {
         val now = System.currentTimeMillis()
         val l = tries.getOrPut(siteId) { mutableListOf() }
@@ -125,7 +128,8 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
             onSite -> siteJs(email, pw, google)
             else -> return   // অন্য কোনো ঠিকানায় পাসওয়ার্ড কখনো নয়
         }
-        if (!allow(siteId)) {
+        // সীমা শুধু পাসওয়ার্ড বসানোর ধাপে (ভুল পাসওয়ার্ডে অ্যাকাউন্ট আটকানো ঠেকাতে); সাইটের পাতায় বোতাম চাপায় ঝুঁকি নেই
+        if (!(google && onSite) && !allow(siteId)) {
             if (warned.add("lim$siteId")) toast("“${site.name}”: ১০ মিনিটে ১০ বার চেষ্টা হয়ে গেছে — অ্যাকাউন্ট আটকানো এড়াতে থামলাম। হাতে লগইন করুন")
             return
         }

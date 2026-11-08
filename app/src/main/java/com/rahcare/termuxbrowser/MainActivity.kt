@@ -1310,6 +1310,7 @@ class MainActivity : Activity() {
 
     /** আগে-থেকে-বানানো ওয়ার্কস্পেসে লগইনের জন্য: খোলা থাকলে রিলোড (যাতে অটো-লগইন চলে), না থাকলে নতুন ট্যাবে খোলে */
     fun loginOpen(id: String) {
+        AutoLogin.reset(id)
         val had = tabs.firstOrNull { it.site == id }
         val t = openSite(id) ?: return
         if (had != null) try { t.web.reload() } catch (_: Exception) {}
