@@ -76,6 +76,22 @@ object Updater {
         Info(tag.substringAfterLast('.').toInt(), "https://github.com/$REPO/releases/download/$tag/DailyBrowser.apk")
     } catch (e: Exception) { null }
 
+    /** GitHub-এর ডাউনলোড সার্ভার মাঝেমধ্যে 502/503/504 দেয় (সাময়িক); তাই ব্যর্থ হলে থেমে থেমে আবার চেষ্টা করে, সর্বোচ্চ ৮ বার */
+    fun openOk(url: String): HttpURLConnection {
+        var last = "?"
+        for (i in 1..8) {
+            try {
+                val cn = URL(url).openConnection() as HttpURLConnection
+                cn.connectTimeout = 15000; cn.readTimeout = 30000
+                val code = cn.responseCode
+                if (code == 200) return cn
+                last = "HTTP $code"; cn.disconnect()
+            } catch (e: java.io.IOException) { last = e.javaClass.simpleName }
+            try { Thread.sleep(1500L * i) } catch (_: Exception) {}
+        }
+        throw Exception("$last (৮ বার চেষ্টা)")
+    }
+
     /** APK নামিয়ে PackageInstaller-এ দেয়; ব্যাকগ্রাউন্ড থ্রেডে ডাকুন। ব্যর্থ হলে বার্তা ফেরত */
     fun install(c: Context, url: String, silent: Boolean, progress: (Int) -> Unit): String? {
         val inst = c.packageManager.packageInstaller
@@ -85,9 +101,7 @@ object Updater {
         val id = inst.createSession(p)
         return try {
             val s = inst.openSession(id)
-            val cn = URL(url).openConnection() as HttpURLConnection
-            cn.connectTimeout = 15000; cn.readTimeout = 30000
-            if (cn.responseCode != 200) throw Exception("HTTP ${cn.responseCode}")
+            val cn = openOk(url)
             val total = cn.contentLengthLong
             cn.inputStream.use { ins ->
                 s.openWrite("a", 0, -1).use { out ->

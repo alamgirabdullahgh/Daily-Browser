@@ -149,11 +149,8 @@ object AutoUpdate {
         val id = inst.createSession(p)
         try {
             val s = inst.openSession(id)
-            val cn = URL(url).openConnection() as HttpURLConnection
+            val cn = Updater.openOk(url)
             try {
-                cn.connectTimeout = 15000
-                cn.readTimeout = 30000
-                if (cn.responseCode != 200) throw Exception("HTTP ${cn.responseCode}")
                 cn.inputStream.use { ins ->
                     s.openWrite("a", 0, -1).use { out ->
                         val buf = ByteArray(32 * 1024)
