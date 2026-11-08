@@ -616,7 +616,7 @@ class MainActivity : Activity() {
             override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
             override fun onPageFinished(v: WebView, u: String) {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
-                if (u.startsWith("http")) { v.evaluateJavascript(Browse.KEEP_JS, null); v.evaluateJavascript(Browse.SHARE_JS, null) }
+                if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
                 // সাইটভেদে অটো-ক্লিক (যেমন claude.ai-এর অনুমতি-কার্ড) — সব AutoClick.kt-তে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
                 AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
                 AutoLogin.onPage(this@MainActivity, t.site, u, v) { m -> Toast.makeText(this@MainActivity, m, Toast.LENGTH_LONG).show() }
@@ -1066,7 +1066,6 @@ class MainActivity : Activity() {
     } catch (_: Exception) { r.cancel(); true }
 
     private fun jsPrompt(url: String?, msg: String?, def: String?, r: JsPromptResult): Boolean = try {
-        if (msg == "\u0001rcshare") { shareAudio(def ?: ""); r.confirm(""); return true }
         val e = EditText(this).apply { setText(def ?: ""); setSingleLine() }
         val l = LinearLayout(this).apply { setPadding(dp(20), dp(8), dp(20), 0); addView(e) }
         AlertDialog.Builder(this).setTitle(Uri.parse(url ?: "").host ?: "পেজ").setMessage(msg ?: "").setView(l)
@@ -1141,24 +1140,6 @@ class MainActivity : Activity() {
     private fun copyText(s: String) {
         (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("link", s))
         Toast.makeText(this, "কপি হয়েছে", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun shareAudio(json: String) {
-        try {
-            val o = org.json.JSONObject(json)
-            val url = o.optString("url")
-            if (url.startsWith("http")) { shareText(url); return }
-            val b64 = o.optString("b64"); if (b64.isEmpty()) return
-            val mime = o.optString("mime", "audio/mpeg").ifBlank { "audio/mpeg" }
-            val ext = when { mime.contains("mpeg") -> "mp3"; mime.contains("wav") -> "wav"; mime.contains("ogg") -> "ogg"; mime.contains("mp4") || mime.contains("aac") -> "m4a"; else -> mime.substringAfter('/').substringBefore(';').ifBlank { "mp3" } }
-            val dir = java.io.File(cacheDir, "share"); dir.mkdirs()
-            dir.listFiles()?.forEach { if (System.currentTimeMillis() - it.lastModified() > 3600 * 1000L) it.delete() }
-            val f = java.io.File(dir, "audio-" + System.currentTimeMillis() + "." + ext)
-            f.writeBytes(android.util.Base64.decode(b64, android.util.Base64.DEFAULT))
-            val uri = androidx.core.content.FileProvider.getUriForFile(this, packageName + ".fileshare", f)
-            val i = Intent(Intent.ACTION_SEND).setType(mime).putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            startActivity(Intent.createChooser(i, "শেয়ার করুন"))
-        } catch (_: Exception) { Toast.makeText(this, "শেয়ার করা যায়নি", Toast.LENGTH_SHORT).show() }
     }
 
     private fun shareText(s: String, subject: String? = null) {
