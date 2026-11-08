@@ -131,7 +131,7 @@ object AgentBus {
     /** হোমপেজের বড় ক্যাটাগরি (ক্লিক করলে খোলে): কোডিং (Claude/Gemini/Grok একসাথে) / অডিও / ইমেজ / ভিডিও এজেন্ট */
     val CATEGORIES = listOf("text", "audio", "image", "video")
     fun categoryLabel(g: String): String = when (g) {
-        "audio" -> "অডিও এজেন্ট"; "image" -> "ইমেজ এজেন্ট"; "video" -> "ভিডিও এজেন্ট"; else -> "কোডিং এজেন্ট"
+        "audio" -> "Audio Agent"; "image" -> "Image Agent"; "video" -> "Video Agent"; else -> "Coding Agent"
     }
 
     /** দেখানোর ক্রম */

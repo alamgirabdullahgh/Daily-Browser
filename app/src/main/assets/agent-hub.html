@@ -81,7 +81,10 @@ const curAg=()=>AGS.find(a=>a.id===SEL)||AGS.find(a=>a.id==="claude")||AGS[0];
 function drawSel(){const a=curAg();SEL=a.id;
   document.getElementById("selb").innerHTML=esc(a.label)+(a.ver?' <span class="v">'+esc(a.ver)+'</span>':'')+' ▾';
   const multi=new Set(AGS.map(x=>x.cat||'text')).size>1;let lg=null;
-  document.getElementById("selm").innerHTML=AGS.map(x=>{const g=x.cat||'text';let h='';if(multi&&g!==lg){lg=g;h='<div class="grp">'+esc(x.catLabel||'')+'</div>'}return h+'<div class="opt'+(x.id===SEL?' on':'')+'" data-id="'+esc(x.id)+'">'+esc(x.label)+(x.ver?' <span class="v">'+esc(x.ver)+'</span>':'')+'</div>'}).join("")}
+  const gcount={};AGS.forEach(x=>{const g=x.cat||'text';gcount[g]=(gcount[g]||0)+1});
+  // একটা ক্যাটাগরিতে মাত্র একটাই এজেন্ট থাকলে আলাদা হেডিং দেখানো হয় না — নইলে "অডিও" হেডিংয়ের ঠিক নিচে
+  // "অডিও এজেন্ট" অপশন এসে একই কথা দুইবার দেখাত। একাধিক থাকলে (যেমন কোডিং: Claude/Gemini/Grok) হেডিং থাকে।
+  document.getElementById("selm").innerHTML=AGS.map(x=>{const g=x.cat||'text';let h='';if(multi&&g!==lg&&gcount[g]>1){lg=g;h='<div class="grp">'+esc(x.catLabel||'')+'</div>'}return h+'<div class="opt'+(x.id===SEL?' on':'')+'" data-id="'+esc(x.id)+'">'+esc(x.label)+(x.ver?' <span class="v">'+esc(x.ver)+'</span>':'')+'</div>'}).join("")}
 function toggleSel(ev){ev.stopPropagation();document.getElementById("selm").classList.toggle("open")}
 document.addEventListener("click",ev=>{const m=document.getElementById("selm"),o=ev.target.closest&&ev.target.closest(".opt");
   if(o){SEL=o.dataset.id;try{localStorage.setItem("ag_sel",SEL)}catch(e){}drawSel()}m.classList.remove("open")});
