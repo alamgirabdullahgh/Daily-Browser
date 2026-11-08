@@ -133,7 +133,8 @@ const val D5 = "echo '▸ Node.js ইনস্টল'\npkg install -y nodejs || 
 
 /** দৈনিক রুকইয়াহ অ্যাপের ৬,২৩৬ আয়াতের অডিও (Alafasy, মনো, ৩২kbps, ২২.০৫kHz, গতি ×১.২০) ফোনেই নামিয়ে সূরাভিত্তিক zip বানায়।
  *  আবার চালালে যা হয়ে গেছে তা বাদ দিয়ে বাকিটা থেকে এগোয়। রিলিজে তোলা আলাদা ধাপ (টোকেন লাগে বলে এই কমান্ডে নেই)। */
-val AUDIO_PACK: String = """echo '▸ ধাপ ১/৩: টুল ইনস্টল'
+val AUDIO_PACK: String = """termux-wake-lock 2>/dev/null
+echo '▸ ধাপ ১/৩: টুল ইনস্টল'
 echo 'আগে সব প্যাকেজ আপগ্রেড হচ্ছে (Termux-এর লাইব্রেরি মেলাতে — নইলে ffmpeg চলে না)'
 pkg upgrade -y || exit 1
 pkg install -y ffmpeg zip || exit 1
@@ -223,7 +224,7 @@ object Store {
             "if curl -fsI --max-time 20 \"\$U/dists/stable/InRelease\" >/dev/null 2>&1; then cp \"\$S\" \"\$S.bak\" 2>/dev/null; echo \"deb \$U stable main\" > \"\$S\"; echo 'মিরর ডিফল্টে ফেরানো হয়েছে'; pkg update -y; " +
             "else echo 'ডিফল্ট মিরর এখন পৌঁছানো যাচ্ছে না — Termux-এ termux-change-repo চালিয়ে অন্য মিরর বাছুন'; exit 1; fi"),
         Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -f openbox; pkill -f tint2; pkill -f termux-x11; echo বন্ধ হয়েছে"),
-        Cmd("d15", "🎧 রুকইয়াহ অডিও প্যাক ডাউনলোড (৩২kbps×১.২০)", AUDIO_PACK),
+        Cmd("d15", "🎧 রুকইয়াহ অডিও প্যাক ডাউনলোড (৩২kbps×১.২০)", AUDIO_PACK, false),
     )
 
     fun all(c: Context): MutableList<Cmd> {
@@ -258,6 +259,8 @@ object Store {
         if (sp(c).getInt("ver", 1) < 10) { out.filter { it.id == "d15" && (it.script.contains("python3") || it.script.contains("parallel")) }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
         // v11: অডিও-প্যাক ফোনের চাপ কমিয়ে (২ সমান্তরাল, nice, ffmpeg ১ থ্রেড), সার্ভার-যাচাইয়ের ভুল সতর্কবার্তা ঠিক ও progress.log সহ
         if (sp(c).getInt("ver", 1) < 11) { out.filter { it.id == "d15" && it.script.contains("-P3") }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
+        // v12: অডিও-প্যাক Termux-এর খোলা পর্দায় চলবে (ব্যাকগ্রাউন্ড প্রক্রিয়া সিস্টেম মেরে ফেলছিল)
+        if (sp(c).getInt("ver", 1) < 12) { out.filter { it.id == "d15" }.forEach { o -> o.background = false; defaults.firstOrNull { it.id == "d15" }?.let { n -> if (!o.script.contains("termux-wake-lock")) o.script = n.script } }; changed = true }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -266,7 +269,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 11)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 12)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
