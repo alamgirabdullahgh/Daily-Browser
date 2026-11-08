@@ -108,15 +108,16 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         l.add(now); return true
     }
 
-    /** ওয়ার্কস্পেসে অটো-লগইন আপাতত বন্ধ (GitHub-এর অটো-লগইন আলাদা, GitConnect — সেটা চালু)। আবার চালাতে true করুন। */
-    const val WORKSPACE_AUTOLOGIN = false
+    /** কোডিং এজেন্টের (Claude/Grok ও অশ্রেণিভুক্ত) ওয়ার্কস্পেসে অটো-লগইন আপাতত বন্ধ; চ্যাট (Gemini), অডিও, ইমেজ, ভিডিও চালু।
+     *  GitHub-এর অটো-লগইন আলাদা (GitConnect) — সেটা চালু। আবার চালাতে CODING_AUTOLOGIN = true করুন। */
+    const val CODING_AUTOLOGIN = false
 
     /** প্রতিটি পাতা লোড শেষে ডাকা হয় (UI থ্রেডে)। */
     fun onPage(c: Context, siteId: String?, url: String, web: WebView, toast: (String) -> Unit) {
-        if (!WORKSPACE_AUTOLOGIN) return
         if (siteId == null || !url.startsWith("https://")) return
         val email = emailOf(c, siteId); if (email.isBlank()) return
         val site = Sites.all(c).firstOrNull { it.id == siteId } ?: return
+        if (!CODING_AUTOLOGIN && AgentBus.groupOf(AgentBus.agentOf(site) ?: "text") == "text") return
         val pw = Creds.get(c, email)
         val host = hostOf(url); val siteHost = hostOf(site.url)
         val google = isGoogle(email, site.url)
