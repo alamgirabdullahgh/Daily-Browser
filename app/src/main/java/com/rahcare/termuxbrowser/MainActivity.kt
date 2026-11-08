@@ -402,7 +402,7 @@ class MainActivity : Activity() {
         scheduleRefresh()
         askRunPermission()
         askBackgroundSetup()
-        handler.postDelayed({ if (!isFinishing) offerTermuxSetup() }, 2000L)
+        handler.postDelayed({ if (!isFinishing) { termuxHealthCheck(); offerTermuxSetup() } }, 2000L)
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         handler.removeCallbacks(updCheck); updCheck.run()
         handler.removeCallbacks(jobSaver); handler.postDelayed(jobSaver, 5000L)
@@ -789,6 +789,30 @@ class MainActivity : Activity() {
         try { requestPermissions(arrayOf("com.termux.permission.RUN_COMMAND"), 77) } catch (_: Exception) {}
     }
 
+    private var termuxProbed = false
+
+    /** অ্যাপ খোলার সময় একবার (আর সেটআপের পর ফিরলে) Termux-এর সংযোগ যাচাই: ডেটা ক্লিয়ার হয়ে allow-external-apps হারালে নিজে ধরে সেটআপ প্রস্তাব করে; ঠিক হলে আটকে থাকা কমান্ড নিজে আবার চালায় */
+    private fun termuxHealthCheck() {
+        if (!Runner.installed(this) || !Runner.hasPermission(this)) return
+        val pend = Runner.pending
+        val fresh = pend != null && System.currentTimeMillis() - Runner.pendingAt < 15 * 60 * 1000
+        if (termuxProbed && !fresh) return
+        if (Jobs.list.any { it.status == "running" }) return
+        termuxProbed = true
+        Thread {
+            val r = Runner.check(this)
+            runOnUiThread {
+                if (isFinishing) return@runOnUiThread
+                cur?.let { if (it.isHome) loadHome(it) }
+                if (r == null) {
+                    val id = if (fresh) pend?.id else null
+                    Runner.pending = null
+                    if (id != null) { Toast.makeText(this, "Termux সংযুক্ত হয়েছে — কমান্ডটা আবার চালানো হচ্ছে", Toast.LENGTH_SHORT).show(); runById(id) }
+                } else if (r == "perm" || r.contains("allow-external-apps", true)) offerTermuxSetup()
+            }
+        }.start()
+    }
+
     private var termuxSetupAsked = false
 
     /** সেটআপ কমান্ড ক্লিপবোর্ডে কপি করে Termux খোলে — ব্যবহারকারী শুধু Paste করে Enter চাপবে (Termux অন্য অ্যাপকে নিজের ফোল্ডারে লিখতে দেয় না, তাই এটুকু হাতে করতে হয়) */
@@ -854,31 +878,34 @@ class MainActivity : Activity() {
         }
     }
 
+    /** একটি কমান্ড (id ধরে) চালায় — হোমের বোতাম আর সংযোগ ঠিক হওয়ার পর স্বয়ংক্রিয় পুনঃচেষ্টা দুটোই এটা ব্যবহার করে */
+    private fun runById(id: String) {
+        val cmd = Store.all(this).firstOrNull { it.id == id }
+        if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
+        if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
+        if (cmd.id == "d10" && !x11Installed()) {
+            AlertDialog.Builder(this).setTitle("Termux:X11 অ্যাপও লাগবে")
+                .setMessage("কম্পিউটার মোডের পর্দা দেখাতে আলাদা Termux:X11 অ্যাপ দরকার। এখন নামিয়ে ইনস্টল করব? (ইনস্টল শেষে কম্পিউটার মোডে আবার চাপুন)")
+                .setPositiveButton("ইনস্টল") { _, _ -> installX11() }
+                .setNegativeButton("বাতিল", null).show()
+            return
+        }
+        val run = if (cmd.id == "d12") cmd.copy(script = cmd.script.replace("@@WEBPW@@", webPw())) else cmd
+        val (job, err) = Runner.run(this, run)
+        if (err == null && cmd.id == "d12") waitWebTerm()
+        if (err == null && cmd.id == "d10" && job != null) openX11WhenReady(job)
+        if (err != null) AlertDialog.Builder(this).setTitle("চালানো যায়নি").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
+        else if (job != null) openJobTab(job)
+        else Toast.makeText(this, "Termux স্ক্রিনে চলছে: ${cmd.title}", Toast.LENGTH_SHORT).show()
+    }
+
     private fun termuxAction(u: Uri, t: Tab) {
         val segs = u.pathSegments.ifEmpty { listOf(u.host ?: "") }
         val kind = u.host ?: ""
         val id = segs.lastOrNull() ?: ""
         when (kind) {
             "setup" -> setupTermux()
-            "run" -> {
-                val cmd = Store.all(this).firstOrNull { it.id == id }
-                if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
-                if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
-                if (cmd.id == "d10" && !x11Installed()) {
-                    AlertDialog.Builder(this).setTitle("Termux:X11 অ্যাপও লাগবে")
-                        .setMessage("কম্পিউটার মোডের পর্দা দেখাতে আলাদা Termux:X11 অ্যাপ দরকার। এখন নামিয়ে ইনস্টল করব? (ইনস্টল শেষে কম্পিউটার মোডে আবার চাপুন)")
-                        .setPositiveButton("ইনস্টল") { _, _ -> installX11() }
-                        .setNegativeButton("বাতিল", null).show()
-                    return
-                }
-                val run = if (cmd.id == "d12") cmd.copy(script = cmd.script.replace("@@WEBPW@@", webPw())) else cmd
-                val (job, err) = Runner.run(this, run)
-                if (err == null && cmd.id == "d12") waitWebTerm()
-                if (err == null && cmd.id == "d10" && job != null) openX11WhenReady(job)
-                if (err != null) AlertDialog.Builder(this).setTitle("চালানো যায়নি").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
-                else if (job != null) openJobTab(job)
-                else Toast.makeText(this, "Termux স্ক্রিনে চলছে: ${cmd.title}", Toast.LENGTH_SHORT).show()
-            }
+            "run" -> runById(id)
             "job" -> Jobs.find(id)?.let { openJobTab(it) }
             "clear" -> clearFinishedJobs()
             "kill" -> Jobs.find(id)?.let { killJob(it) }

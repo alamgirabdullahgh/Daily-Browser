@@ -9,7 +9,7 @@ class ResultReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
         if (i.getBooleanExtra("probe", false)) {
             val pb = i.getBundleExtra("result"); val pe = pb?.getString("errmsg", "") ?: ""
-            if (pb != null && pe.isBlank()) Store.prefs(c).edit().putBoolean("termux_ok", true).apply()
+            if (pb != null && pe.isBlank()) Store.prefs(c).edit().putBoolean("termux_ok", true).remove("termux_bad").apply()
             Runner.probeDone(i.getStringExtra("pid") ?: return, if (pb == null) "noresult" else pe)   // খালি = সফল
             return
         }
@@ -28,7 +28,7 @@ class ResultReceiver : BroadcastReceiver() {
             val code = b.getInt("exitCode", -1)
             val em = b.getString("errmsg", "") ?: ""
             // Termux ফলাফল ফেরত পাঠিয়েছে = সংযোগ কাজ করছে; এরপর সেটআপের তাগিদ আর দেখানো হয় না
-            if (em.isBlank()) Store.prefs(c).edit().putBoolean("termux_ok", true).apply()
+            if (em.isBlank()) Store.prefs(c).edit().putBoolean("termux_ok", true).remove("termux_bad").apply()
             // লাইভ স্ট্রিম শেষ পর্যন্ত না পৌঁছলে (অ্যাপ মিনিমাইজ ছিল) চূড়ান্ত আউটপুট এখান থেকে নিই
             val live = job.out.isNotBlank() && job.status != "running"
             if (!live) job.out = ""

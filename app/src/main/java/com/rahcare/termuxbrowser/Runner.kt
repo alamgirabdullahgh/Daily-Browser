@@ -29,7 +29,26 @@ object Runner {
     } catch (_: Exception) { false }
 
     /** Termux থেকে অন্তত একবার সাড়া পাওয়া গেছে (কোনো কাজ সফল হয়েছে) — মানে সংযোগ ঠিক আছে */
-    fun verified(c: Context) = Store.prefs(c).getBoolean("termux_ok", false) || Jobs.list.any { it.status == "ok" }
+    fun verified(c: Context): Boolean {
+        val sp = Store.prefs(c)
+        if (sp.getBoolean("termux_bad", false)) return false   // Termux-এর ডেটা মুছে/সেটিং হারিয়ে সংযোগ ভেঙেছে — আগের সফল কাজ দেখে ভুল করে "ঠিক আছে" ধরি না
+        return sp.getBoolean("termux_ok", false) || Jobs.list.any { it.status == "ok" }
+    }
+
+    /** সংযোগ ভাঙা ধরা পড়েছে (যেমন Termux-এর ডেটা ক্লিয়ার করায় allow-external-apps হারিয়েছে) */
+    fun markBad(c: Context) { Store.prefs(c).edit().putBoolean("termux_ok", false).putBoolean("termux_bad", true).apply() }
+
+    /** সংযোগ ভেঙে যাওয়ায় যে কমান্ডটা চালানো যায়নি; সেটআপ শেষ হলে অ্যাপ নিজে থেকে এটা আবার চালায় */
+    @Volatile var pending: Cmd? = null
+    @Volatile var pendingAt = 0L
+
+    /** ব্যাকগ্রাউন্ড থ্রেডে ডাকুন: ছোট কমান্ড পাঠিয়ে সংযোগ যাচাই। null = ঠিক; "perm" = allow-external-apps/অনুমতি নেই; "timeout" = সাড়া নেই */
+    fun check(c: Context, waitMs: Long = 6000): String? {
+        val r = probe(c, waitMs)
+        if (r == null) Store.prefs(c).edit().putBoolean("termux_ok", true).remove("termux_bad").apply()
+        else if (r == "perm" || r.contains("allow-external-apps", true)) markBad(c)
+        return r
+    }
 
     fun hasPermission(c: Context) =
         c.checkSelfPermission("com.termux.permission.RUN_COMMAND") == PackageManager.PERMISSION_GRANTED
@@ -141,13 +160,15 @@ object Runner {
         }
         if (last.isNotEmpty()) {
             val why = if (last == "perm" || last.contains("allow-external-apps", true))
-                "Termux বাইরের অ্যাপকে কমান্ড চালাতে দিচ্ছে না (allow-external-apps চালু নেই বা RUN_COMMAND অনুমতি নেই)।\n\nসেটআপ কমান্ডটা আমি ক্লিপবোর্ডে কপি করে দিয়েছি: Termux খুলে স্ক্রিনে লম্বা চেপে Paste করে Enter দিন, Termux পুরো বন্ধ করে আবার খুলুন, তারপর কমান্ডটা আবার চালান।"
+                "Termux বাইরের অ্যাপকে কমান্ড চালাতে দিচ্ছে না (allow-external-apps চালু নেই বা RUN_COMMAND অনুমতি নেই)।\n\nসেটআপ কমান্ডটা আমি ক্লিপবোর্ডে কপি করে Termux খুলে দিচ্ছি: সেখানে স্ক্রিনে লম্বা চেপে Paste করে Enter দিন, তারপর এই অ্যাপে ফিরে আসুন — কমান্ডটা নিজে থেকেই আবার চলবে।"
             else if (last == "timeout")
                 "৩ বার চেষ্টার পরও Termux সাড়া দেয়নি।\n\nTermux অ্যাপটা একবার খুলে আবার চেষ্টা করুন। ফোনের ব্যাটারি-সেটিংসে Termux-কে \"Unrestricted\" করা থাকলে সাধারণত এটা ঠিক থাকে।"
             else "Termux থেকে ত্রুটি: $last"
             if (last == "perm" || last.contains("allow-external-apps", true)) {
+                markBad(c); pending = cmd; pendingAt = System.currentTimeMillis()
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     try { (c.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText("termux-setup", SETUP_CMD)) } catch (_: Exception) {}
+                    openTermux(c)   // নিজেই Termux খুলে দিই — শুধু Paste + Enter বাকি
                 }
             }
             failJob(c, job, "$CONN_HEAD\n✗ সংযোগ হয়নি\n\n$why")
