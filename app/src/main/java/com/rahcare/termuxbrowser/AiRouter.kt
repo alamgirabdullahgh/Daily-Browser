@@ -23,7 +23,7 @@ object AiRouter {
     const val KEY = "__gemini_key__"
     @Volatile var lastErr = ""
 
-    class Result(val type: String, val items: List<AutoLogin.Item>, val names: List<String>, val question: String)
+    class Result(val type: String, val items: List<AutoLogin.Item>, val names: List<String>, val question: String, val answer: String = "")
 
     /** হাতে দেওয়া মডেল (খালি = স্বয়ংক্রিয়) */
     private fun manualModel(c: Context) = (Store.prefs(c).getString("ai_model", "") ?: "").trim()
@@ -90,13 +90,14 @@ object AiRouter {
         val have = Sites.all(c).joinToString(", ") { "\"" + it.name.replace("\"", "") + "\"" }
         return "You are the command interpreter of an Android browser app. The app has 'workspaces': each workspace is one website with its own separate, persistent login. " +
             "The user writes Bengali or English. Decide what they want and answer ONLY with JSON: " +
-            "{\"type\":\"create_workspaces|open_workspaces|clarify|pass_to_agent\",\"items\":[{\"name\":\"\",\"url\":\"\",\"email\":\"\"}],\"names\":[\"\"],\"question\":\"\"}. " +
+            "{\"type\":\"create_workspaces|open_workspaces|clarify|answer|pass_to_agent\",\"items\":[{\"name\":\"\",\"url\":\"\",\"email\":\"\"}],\"names\":[\"\"],\"question\":\"\",\"answer\":\"\"}. " +
             "Rules: create_workspaces = user wants new workspaces and/or to log in to sites with an email; produce one item per workspace (if a number like 12 is given, produce that many items with numbered names); " +
             "url must be the real site host (gemini->gemini.google.com, chatgpt->chatgpt.com, claude->claude.ai, grok->grok.com, perplexity->perplexity.ai, deepseek->chat.deepseek.com); " +
             "email only if the user wrote one, never invent; NEVER output any password. " +
             "open_workspaces = open already existing workspaces; names must come from this list: [" + have + "]. " +
             "clarify = something essential is missing; put one short Bengali question in 'question'. " +
-            "pass_to_agent = everything else (writing, coding, questions, work for AI agents); use it whenever unsure. Output JSON only."
+            "answer = the user asks a question, chats, wants an explanation, advice, translation, summary, writing, ideas or any help you can give yourself in text: write the full, helpful reply in 'answer' in the SAME language the user wrote (Bengali stays Bengali); plain text, no markdown tables. " +
+            "pass_to_agent = ONLY when the user explicitly wants a named AI agent/website to do it (Claude, ChatGPT, Grok, Perplexity, DeepSeek...), or needs real actions inside a website, or file/code work in their repository; when unsure between answer and pass_to_agent choose answer. Output JSON only."
     }
 
     /** ব্যাকগ্রাউন্ড থ্রেডে ডাকুন। ব্যর্থ হলে null (lastErr-এ কারণ) */
@@ -107,7 +108,7 @@ object AiRouter {
             val body = JSONObject()
                 .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt(c)))))
                 .put("contents", JSONArray().put(JSONObject().put("role", "user").put("parts", JSONArray().put(JSONObject().put("text", text.take(4000))))))
-                .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("temperature", 0))
+                .put("generationConfig", JSONObject().put("responseMimeType", "application/json").put("temperature", 0.3).put("maxOutputTokens", 8192))
             val deadline = System.currentTimeMillis() + 70000
             var resp: String? = null
             var tried = 0
@@ -150,7 +151,7 @@ object AiRouter {
             val ns = j.optJSONArray("names") ?: JSONArray()
             val names = (0 until ns.length()).map { ns.optString(it) }.filter { it.isNotBlank() }
             lastErr = ""
-            return Result(j.optString("type", "pass_to_agent"), items, names, j.optString("question"))
+            return Result(j.optString("type", "pass_to_agent"), items, names, j.optString("question"), j.optString("answer").trim())
         } catch (e: Exception) {
             lastErr = e.javaClass.simpleName + ": " + (e.message ?: "").take(60)
             return null

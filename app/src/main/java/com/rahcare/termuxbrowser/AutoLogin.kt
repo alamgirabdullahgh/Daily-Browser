@@ -328,6 +328,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
                     }
                 }
                 "clarify" -> if (r.question.isNotBlank()) done[id] = "প্রশ্ন: " + r.question
+                "answer" -> if (r.answer.isNotBlank()) done[id] = "🤖 Gemini:\n" + r.answer.take(6000)
             }
         }
         if (done.isEmpty()) return
