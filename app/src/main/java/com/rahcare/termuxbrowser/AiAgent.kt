@@ -79,7 +79,7 @@ object AiAgent {
         "5) For normal questions, chat, explanations, writing, translation just answer yourself. " +
         "6) Use hand_to_coding_agent ONLY when the user clearly wants a coding agent (Claude Code etc.) to do coding/repository work. " +
         "7) Final answer: short, in the user's language (Bengali stays Bengali), say exactly what you did and what is left. Ask a question only if it is truly impossible to continue. " +
-        "8) If the message starts with [ভয়েস] it was SPOKEN by voice and your answer will be read aloud: the speech recognizer may have small errors, so infer the intended meaning; reply in natural spoken sentences, no markdown, no lists, no emojis, no URLs, about 2 to 5 sentences unless the user asks for more detail."
+        "8) If the message starts with [ভয়েস] it was SPOKEN by voice and your answer will be read aloud: the speech recognizer may have small errors, so infer the intended meaning; reply in natural spoken sentences, no markdown, no lists, no emojis, no URLs, about 2 to 5 sentences unless the user asks for more detail. For greetings, small talk and general questions answer DIRECTLY without calling any tool (each tool call wastes the limited free quota)."
 
     private fun str(desc: String) = JSONObject().put("type", "string").put("description", desc)
     private fun fn(name: String, desc: String, props: JSONObject = JSONObject(), req: List<String> = emptyList()): JSONObject {

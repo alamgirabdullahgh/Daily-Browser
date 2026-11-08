@@ -77,14 +77,22 @@ object AiRouter {
             if (l.isNotEmpty()) { cached = l.joinToString(","); p.edit().putString("ai_models_cache", cached).putLong("ai_models_at", now).apply() }
         }
         val out = LinkedHashSet<String>()
-        manualModel(c).let { if (it.isNotBlank()) out.add(it) }
         lastModel(c).let { if (it.isNotBlank()) out.add(it) }
-        out.addAll(rank(cached.split(",").filter { it.isNotBlank() }).take(5))
+        out.addAll(rank(cached.split(",").filter { it.isNotBlank() }).take(12))
         out.add("gemini-flash-latest"); out.add("gemini-2.5-flash")
         return out.toList()
     }
 
     fun hasKey(c: Context) = Creds.has(c, KEY)
+
+    /** সীমা (429) শেষ হওয়া মডেল কিছুক্ষণ বাদ — অন্য মডেলে সরাসরি চলে যায় */
+    private fun coolLeft(c: Context, m: String): Long = (Store.prefs(c).getLong("cool_" + m, 0L) - System.currentTimeMillis()).coerceAtLeast(0L)
+    private fun setCool(c: Context, m: String, body: String) {
+        val perDay = body.contains("PerDay", true) || body.contains("per day", true)
+        val rd = Regex("\"retryDelay\"\\s*:\\s*\"(\\d+)").find(body)?.groupValues?.get(1)?.toLongOrNull()
+        val ms = if (perDay) 3L * 3600_000 else ((rd ?: 55L) + 5L) * 1000
+        Store.prefs(c).edit().putLong("cool_" + m, System.currentTimeMillis() + ms).apply()
+    }
 
     private fun prompt(c: Context): String {
         val have = Sites.all(c).joinToString(", ") { "\"" + it.name.replace("\"", "") + "\" (" + (try { URL(if (it.url.contains("://")) it.url else "https://" + it.url).host } catch (e: Exception) { "" }) + ")" }
@@ -110,11 +118,14 @@ object AiRouter {
             var tried = 0
             val retried = HashSet<String>()
             var stopAll = false
-            for (mdl in candidates(c, key)) {
+            var cooled = 0
+            val cl = candidates(c, key)
+            for (mdl in cl) {
+                if (coolLeft(c, mdl) > 0) { cooled++; continue }
                 var again = true
                 while (again) {
                 again = false
-                if (tried >= 6 || System.currentTimeMillis() > deadline) break
+                if (tried >= 14 || System.currentTimeMillis() > deadline) break
                 tried++
                 try {
                     val cn = URL(BASE + "models/" + mdl + ":generateContent").openConnection() as HttpURLConnection
@@ -131,8 +142,10 @@ object AiRouter {
                         Store.prefs(c).edit().putString("ai_model_ok", mdl).apply()
                         break
                     }
+                    val eb = try { cn.errorStream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: "" } catch (_: Exception) { "" }
                     cn.disconnect()
                     lastErr = "$mdl: HTTP $code"
+                    if (code == 429) setCool(c, mdl, eb)
                     if (code == 401 || code == 403) { stopAll = true; break }            // কী/অনুমতির সমস্যা: মডেল বদলে লাভ নেই
                     if (code == 404) Store.prefs(c).edit().remove("ai_models_cache").remove("ai_model_ok").apply() // তালিকা পুরোনো
                     // 400/404/429/5xx: পরের মডেল চেষ্টা
@@ -143,8 +156,12 @@ object AiRouter {
                 }
                 if (resp != null || stopAll) break
                 }
-                if (resp != null || stopAll || tried >= 6 || System.currentTimeMillis() > deadline) break
+                if (resp != null || stopAll || tried >= 14 || System.currentTimeMillis() > deadline) break
             }
+        if (resp == null && !stopAll) {
+            val left = cl.map { coolLeft(c, it) }.filter { it > 0 }.minOrNull()
+            if (left != null && (cooled > 0 || lastErr.contains("429"))) lastErr = "সব Gemini মডেলের বিনামূল্যের সীমা শেষ — প্রায় " + (left / 60000 + 1) + " মিনিট পরে আবার চলবে"
+        }
         return resp?.let { JSONObject(it) }
     }
 
@@ -188,11 +205,10 @@ object AiRouter {
                 "Google AI Studio (aistudio.google.com) থেকে বিনামূল্যে API কী নিন। কী ফোনে এনক্রিপ্টেড থাকে। হাব-চ্যাটের লেখা (পাসওয়ার্ড বাদে) Google-এর Gemini-তে যায়।\nখালি রেখে সেভ করলে কী মুছে যাবে।"
         })
         val k = EditText(a).apply { hint = "Gemini API কী"; inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        val m = EditText(a).apply { hint = "মডেল (খালি রাখুন = স্বয়ংক্রিয় সেরা মডেল)"; setText(Store.prefs(a).getString("ai_model", "") ?: ""); inputType = InputType.TYPE_CLASS_TEXT }
-        l.addView(k); l.addView(m)
+        l.addView(k)
         AlertDialog.Builder(a).setTitle("AI সহকারী (Gemini)").setView(l)
             .setPositiveButton("সংরক্ষণ") { _, _ ->
-                Store.prefs(a).edit().putString("ai_model", m.text.toString().trim()).apply()
+                Store.prefs(a).edit().remove("ai_model").apply()
                 val key = k.text.toString().trim()
                 if (key.isEmpty()) { if (hasKey(a)) { Creds.remove(a, KEY); Toast.makeText(a, "কী মুছে ফেলা হয়েছে", Toast.LENGTH_SHORT).show() } }
                 else { Creds.put(a, KEY, key); Toast.makeText(a, "সংরক্ষিত — এখন থেকে হাবের কথা AI বুঝবে", Toast.LENGTH_LONG).show() }
