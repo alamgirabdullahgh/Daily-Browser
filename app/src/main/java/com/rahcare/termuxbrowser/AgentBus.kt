@@ -102,9 +102,16 @@ object AgentBus {
         // আগে ধরে ফেললে নামে স্পষ্ট "ছবি"/"ইমেজ" লেখা থাকলেও ভুলভাবে অডিও ধরা পড়ত — তাই নাম সবার আগে।
         val name = s.name.lowercase()
         for ((k, r) in MEDIA_RX) if (r.containsMatchIn(name)) return k
-        //  নাম মিলল না হলে হোস্ট + পাথ দেখে (যেমন docs.google.com/videos = Google Vids, labs.google/fx/tools/flow)
-        val hay = try { val u = android.net.Uri.parse(s.url); name + " " + (u.host ?: "") + (u.path ?: "") } catch (_: Exception) { name }.lowercase()
-        for ((k, r) in MEDIA_RX) if (r.containsMatchIn(hay)) return k
+        val (host, path) = try { val u = android.net.Uri.parse(s.url); (u.host ?: "") to (u.path ?: "") } catch (_: Exception) { "" to "" }
+        // নামে না মিললে পাথ দেখে (যেমন docs.google.com/videos = Google Vids, aistudio.google.com/generate-image = ইমেজ,
+        // labs.google/fx/tools/flow = ভিডিও)। পাথ হোস্টের চেয়ে বেশি নির্দিষ্ট বলে হোস্টের আগে দেখা হয় —
+        // নইলে aistudio.google.com-এর মতো হোস্ট (অডিও ও ইমেজ দুটোতেই ব্যবহার হয়) পাথে স্পষ্ট "image" থাকলেও
+        // নিজের নামের মধ্যে থাকা "aistudio"-এর কারণে সবসময় অডিও হয়ে যেত।
+        val namePath = (name + " " + path).lowercase()
+        for ((k, r) in MEDIA_RX) if (r.containsMatchIn(namePath)) return k
+        //  শেষ ভরসা: শুধু হোস্ট (পাথে কিছু না থাকলে, যেমন খালি aistudio.google.com)
+        val hostOnly = host.lowercase()
+        for ((k, r) in MEDIA_RX) if (r.containsMatchIn(hostOnly)) return k
         val u = s.url.lowercase(); val n = name
         return when {
             "claude" in u || "claude" in n -> "claude"
