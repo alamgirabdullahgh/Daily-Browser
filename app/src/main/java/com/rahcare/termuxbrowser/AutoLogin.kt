@@ -45,6 +45,15 @@ function clk(b){try{b.click()}catch(e){}try{var o={bubbles:true,cancelable:true,
 function txt(e){return (e.innerText||e.textContent||'').replace(/\s+/g,' ').trim()}
 function q(s){var l=document.querySelectorAll(s);for(var i=0;i<l.length;i++)if(vis(l[i]))return l[i];return null}
 function btn(re){var l=document.querySelectorAll('button,[role=button],input[type=submit],a');for(var i=0;i<l.length;i++){var t=l[i].value||txt(l[i]);if(vis(l[i])&&re.test(t))return l[i]}return null}
+function clk1(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatchEvent(new MouseEvent('mousedown',o));b.dispatchEvent(new MouseEvent('mouseup',o))}catch(e){}try{b.click()}catch(e){}}
+function gbtn(){var l=document.querySelectorAll('button,[role=button],a,input[type=button],input[type=submit],div[tabindex],[data-provider],[data-testid]');
+for(var i=0;i<l.length;i++){var e=l[i];if(!vis(e))continue;
+var t=(e.value||txt(e)||'');if(t.length>40)continue;
+var a=(e.getAttribute('aria-label')||'')+' '+(e.getAttribute('data-provider')||'')+' '+(e.getAttribute('data-testid')||'');
+var tag=e.tagName.toLowerCase(),isb=(tag==='button'||e.getAttribute('role')==='button'||tag==='input');
+if(/(continue|sign|log|login|use).{0,14}google/i.test(t)||/(continue|sign|log|login|use).{0,14}google/i.test(a))return e;
+if(isb&&t.trim().toLowerCase()==='google')return e}
+return null}
 """
 
     private fun googleJs(email: String, pw: String) = """(function(em,pw){try{
@@ -56,7 +65,7 @@ if(n>45){clearInterval(t);window.__alRun=0;return}
 var body=(document.body&&document.body.innerText)||'';
 var pwd=q('input[name=Passwd],input[type=password]'),id=q('input#identifierId,input[type=email]');
 if(!pwd&&!id&&/2-Step Verification|Verify it.s you|not a robot|captcha|Couldn.t sign you in|may not be secure|Try again|Wrong password/i.test(body)){clearInterval(t);window.__alRun=0;window.__alResult='challenge';return}
-if(pwd){if(!f.p){f.p=1;setv(pwd,pw);setTimeout(function(){var b=q('#passwordNext button')||q('#passwordNext')||btn(/^(next|sign in)${'$'}/i);if(b)clk(b)},600)}return}
+if(pwd){if(!f.p){f.p=1;if(pw){setv(pwd,pw);setTimeout(function(){var b=q('#passwordNext button')||q('#passwordNext')||btn(/^(next|sign in)${'$'}/i);if(b)clk(b)},600)}}return}
 if(id){if(!f.e){f.e=1;setv(id,em);setTimeout(function(){var b=q('#identifierNext button')||q('#identifierNext')||btn(/^next${'$'}/i);if(b)clk(b)},600)}return}
 if(!pwd&&!id&&!f.c&&/signing back in|Review .{0,60}Privacy Policy|wants to access|Sign in to /i.test(body)){var cb=btn(/^(continue|allow|confirm)${'$'}/i);if(cb){f.c=1;setTimeout(function(){clk(cb)},700);return}}
 var acc=document.querySelectorAll('[data-identifier]');
@@ -71,15 +80,15 @@ if(window.__alSite)return 'running';window.__alSite=1;
 $COMMON
 var n=0,f={};
 var t=setInterval(function(){n++;
-if(n>25){clearInterval(t);window.__alSite=0;return}
+if(n>60){clearInterval(t);window.__alSite=0;return}
 var pe=q('input[type=password]');
 if(pe&&!g){var ue=q('input[type=email],input[autocomplete=username],input[name*=email i],input[name*=user i],input[name*=login i],input[id*=email i],input[id*=user i],input[type=text]');
  if(ue&&!f.u&&!ue.value){f.u=1;setv(ue,em)}
  if(!f.p){f.p=1;setv(pe,pw);setTimeout(function(){var b=q('button[type=submit],input[type=submit]')||btn(/^(sign in|log in|login|continue|submit)${'$'}/i);if(b)clk(b)},600)}return}
 if(!pe&&!g){var ue2=q('input[type=email],input[autocomplete=username],input[name*=email i],input[id*=email i]');
  if(ue2&&!f.u2){f.u2=1;setv(ue2,em);setTimeout(function(){var b=q('button[type=submit],input[type=submit]')||btn(/^(next|continue|sign in|log in|login)${'$'}/i);if(b)clk(b)},600);return}}
-if(g&&!f.g){var gb=btn(/(continue|sign in|log in|login)? ?(with|using)? ?google${'$'}/i);if(gb){f.g=1;clk(gb);return}}
-if(!f.s){var sb=btn(/^(sign in|log in|login|sign in to .{1,30})${'$'}/i);if(sb){f.s=1;clk(sb)}}
+if(g&&!f.g){var gb=gbtn();if(gb){f.g=1;clk1(gb);return}}
+if(!f.s){var sb=btn(/^(sign in|log in|login|sign in to .{1,30})${'$'}/i);if(sb){f.s=1;clk1(sb)}}
 },800);
 return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObject.quote(pw)},$google)"""
 
@@ -100,15 +109,18 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         val email = emailOf(c, siteId); if (email.isBlank()) return
         val site = Sites.all(c).firstOrNull { it.id == siteId } ?: return
         val pw = Creds.get(c, email)
-        if (pw.isEmpty()) {
-            if (warned.add(siteId)) toast("“${site.name}”: $email-এর পাসওয়ার্ড সংরক্ষিত নেই — মেনু → লগইন তথ্য থেকে দিন")
-            return
-        }
         val host = hostOf(url); val siteHost = hostOf(site.url)
         val google = isGoogle(email, site.url)
+        val onSite = host == siteHost || host.endsWith(".$siteHost")
+        // পাসওয়ার্ড না থাকলেও গুগল-মোডে ধাপগুলো যতদূর যায় চলবে ("Continue with Google" চাপা ও ইমেইল দেওয়া — এতে পাসওয়ার্ড লাগে না);
+        // সাধারণ ফর্মে পাসওয়ার্ড ছাড়া কিছুই করা যায় না
+        if (pw.isEmpty()) {
+            if (warned.add(siteId)) toast("“${site.name}”: $email-এর পাসওয়ার্ড সংরক্ষিত নেই — মেনু → লগইন তথ্য থেকে দিন (ইমেইল পর্যন্ত নিজে চলবে)")
+            if (!(google && (onSite || host == "accounts.google.com"))) return
+        }
         val js = when {
             google && host == "accounts.google.com" -> googleJs(email, pw)
-            host == siteHost || host.endsWith(".$siteHost") -> siteJs(email, pw, google)
+            onSite -> siteJs(email, pw, google)
             else -> return   // অন্য কোনো ঠিকানায় পাসওয়ার্ড কখনো নয়
         }
         if (!allow(siteId)) {
