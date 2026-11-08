@@ -29,13 +29,31 @@ object AiAgent {
     /** লেখা থেকে পাসওয়ার্ড নিয়ে Keystore-এ রাখে। ফেরত: (পাসওয়ার্ড-*** করা লেখা, এজেন্টের জন্য নোট) */
     fun prepare(c: Activity, raw: String): Pair<String, String> {
         val saved = linkedSetOf<String>()
-        val lines = raw.lines().map { ln ->
+        val rl = raw.lines()
+        val lines = ArrayList<String>()
+        var i = 0
+        while (i < rl.size) {
+            val ln = rl[i]
             val m = RE_LINE.find(ln)
-            if (m != null && AutoLogin.stripPw(ln) == ln) {
+            if (m != null && AutoLogin.stripPw(ln) == ln) {          // একই লাইনে: "ইমেইল পাসওয়ার্ড"
                 val em = m.groupValues[2]
                 if (Creds.put(c, em, m.groupValues[4])) saved.add(em)
-                m.groupValues[1] + em + m.groupValues[3] + "***"
-            } else ln
+                lines.add(m.groupValues[1] + em + m.groupValues[3] + "***"); i++; continue
+            }
+            val mm = RE_MAIL.find(ln)
+            if (mm != null && ln.replace(mm.value, "").trim().trim(':', '-', '|', '=').isBlank()) {   // শুধু ইমেইলের লাইন → পরের লাইনে পাসওয়ার্ড
+                var j = i + 1
+                while (j < rl.size && rl[j].isBlank()) j++
+                val nx = if (j < rl.size) rl[j].trim() else ""
+                val labeled = nx.isNotEmpty() && AutoLogin.stripPw(nx) != nx
+                val bare = nx.isNotEmpty() && nx.none { it.isWhitespace() } && !nx.contains('@') && nx.length in 4..80 && nx.none { it in '\u0980'..'\u09FF' }
+                if (labeled || bare) {
+                    val pw = if (labeled) AutoLogin.chatPw(nx) else nx
+                    if (pw.isNotEmpty() && Creds.put(c, mm.value, pw)) saved.add(mm.value)
+                    lines.add(ln); for (k in i + 1 until j) lines.add(rl[k]); lines.add("***"); i = j + 1; continue
+                }
+            }
+            lines.add(ln); i++
         }
         val joined = lines.joinToString("\n")
         val pwm = AutoLogin.pwByEmail(raw)

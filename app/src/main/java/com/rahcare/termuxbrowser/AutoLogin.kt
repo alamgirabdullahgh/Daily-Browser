@@ -58,6 +58,7 @@ var pwd=q('input[name=Passwd],input[type=password]'),id=q('input#identifierId,in
 if(!pwd&&!id&&/2-Step Verification|Verify it.s you|not a robot|captcha|Couldn.t sign you in|may not be secure|Try again|Wrong password/i.test(body)){clearInterval(t);window.__alRun=0;window.__alResult='challenge';return}
 if(pwd){if(!f.p){f.p=1;setv(pwd,pw);setTimeout(function(){var b=q('#passwordNext button')||q('#passwordNext')||btn(/^(next|sign in)${'$'}/i);if(b)clk(b)},600)}return}
 if(id){if(!f.e){f.e=1;setv(id,em);setTimeout(function(){var b=q('#identifierNext button')||q('#identifierNext')||btn(/^next${'$'}/i);if(b)clk(b)},600)}return}
+if(!pwd&&!id&&!f.c&&/signing back in|Review .{0,60}Privacy Policy|wants to access|Sign in to /i.test(body)){var cb=btn(/^(continue|allow|confirm)${'$'}/i);if(cb){f.c=1;setTimeout(function(){clk(cb)},700);return}}
 var acc=document.querySelectorAll('[data-identifier]');
 for(var i=0;i<acc.length;i++){if(vis(acc[i])&&(acc[i].getAttribute('data-identifier')||'').toLowerCase()===em.toLowerCase()){if(!f.a){f.a=1;clk(acc[i])}return}}
 if(!f.o){var o=btn(/use another account/i);if(o){f.o=1;clk(o)}}
@@ -89,7 +90,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         val now = System.currentTimeMillis()
         val l = tries.getOrPut(siteId) { mutableListOf() }
         l.removeAll { now - it > 10 * 60 * 1000L }
-        if (l.size >= 4) return false
+        if (l.size >= 10) return false
         l.add(now); return true
     }
 
@@ -111,7 +112,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
             else -> return   // অন্য কোনো ঠিকানায় পাসওয়ার্ড কখনো নয়
         }
         if (!allow(siteId)) {
-            if (warned.add("lim$siteId")) toast("“${site.name}”: ১০ মিনিটে ৪ বার চেষ্টা হয়ে গেছে — অ্যাকাউন্ট আটকানো এড়াতে থামলাম। হাতে লগইন করুন")
+            if (warned.add("lim$siteId")) toast("“${site.name}”: ১০ মিনিটে ১০ বার চেষ্টা হয়ে গেছে — অ্যাকাউন্ট আটকানো এড়াতে থামলাম। হাতে লগইন করুন")
             return
         }
         web.evaluateJavascript(js, null)
