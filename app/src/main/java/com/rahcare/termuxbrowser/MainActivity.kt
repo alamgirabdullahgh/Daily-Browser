@@ -666,32 +666,47 @@ class MainActivity : Activity() {
         return t
     }
 
+    /** Google লগইন মোড (মোবাইল মোডে): 0 = WebView-এর নিজস্ব; 1 = Chrome-সদৃশ (UA, Client Hints, X-Requested-With সব একসাথে মেলানো); 2 = ১ + window.chrome ইত্যাদি */
+    private fun gmode(): Int = if (desktop) 0 else Store.prefs(this).getInt("gmode", 0)
+
     private fun applyDesktop(t: Tab) {
         val ds = t.web.settings
         val ua = WebSettings.getDefaultUserAgent(this)
-        //  আসল WebView-এর Chrome ভার্সনই ডেস্কটপ UA-তে বসে (পুরনো/ভুয়া ভার্সন দেখলে সাইট আটকায়)
+        //  আসল WebView-এর Chrome ভার্সনই বসে (পুরনো/ভুয়া ভার্সন দেখলে সাইট আটকায়)
         val ver = Regex("Chrome/([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "131.0.0.0"
         val major = ver.substringBefore('.')
-        ds.userAgentString = if (desktop) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$ver Safari/537.36" else ua
-        //  Client Hints (Sec-CH-UA-Mobile / userAgentData.mobile) : শুধু UA বদলালে Google Vids-এর মতো সাইট এটা দেখেই "কম্পিউটারে যান" বলে
+        val gm = gmode()
+        fun bv(brand: String, mj: String, fv: String) = androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand(brand).setMajorVersion(mj).setFullVersion(fv).build()
+        val brands = listOf(bv("Chromium", major, ver), bv("Google Chrome", major, ver), bv("Not_A Brand", "24", "24.0.0.0"))
+        ds.userAgentString = if (desktop) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$ver Safari/537.36"
+            else if (gm >= 1) ua.replace("; wv)", ")").replace("Version/4.0 ", "") else ua
+        //  Client Hints: UA-র সাথে মিল থাকতে হবে (Google দুটো মিলিয়ে দেখে — মিল না থাকলে WebView/বট ধরে)
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
-                val md = if (desktop) androidx.webkit.UserAgentMetadata.Builder()
-                    .setBrandVersionList(listOf(
-                        androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Chromium").setMajorVersion(major).setFullVersion(ver).build(),
-                        androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Google Chrome").setMajorVersion(major).setFullVersion(ver).build(),
-                        androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand("Not_A Brand").setMajorVersion("24").setFullVersion("24.0.0.0").build()))
+                val md = if (desktop) androidx.webkit.UserAgentMetadata.Builder().setBrandVersionList(brands)
                     .setFullVersion(ver).setPlatform("Linux").setPlatformVersion("6.5.0").setArchitecture("x86").setBitness(64).setModel("").setMobile(false).build()
-                else null
+                else if (gm >= 1) {
+                    val av = Regex("Android ([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "14"
+                    val pv = av.split('.').let { l -> (l + List(3) { "0" }).take(3).joinToString(".") }
+                    val model = Regex("Android [0-9.]+; ([^;)]*?)(?: Build/[^;)]*)?[;)]").find(ua)?.groupValues?.get(1)?.trim() ?: ""
+                    androidx.webkit.UserAgentMetadata.Builder().setBrandVersionList(brands).setFullVersion(ver)
+                        .setPlatform("Android").setPlatformVersion(pv).setModel(model).setMobile(true).build()
+                } else null
                 if (md != null) { androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, md); t.mdSet = true }
                 else if (t.mdSet) { androidx.webkit.WebSettingsCompat.setUserAgentMetadata(ds, androidx.webkit.UserAgentMetadata.Builder().build()); t.mdSet = false }
             }
         } catch (_: Exception) {}
+        //  X-Requested-With (অ্যাপের প্যাকেজ নাম) — মোড ১/২-এ বাদ, মোড ০-তে WebView-এর স্বাভাবিক আচরণ
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST))
+                androidx.webkit.WebSettingsCompat.setRequestedWithHeaderOriginAllowList(ds, if (!desktop && gm >= 1) emptySet() else setOf("*"))
+        } catch (_: Exception) {}
         //  ডেস্কটপ লেআউট (width=1280), navigator.platform ও userAgentData: পেজ লোডের শুরুতেই বসে
         try {
             t.deskScript?.let { try { it.remove() } catch (_: Exception) {} }; t.deskScript = null
-            if (desktop && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
-                t.deskScript = WebViewCompat.addDocumentStartJavaScript(t.web, DesktopMode.JS, setOf("https://*", "http://*"))
+            val scr = if (desktop) DesktopMode.JS else if (gm >= 2) ChromeShim.JS else null
+            if (scr != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
+                t.deskScript = WebViewCompat.addDocumentStartJavaScript(t.web, scr, setOf("https://*", "http://*"))
         } catch (_: Exception) {}
     }
 
@@ -1954,6 +1969,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 2, 1, "রিলোড")
         if (cur?.web?.canGoForward() == true) m.menu.add(0, 12, 1, "এগিয়ে যান →")
         m.menu.add(0, 3, 2, "ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = desktop }
+        m.menu.add(0, 60, 2, "Google লগইন মোড: " + listOf("০ WebView", "১ Chrome-সদৃশ", "২ Chrome-সদৃশ+")[Store.prefs(this).getInt("gmode", 0).coerceIn(0, 2)] + (if (desktop) " (ডেস্কটপ মোড চালু — প্রযোজ্য নয়)" else ""))
         m.menu.add(0, 4, 3, "Termux কমান্ড ম্যানেজ")
         m.menu.add(0, 5, 4, "Termux সেটআপ ও অবস্থা")
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
@@ -2027,6 +2043,9 @@ class MainActivity : Activity() {
                 12 -> cur?.web?.goForward()
                 3 -> { desktop = !desktop; Store.prefs(this).edit().putBoolean("desktop", desktop).apply()
                     tabs.forEach { t -> applyDesktop(t) }; cur?.let { t -> if (!t.isHome) t.web.reload() } }
+                60 -> { val n = (Store.prefs(this).getInt("gmode", 0) + 1) % 3; Store.prefs(this).edit().putInt("gmode", n).apply()
+                    tabs.forEach { t -> applyDesktop(t) }
+                    Toast.makeText(this, listOf("মোড ০: WebView-এর নিজস্ব অবস্থা", "মোড ১: Chrome-সদৃশ (UA + হিন্ট + হেডার মিলানো)", "মোড ২: মোড ১ + window.chrome ইত্যাদি")[n] + "\nএখন নতুন ট্যাবে সাইন-ইন চেষ্টা করুন", Toast.LENGTH_LONG).show() }
                 4 -> manage()
                 5 -> status()
                 6 -> startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
