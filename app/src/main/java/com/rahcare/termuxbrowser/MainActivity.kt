@@ -1552,8 +1552,16 @@ class MainActivity : Activity() {
     private fun agentAuto() = Store.prefs(this).getBoolean("agent_auto", true)
     private val agentTick = object : Runnable {
         override fun run() {
-            try { if (agentAuto() && !agBusy && overlay == null) agentDispatch() } catch (_: Exception) {}
-            try { val tk = Secret.get(this@MainActivity); if (tk.isNotEmpty()) Thread { try { AutoLogin.pollBus(this@MainActivity, tk) { st -> openSite(st.id); refreshHomes() } } catch (_: Exception) {} }.start() } catch (_: Exception) {}
+            // আগে ব্রাউজার নিজে করার মতো কাজ (ওয়ার্কস্পেস কমান্ড) সেরে নেয়, তারপর বাকিগুলো এজেন্টকে পাঠায়
+            try {
+                val tk = Secret.get(this@MainActivity)
+                if (tk.isNotEmpty()) Thread {
+                    try { AutoLogin.pollTasks(this@MainActivity, tk) { st -> openSite(st.id); refreshHomes() } } catch (_: Exception) {}
+                    try { AutoLogin.pollBus(this@MainActivity, tk) { st -> openSite(st.id); refreshHomes() } } catch (_: Exception) {}
+                    runOnUiThread { try { if (agentAuto() && !agBusy && overlay == null) agentDispatch() } catch (_: Exception) {} }
+                }.start()
+                else if (agentAuto() && !agBusy && overlay == null) agentDispatch()
+            } catch (_: Exception) {}
             handler.postDelayed(this, 30000L)
         }
     }

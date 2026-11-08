@@ -187,6 +187,84 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         }
     }
 
+    // ───────────── হাব-চ্যাটের কথা থেকে সরাসরি ওয়ার্কস্পেস (কোনো এজেন্ট ছাড়াই) ─────────────
+    private val RE_MAIL = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
+    private val RE_URL = Regex("(?i)(https?://[^\\s,;|)]+|\\b(?:[a-z0-9-]+\\.)+(?:com|ai|io|org|net|app|co|dev|me|bd|xyz|tv)\\b(?:/[^\\s,;|)]*)?)")
+    private val RE_PW = Regex("(?i)(?:পাসওয়ার্ড|পাসওয়ার্ডটা|password|passwd|pass)\\s*(?:[:=]|হলো|হল|is)\\s*(\\S+)")
+    private val RE_TRIGGER = Regex("(?i)(ওয়ার্ক\\s?স্পেস|workspace|work\\s?space)")
+    private val KNOWN = mapOf("gemini" to "gemini.google.com", "জেমিনি" to "gemini.google.com", "chatgpt" to "chatgpt.com", "claude" to "claude.ai",
+        "ক্লদ" to "claude.ai", "grok" to "grok.com", "perplexity" to "perplexity.ai", "deepseek" to "chat.deepseek.com", "github" to "github.com")
+
+    class Parsed(val items: List<Item>, val redacted: String, val savedPw: Boolean, val note: String)
+
+    /** চ্যাটের লেখা থেকে ওয়ার্কস্পেসের তালিকা বানায়। পাসওয়ার্ড থাকলে আইটেমে নেয় আর লেখা থেকে মুছে (***) দেয়। null = এটা ওয়ার্কস্পেস-কমান্ড নয় */
+    fun parseChat(c: Context, text: String): Parsed? {
+        if (!RE_TRIGGER.containsMatchIn(text)) return null
+        val gMail = RE_MAIL.find(text)?.value ?: ""
+        val gPw = RE_PW.find(text)?.groupValues?.get(1)?.trim('.', ',', '।') ?: ""
+        val saved = Creds.emails(c)
+        val out = mutableListOf<Item>()
+        for (ln in text.lines()) {
+            val mail = RE_MAIL.find(ln)?.value ?: ""
+            val pw = RE_PW.find(ln)?.groupValues?.get(1)?.trim('.', ',', '।') ?: ""
+            val scan = RE_PW.replace(RE_MAIL.replace(ln, " "), " ")
+            val urls = RE_URL.findAll(scan).toList()
+            val em = mail.ifBlank { gMail }.ifBlank { if (saved.size == 1) saved[0] else "" }
+            val p = pw.ifBlank { if (mail.isBlank() || mail == gMail) gPw else "" }.ifBlank { null }
+            for (u in urls) {
+                var name = ""
+                if (urls.size == 1) name = scan.substring(0, u.range.first).trim().trimEnd(':', '-', '=', '|', '–').trim().takeIf { it.length in 1..30 && !RE_TRIGGER.containsMatchIn(it) } ?: ""
+                out.add(Item(name, u.value, em, p))
+            }
+            if (urls.isEmpty()) for ((k, v) in KNOWN) if (scan.contains(k, ignoreCase = true) && !RE_TRIGGER.matches(scan.trim())) out.add(Item(k, v, em, p))
+        }
+        val uniq = out.distinctBy { hostOf(it.url) + "|" + it.name + "|" + it.email }
+        if (uniq.isEmpty()) return null
+        var red = text
+        for (m in RE_PW.findAll(text).toList().reversed()) red = red.replaceRange(m.groups[1]!!.range, "***")
+        val noMail = uniq.count { it.email.isBlank() }
+        val note = if (noMail > 0) "${noMail}টির ইমেইল দেওয়া ছিল না — লগইন ছাড়াই খোলা হবে" else ""
+        return Parsed(uniq, red, gPw.isNotEmpty() || uniq.any { !it.pw.isNullOrEmpty() }, note)
+    }
+
+    /** bus.json-এর queued টাস্কে ওয়ার্কস্পেস-কথা থাকলে ব্রাউজারই করে ফেলে, এজেন্টকে পাঠায় না। ব্যাকগ্রাউন্ড থ্রেডে ডাকুন */
+    fun pollTasks(act: Activity, tok: String, open: (Site) -> Unit) {
+        val d = AgentBus.load(tok)?.d ?: return
+        val arr = d.optJSONArray("tasks") ?: return
+        val seen = pref(act).getStringSet("al_task_done", emptySet())!!.toMutableSet()
+        val hits = mutableListOf<Pair<Int, Parsed>>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            val id = o.optInt("id")
+            if (o.optString("status") != "queued" || id.toString() in seen) continue
+            val p = parseChat(act, o.optString("text")) ?: continue
+            hits.add(id to p)
+        }
+        for ((id, p) in hits) {
+            seen.add(id.toString()); pref(act).edit().putStringSet("al_task_done", seen).apply()
+            act.runOnUiThread {
+                val made = create(act, p.items)
+                Toast.makeText(act, "হাব-কমান্ড: ${made.size}টি ওয়ার্কস্পেস তৈরি — একে একে খুলে লগইন হবে" + (if (p.savedPw) "\nপাসওয়ার্ড ফোনে সংরক্ষিত; GitHub ইতিহাসে থাকতে পারে — ভবিষ্যতে মেনুতে দিন" else ""), Toast.LENGTH_LONG).show()
+                made.forEachIndexed { i, s -> act.window.decorView.postDelayed({ open(s) }, 4000L * (i + 1)) }
+            }
+        }
+        if (hits.isEmpty()) return
+        val byId = hits.toMap()
+        AgentBus.mutate(tok, "ws tasks done") { dd ->
+            val a = dd.optJSONArray("tasks") ?: return@mutate false
+            var ch = false
+            for (i in 0 until a.length()) {
+                val o = a.getJSONObject(i); val p = byId[o.optInt("id")] ?: continue
+                if (o.optString("status") != "queued") continue
+                o.put("status", "done").put("agent", "browser").put("progress", 100).put("updated", AgentBus.now())
+                    .put("text", p.redacted).put("note", "ব্রাউজার নিজে ${p.items.size}টি ওয়ার্কস্পেস বানিয়েছে" + (if (p.note.isNotEmpty()) " — ${p.note}" else ""))
+                AgentBus.ev(dd, "টাস্ক #${o.optInt("id")}: ওয়ার্কস্পেস ব্রাউজারই বানাল (${p.items.joinToString { it.name.ifBlank { hostOf(it.url) } }})")
+                ch = true
+            }
+            ch
+        }
+    }
+
     // ───────────── ডায়ালগ ─────────────
     private fun dp(a: Activity, v: Int) = (v * a.resources.displayMetrics.density).toInt()
 
