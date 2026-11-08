@@ -97,10 +97,15 @@ object AgentBus {
     fun agentOf(s: Site): String? {
         val ov = try { catOverride(s.id) } catch (_: Exception) { null }
         if (!ov.isNullOrEmpty()) return if (ov == "none") null else ov
-        //  নাম + হোস্ট + পাথ (যেমন docs.google.com/videos = Google Vids, labs.google/fx/tools/flow)
-        val hay = try { val u = android.net.Uri.parse(s.url); s.name + " " + (u.host ?: "") + (u.path ?: "") } catch (_: Exception) { s.name }.lowercase()
+        // আগে শুধু নাম দেখে মিলানো হয় (ব্যবহারকারীর নিজের দেওয়া নামই আসল কথা বলে)।
+        // একই হোস্ট (যেমন aistudio.google.com) অডিও আর ইমেজ দুই কাজেই ব্যবহার হতে পারে, তাই শুধু হোস্ট দেখে
+        // আগে ধরে ফেললে নামে স্পষ্ট "ছবি"/"ইমেজ" লেখা থাকলেও ভুলভাবে অডিও ধরা পড়ত — তাই নাম সবার আগে।
+        val name = s.name.lowercase()
+        for ((k, r) in MEDIA_RX) if (r.containsMatchIn(name)) return k
+        //  নাম মিলল না হলে হোস্ট + পাথ দেখে (যেমন docs.google.com/videos = Google Vids, labs.google/fx/tools/flow)
+        val hay = try { val u = android.net.Uri.parse(s.url); name + " " + (u.host ?: "") + (u.path ?: "") } catch (_: Exception) { name }.lowercase()
         for ((k, r) in MEDIA_RX) if (r.containsMatchIn(hay)) return k
-        val u = s.url.lowercase(); val n = s.name.lowercase()
+        val u = s.url.lowercase(); val n = name
         return when {
             "claude" in u || "claude" in n -> "claude"
             "gemini" in u || "gemini" in n -> "gemini"
