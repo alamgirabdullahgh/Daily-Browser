@@ -1,5 +1,5 @@
 <!doctype html><html lang="bn"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>এজেন্ট হাব</title>
+<title>Daily Agent</title>
 <style>
 :root{--bg:#f6f3ea;--card:#fff;--tx:#1b2b24;--mu:#6b7a72;--g:#0f5a3f;--bd:#e3ddcc;--w:#c98a00;--r:#b3261e}
 @media(prefers-color-scheme:dark){:root{--bg:#121a16;--card:#1b2620;--tx:#e8efe9;--mu:#93a39a;--g:#59c796;--bd:#2c3a33;--w:#e5b04a;--r:#f08a82}}
@@ -38,7 +38,7 @@ input#tok{flex:1;font:inherit;padding:9px;border:1px solid var(--bd);border-radi
 #setup button{font:inherit;border:0;border-radius:10px;background:var(--g);color:#fff;font-weight:700}
 #setup{padding:12px;display:none;flex-direction:column;gap:8px}
 </style></head><body>
-<header><span>🧭 এজেন্ট হাব</span><span style="display:flex;align-items:center;gap:10px"><span id="ts" style="font-weight:400;font-size:12px;color:var(--mu)"></span><button id="clr" type="button" onclick="clearChat()">🗑 চ্যাট সাফ</button></span></header>
+<header><span>🧭 Daily Agent</span><span style="display:flex;align-items:center;gap:10px"><span id="ts" style="font-weight:400;font-size:12px;color:var(--mu)"></span><button id="clr" type="button" onclick="clearChat()">🗑 চ্যাট সাফ</button></span></header>
 <div id="setup"><b>প্রথমবার: GitHub টোকেন দিন (শুধু এই ফোনে থাকবে)</b><input id="tok" type="password" placeholder="github_pat_..."><button onclick="saveTok()" style="padding:10px">সংরক্ষণ</button></div>
 <main id="m"><div id="tasks"></div><div><b style="font-size:13px">ঘটনা</b><div id="evs"></div></div></main>
 <footer id="f"><div id="chips"></div><div class="box"><textarea id="t" rows="3" oninput="grow(this);upd()" onkeyup="grow(this)" onpaste="setTimeout(()=>grow(this),0)" placeholder="Write a message  ·  একাধিক এজেন্টকে একসাথে: নতুন লাইনে @gemini … @image … @audio …"></textarea><div class="tools"><button class="ic" type="button" aria-label="ফাইল যোগ করুন" onclick="document.getElementById('fi').click()">+</button><input id="fi" type="file" multiple hidden onchange="addFiles(this)"><div class="selw"><button id="selb" type="button" aria-label="এজেন্ট বাছুন" onclick="toggleSel(event)">Claude ▾</button><div id="selm"></div></div><span class="sp"></span><button class="send" id="sb" type="button" aria-label="পাঠাও" onclick="send()" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button></div></div></footer>
