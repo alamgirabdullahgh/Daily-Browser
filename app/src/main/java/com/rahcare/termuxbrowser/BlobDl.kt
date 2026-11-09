@@ -26,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 class BlobBridge(private val ctx: Context, private val onMain: (() -> Unit) -> Unit) {
 
-    private class Job(val tmp: File, val out: FileOutputStream, val name: String, val born: Long) { var bytes = 0L }
+    private class Job(val tmp: File, val out: FileOutputStream, var name: String, val born: Long) { var bytes = 0L }
 
     private val jobs = ConcurrentHashMap<String, Job>()
     private val maxBytes = 200L * 1024 * 1024
@@ -45,7 +45,7 @@ class BlobBridge(private val ctx: Context, private val onMain: (() -> Unit) -> U
             if (bytes.size > maxBytes) { toast("ফাইল অনেক বড় (সর্বোচ্চ ২০০ MB)"); return }
             val tmp = File(ctx.cacheDir, "dl_" + System.nanoTime() + ".part")
             tmp.writeBytes(bytes)
-            val name = finalName(fileName(url, cd, m), m)
+            val name = finalName(fileName(url, cd, m), m, tmp)
             finish(tmp, name, m)
         } catch (e: Exception) { toast("ডাউনলোড ব্যর্থ") }
     }
@@ -58,6 +58,7 @@ class BlobBridge(private val ctx: Context, private val onMain: (() -> Unit) -> U
         try { jobs[tok] = Job(tmp, FileOutputStream(tmp), name, System.currentTimeMillis()) }
         catch (e: Exception) { toast("ডাউনলোড ব্যর্থ"); return }
         val js = "(function(T,U){var D=window.DailyDl;function F(m){try{D.fail(T,String(m))}catch(e){}}" +
+            "try{var A=document.querySelectorAll('a[download]'),k;for(k=0;k<A.length;k++){if(A[k].href===U&&A[k].getAttribute('download')){try{D.name(T,A[k].getAttribute('download'))}catch(e){}break}}}catch(e){}" +
             "try{fetch(U).then(function(r){return r.blob()}).then(function(b){var C=393216,i=0;" +
             "function next(){if(i>=b.size){D.done(T,b.type||'');return}" +
             "var rd=new FileReader();" +
@@ -81,13 +82,21 @@ class BlobBridge(private val ctx: Context, private val onMain: (() -> Unit) -> U
         } catch (e: Exception) { abort(tok, "ডাউনলোড ব্যর্থ") }
     }
 
+    /** পেজের <a download="..."> থেকে আসল ফাইলের নাম (থাকলে) */
+    @JavascriptInterface
+    fun name(tok: String, n: String?) {
+        val j = jobs[tok] ?: return
+        val c = (n ?: "").replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]"), "_").trim().take(120)
+        if (c.isNotBlank()) j.name = c
+    }
+
     @JavascriptInterface
     fun done(tok: String, mime: String?) {
         val j = jobs.remove(tok) ?: return
         try {
             j.out.close()
             val m = if (mime.isNullOrBlank()) null else mime
-            finish(j.tmp, finalName(j.name, m), m)
+            finish(j.tmp, finalName(j.name, m, j.tmp), m)
         } catch (e: Exception) { j.tmp.delete(); toast("ডাউনলোড ব্যর্থ") }
     }
 
@@ -119,15 +128,39 @@ class BlobBridge(private val ctx: Context, private val onMain: (() -> Unit) -> U
         return n.replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001f]"), "_").take(120)
     }
 
-    /** নামে এক্সটেনশন না থাকলে বা .bin হলে আসল MIME থেকে ঠিক করা */
-    private fun finalName(name: String, mime: String?): String {
-        val e = ext(mime) ?: return name
+    /** নামে এক্সটেনশন না থাকলে বা .bin হলে MIME থেকে, তাতেও না হলে ফাইলের ভেতরের লেখা দেখে ঠিক করা */
+    private fun finalName(name: String, mime: String?, tmp: File? = null): String {
         val dot = name.lastIndexOf('.')
-        return when {
-            dot < 0 -> "$name.$e"
-            name.substring(dot).equals(".bin", true) && !e.equals("bin", true) -> name.substring(0, dot) + "." + e
-            else -> name
-        }
+        val hasExt = dot > 0 && dot < name.length - 1
+        val isBin = hasExt && name.substring(dot).equals(".bin", true)
+        if (hasExt && !isBin) return name
+        val base = if (isBin) name.substring(0, dot) else name
+        val e = ext(mime)?.takeIf { !it.equals("bin", true) } ?: sniff(tmp) ?: return name
+        return "$base.$e"
+    }
+
+    /** ফাইলের শুরুর অংশ দেখে ধরন আন্দাজ (MIME যখন octet-stream) */
+    private fun sniff(f: File?): String? {
+        if (f == null || !f.exists()) return null
+        return try {
+            val buf = ByteArray(1024)
+            val n = f.inputStream().use { it.read(buf) }
+            if (n <= 0) return null
+            fun starts(b: String) = n >= b.length && String(buf, 0, b.length, Charsets.ISO_8859_1) == b
+            val head = String(buf, 0, n, Charsets.UTF_8).trimStart('\uFEFF', ' ', '\n', '\r', '\t')
+            when {
+                starts("%PDF") -> "pdf"
+                starts("PK") -> "zip"
+                starts("\u0089PNG") -> "png"
+                starts("\u00FF\u00D8\u00FF") -> "jpg"
+                starts("GIF8") -> "gif"
+                head.startsWith("<?xml") -> "xml"
+                head.startsWith("<!DOCTYPE html", true) || head.startsWith("<html", true) -> "html"
+                head.startsWith("{") || head.startsWith("[") -> "json"
+                (0 until n).none { buf[it].toInt() == 0 } -> "txt"
+                else -> null
+            }
+        } catch (_: Exception) { null }
     }
 
     private fun finish(tmp: File, name: String, mime: String?) {
