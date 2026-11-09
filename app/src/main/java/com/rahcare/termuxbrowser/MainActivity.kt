@@ -1183,7 +1183,10 @@ class MainActivity : Activity() {
             return
         }
         try {
-            val name = URLUtil.guessFileName(u, cd, mime)
+            // MIME "octet-stream" হলে Android নিজে .xml-কে .bin বানিয়ে দেয়; তাই আসল নামের এক্সটেনশন থাকলে সেটাই রাখা
+            val guessed = URLUtil.guessFileName(u, cd, mime)
+            val plain = URLUtil.guessFileName(u, cd, null)
+            val name = if (guessed.endsWith(".bin", true) && !plain.endsWith(".bin", true) && plain.contains('.')) plain else guessed
             val ck = cookiesFor(t, u)
             fun build(pub: Boolean): DownloadManager.Request {
                 val rq = DownloadManager.Request(Uri.parse(u))
