@@ -741,6 +741,7 @@ class MainActivity : Activity() {
     }
 
     private fun select(t: Tab) {
+        flushCookies()  // ওয়ার্কস্পেস বদলের সময় লগইন-কুকি ডিস্কে লিখে রাখি
         if (overlay == null) cur?.let { snap(it) }
         cur = t; hideSwitcher()
         content.removeAllViews()
@@ -2356,8 +2357,13 @@ class MainActivity : Activity() {
         } catch (_: Exception) {}
     }
 
+    private var cookieTick = 0
     private val jobSaver = object : Runnable {
-        override fun run() { Jobs.save(this@MainActivity); handler.postDelayed(this, 5000L) }
+        override fun run() {
+            Jobs.save(this@MainActivity)
+            if (++cookieTick % 6 == 0) flushCookies()  // প্রতি ~৩০ সেকেন্ডে লগইন-কুকি ডিস্কে
+            handler.postDelayed(this, 5000L)
+        }
     }
 
     @Deprecated("Deprecated in Java")
