@@ -55,6 +55,7 @@ class Tab(val web: WebView) {
 
 class MainActivity : Activity() {
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val blobBridge = BlobBridge(this) { r -> handler.post { r() } }
     companion object { const val REFRESH = "com.rahcare.termuxbrowser.REFRESH" }
 
     private val tabs = mutableListOf<Tab>()
@@ -568,6 +569,7 @@ class MainActivity : Activity() {
             } catch (_: Exception) { null }
         }
         val t = Tab(w)
+        w.addJavascriptInterface(blobBridge, "DailyDl")
         if (url != null && url.startsWith(AGENT)) w.addJavascriptInterface(VoiceBridge(this, { w.url?.startsWith(AGENT) == true }, { js -> w.evaluateJavascript(js, null) }), "DailyVoice")
         t.site = siteOk
         t.profileName = incName
@@ -1174,7 +1176,12 @@ class MainActivity : Activity() {
 
     /** ডাউনলোড: ফোনের পাবলিক Downloads ফোল্ডারে (না পারলে অ্যাপের নিজস্ব ফোল্ডারে), লগইন-কুকিসহ */
     private fun enqueueDownload(t: Tab?, u: String, ua: String?, cd: String?, mime: String?) {
-        if (u.startsWith("blob:") || u.startsWith("data:")) { Toast.makeText(this, "এই ধরনের (blob/data) ডাউনলোড এখনো সমর্থিত নয়", Toast.LENGTH_LONG).show(); return }
+        if (u.startsWith("data:")) { blobBridge.saveData(u, cd, mime); return }
+        if (u.startsWith("blob:")) {
+            val wv = t?.web
+            if (wv == null) Toast.makeText(this, "ডাউনলোড ব্যর্থ", Toast.LENGTH_SHORT).show() else blobBridge.start(wv, u, cd, mime)
+            return
+        }
         try {
             val name = URLUtil.guessFileName(u, cd, mime)
             val ck = cookiesFor(t, u)
