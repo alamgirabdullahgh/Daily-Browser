@@ -741,6 +741,7 @@ class MainActivity : Activity() {
     }
 
     private fun select(t: Tab) {
+        releaseBar()   // ঠিকানা-ঘরে ফোকাস থাকলে নতুন ট্যাবের ঠিকানা বসত না — পুরনো সাইটের লিংক থেকে যেত
         flushCookies()  // ওয়ার্কস্পেস বদলের সময় লগইন-কুকি ডিস্কে লিখে রাখি
         if (overlay == null) cur?.let { snap(it) }
         cur = t; hideSwitcher()
@@ -760,6 +761,12 @@ class MainActivity : Activity() {
         if (overlay != null) showSwitcher()
     }
 
+    /** ঠিকানা-ঘরের ফোকাস ও কীবোর্ড ছাড়ে, যাতে updateBar() এখনকার পাতার ঠিকানা বসাতে পারে */
+    private fun releaseBar() {
+        address.clearFocus()
+        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(address.windowToken, 0)
+    }
+
     private fun updateBar() {
         countBox.text = tabs.size.toString()
         refreshUpdBtn()
@@ -769,6 +776,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadHome(t: Tab) {
+        if (t === cur) releaseBar()
         t.url = Home.BASE; t.title = "Termux হোম"
         t.web.loadDataWithBaseURL(Home.BASE, Home.html(this), "text/html", "utf-8", null)
         if (t === cur) updateBar()
@@ -784,8 +792,7 @@ class MainActivity : Activity() {
             !q.contains(" ") && q.contains(".") -> "https://$q"
             else -> "https://www.google.com/search?q=" + Uri.encode(q)
         }
-        address.clearFocus()
-        (getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(address.windowToken, 0)
+        releaseBar()
         cur?.web?.loadUrl(u)
     }
 
