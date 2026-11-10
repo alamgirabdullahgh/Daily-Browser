@@ -272,7 +272,6 @@ object Store {
         // কম্পিউটার মোড আবার ব্রাউজারের ট্যাবেই চলবে (Termux পর্দায় নিয়ে যাবে না)
         if (sp(c).getInt("ver", 1) < 5) { out.filter { it.id == "d10" }.forEach { it.background = true }; changed = true }
         // পুরনো কম্পিউটার-মোড স্ক্রিপ্ট ব্যর্থ ইনস্টলেও X11 খুলত — নতুনটা বসাই
-        if (sp(c).getInt("ver", 1) < 6) { out.filter { it.id == "d10" }.forEach { it.script = DESKTOP }; changed = true }
         // v7: কমান্ডগুলো নিজে-সারানো প্রিলুড ও পূর্ণ কম্পিউটার-মোড স্ক্রিপ্টে নতুন করে বসানো
         if (sp(c).getInt("ver", 1) < 7) { out.forEach { o -> defaults.firstOrNull { it.id == o.id }?.let { n -> o.script = n.script; o.title = n.title } }; changed = true }
         // v8: অপরিবর্তিত ডিফল্ট কমান্ডগুলো ধাপভিত্তিক স্ক্রিপ্টে
