@@ -42,6 +42,8 @@ class Tab(val web: WebView) {
     var stuckHits = 0          // পরপর কয়বার "আটকে আছে" লেখা দেখা গেছে
     var stuckReloadAt = 0L     // শেষ স্বয়ংক্রিয় রিলোডের সময়
     var stuckReloads = 0       // একটানা কয়বার রিলোড করা হয়েছে (অনন্ত চক্র এড়াতে)
+    var desk = false       // এই ট্যাবে আলাদা ডেস্কটপ মোড (মূল ডেস্কটপ সুইচ বন্ধ থাকলেও)
+    var deskAuto = false   // Vids "computer-এ যান" পেজ দেখে নিজে চালু করা হয়ে গেছে কিনা (প্রতি ট্যাবে একবার)
     var mdSet = false      // setUserAgentMetadata বসানো আছে কিনা (বসানো না থাকলে মোবাইলে ছুঁই না)
     var deskScript: androidx.webkit.ScriptHandler? = null  // ডেস্কটপ-মোডের document-start স্ক্রিপ্ট (বন্ধ করলে সরানো হয়)
     var chatUrl = ""           // শেষ জানা চ্যাটের ঠিকানা (/chat/… বা /code/…)
@@ -637,6 +639,8 @@ class MainActivity : Activity() {
                 // সাইটভেদে অটো-ক্লিক (যেমন claude.ai-এর অনুমতি-কার্ড) — সব AutoClick.kt-তে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
                 AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
                 AutoLogin.onPage(this@MainActivity, t.site, u, v) { m -> Toast.makeText(this@MainActivity, m, Toast.LENGTH_LONG).show() }
+                // ওয়ার্কস্পেস-ট্যাবে Google সাইন-ইনের ধাপ (Sign in to Vids / Cancel / Skip) অটো-ক্লিক; Vids-এর "computer-এ যান" পেজে শুধু এই ট্যাবে ডেস্কটপ
+                if (t.site != null) { AutoClick.workspaceJs(u)?.let { js -> v.evaluateJavascript(js, null) }; checkVidsDesk(t, u) }
                 if (u.startsWith(AGENT)) {
                     // অ্যাপে সংরক্ষিত GitHub টোকেন (এনক্রিপ্টেড) থাকলে হাব-পেজকে একবার দিই; পেজে আগে থেকে টোকেন থাকলে ছুঁই না
                     val tk = Secret.get(this@MainActivity)
@@ -685,7 +689,24 @@ class MainActivity : Activity() {
     }
 
     /** Google লগইন মোড (মোবাইল মোডে): 0 = WebView-এর নিজস্ব; 1 = Chrome-সদৃশ (UA, Client Hints, X-Requested-With সব একসাথে মেলানো); 2 = ১ + window.chrome ইত্যাদি */
-    private fun gmode(): Int = if (desktop) 0 else Store.prefs(this).getInt("gmode", 0)
+    /** ডেস্কটপ মোড এই ট্যাবে চালু? — মূল সুইচ (সব ট্যাব) অথবা শুধু এই ট্যাবের নিজস্ব সুইচ */
+    private fun deskOf(t: Tab): Boolean = desktop || t.desk
+    private fun gmode(t: Tab): Int = if (deskOf(t)) 0 else Store.prefs(this).getInt("gmode", 0)
+
+    /** ওয়ার্কস্পেস-ট্যাবে Google Vids-এর "Go to vids.new on a computer" পেজ এলে শুধু ওই ট্যাবে ডেস্কটপ মোড চালু করে আবার লোড (প্রতি ট্যাবে একবার, অনন্ত চক্র নেই) */
+    private fun checkVidsDesk(t: Tab, u: String) {
+        if (t.site == null || deskOf(t) || t.deskAuto || !u.startsWith("https://docs.google.com")) return
+        val js = "(function(){try{return /go to vids\\.new on a computer|want to create a video/i.test((document.body&&document.body.innerText)||'')?'1':''}catch(e){return ''}})()"
+        val test = {
+            t.web.evaluateJavascript(js) { r ->
+                if (r != null && r.contains("1") && tabs.contains(t) && !deskOf(t) && !t.deskAuto) {
+                    t.deskAuto = true; t.desk = true; applyDesktop(t); t.web.reload()
+                    Toast.makeText(this, "এই পেজ ডেস্কটপ চায় — শুধু এই ট্যাবে ডেস্কটপ মোড চালু করলাম", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        test(); handler.postDelayed({ if (tabs.contains(t)) test() }, 2500L)
+    }
 
     private fun applyDesktop(t: Tab) {
         val ds = t.web.settings
@@ -693,15 +714,16 @@ class MainActivity : Activity() {
         //  আসল WebView-এর Chrome ভার্সনই বসে (পুরনো/ভুয়া ভার্সন দেখলে সাইট আটকায়)
         val ver = Regex("Chrome/([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "131.0.0.0"
         val major = ver.substringBefore('.')
-        val gm = gmode()
+        val gm = gmode(t)
+        val dk = deskOf(t)
         fun bv(brand: String, mj: String, fv: String) = androidx.webkit.UserAgentMetadata.BrandVersion.Builder().setBrand(brand).setMajorVersion(mj).setFullVersion(fv).build()
         val brands = listOf(bv("Chromium", major, ver), bv("Google Chrome", major, ver), bv("Not_A Brand", "24", "24.0.0.0"))
-        ds.userAgentString = if (desktop) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$ver Safari/537.36"
+        ds.userAgentString = if (dk) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/$ver Safari/537.36"
             else if (gm >= 1) ua.replace("; wv)", ")").replace("Version/4.0 ", "") else ua
         //  Client Hints: UA-র সাথে মিল থাকতে হবে (Google দুটো মিলিয়ে দেখে — মিল না থাকলে WebView/বট ধরে)
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
-                val md = if (desktop) androidx.webkit.UserAgentMetadata.Builder().setBrandVersionList(brands)
+                val md = if (dk) androidx.webkit.UserAgentMetadata.Builder().setBrandVersionList(brands)
                     .setFullVersion(ver).setPlatform("Linux").setPlatformVersion("6.5.0").setArchitecture("x86").setBitness(64).setModel("").setMobile(false).build()
                 else if (gm >= 1) {
                     val av = Regex("Android ([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "14"
@@ -717,12 +739,12 @@ class MainActivity : Activity() {
         //  X-Requested-With (অ্যাপের প্যাকেজ নাম) — মোড ১/২-এ বাদ, মোড ০-তে WebView-এর স্বাভাবিক আচরণ
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST))
-                androidx.webkit.WebSettingsCompat.setRequestedWithHeaderOriginAllowList(ds, if (!desktop && gm >= 1) emptySet() else setOf("*"))
+                androidx.webkit.WebSettingsCompat.setRequestedWithHeaderOriginAllowList(ds, if (!dk && gm >= 1) emptySet() else setOf("*"))
         } catch (_: Exception) {}
         //  ডেস্কটপ লেআউট (width=1280), navigator.platform ও userAgentData: পেজ লোডের শুরুতেই বসে
         try {
             t.deskScript?.let { try { it.remove() } catch (_: Exception) {} }; t.deskScript = null
-            val scr = if (desktop) DesktopMode.JS else if (gm >= 2) ChromeShim.JS else null
+            val scr = if (dk) DesktopMode.JS else if (gm >= 2) ChromeShim.JS else null
             if (scr != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
                 t.deskScript = WebViewCompat.addDocumentStartJavaScript(t.web, scr, setOf("https://*", "http://*"))
         } catch (_: Exception) {}
@@ -2047,7 +2069,8 @@ class MainActivity : Activity() {
         m.menu.add(0, 1, 0, "নতুন ট্যাব")
         m.menu.add(0, 2, 1, "রিলোড")
         if (cur?.web?.canGoForward() == true) m.menu.add(0, 12, 1, "এগিয়ে যান →")
-        m.menu.add(0, 3, 2, "ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = desktop }
+        m.menu.add(0, 3, 2, "ডেস্কটপ সাইট (সব ট্যাব)").apply { isCheckable = true; isChecked = desktop }
+        cur?.let { ct -> m.menu.add(0, 70, 2, if (desktop) "এই ট্যাবে ডেস্কটপ (সব ট্যাবে চালু আছে)" else "এই ট্যাবে ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = deskOf(ct); isEnabled = !desktop } }
         m.menu.add(0, 60, 2, "Google লগইন মোড: " + listOf("০ WebView", "১ Chrome-সদৃশ", "২ Chrome-সদৃশ+")[Store.prefs(this).getInt("gmode", 0).coerceIn(0, 2)] + (if (desktop) " (ডেস্কটপ মোড চালু — প্রযোজ্য নয়)" else ""))
         m.menu.add(0, 61, 3, "লগইন তথ্য (ইমেইল-পাসওয়ার্ড)")
         m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
@@ -2126,6 +2149,8 @@ class MainActivity : Activity() {
                 12 -> cur?.web?.goForward()
                 3 -> { desktop = !desktop; Store.prefs(this).edit().putBoolean("desktop", desktop).apply()
                     tabs.forEach { t -> applyDesktop(t) }; cur?.let { t -> if (!t.isHome) t.web.reload() } }
+                70 -> cur?.let { t -> if (!desktop) { t.desk = !t.desk; applyDesktop(t); if (!t.isHome) t.web.reload()
+                    Toast.makeText(this, if (t.desk) "শুধু এই ট্যাবে ডেস্কটপ মোড চালু" else "এই ট্যাবে ডেস্কটপ মোড বন্ধ", Toast.LENGTH_SHORT).show() } }
                 60 -> { val n = (Store.prefs(this).getInt("gmode", 0) + 1) % 3; Store.prefs(this).edit().putInt("gmode", n).apply()
                     tabs.forEach { t -> applyDesktop(t) }
                     Toast.makeText(this, listOf("মোড ০: WebView-এর নিজস্ব অবস্থা", "মোড ১: Chrome-সদৃশ (UA + হিন্ট + হেডার মিলানো)", "মোড ২: মোড ১ + window.chrome ইত্যাদি")[n] + "\nএখন নতুন ট্যাবে সাইন-ইন চেষ্টা করুন", Toast.LENGTH_LONG).show() }

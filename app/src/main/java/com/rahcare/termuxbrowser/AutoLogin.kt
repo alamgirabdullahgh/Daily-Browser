@@ -121,7 +121,8 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         val pw = Creds.get(c, email)
         val host = hostOf(url); val siteHost = hostOf(site.url)
         val google = isGoogle(email, site.url)
-        val onSite = host == siteHost || host.endsWith(".$siteHost")
+        val onSite = host == siteHost || host.endsWith(".$siteHost") ||
+            (google && siteHost.endsWith("google.com") && host.endsWith("google.com") && host != "accounts.google.com")   // যেমন Vids: workspace.google.com ↔ docs.google.com
         // পাসওয়ার্ড না থাকলেও গুগল-মোডে ধাপগুলো যতদূর যায় চলবে ("Continue with Google" চাপা ও ইমেইল দেওয়া — এতে পাসওয়ার্ড লাগে না);
         // সাধারণ ফর্মে পাসওয়ার্ড ছাড়া কিছুই করা যায় না
         if (pw.isEmpty()) {
@@ -150,16 +151,22 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
 
     // ───────────── ওয়ার্কস্পেস তৈরি ─────────────
     /** আইটেম অনুযায়ী ওয়ার্কস্পেস বানায় (সংখ্যার সীমা নেই), ইমেইল জোড়ে, পাসওয়ার্ড দেওয়া থাকলে Creds-এ রাখে। নতুন সাইটগুলো ফেরত দেয়। */
-    fun create(c: Context, items: List<Item>): List<Site> {
+    fun create(c: Context, items: List<Item>, useNames: Boolean = false): List<Site> {
         val list = Sites.all(c)
         val made = mutableListOf<Site>()
         val base = System.currentTimeMillis()
         items.forEachIndexed { i, it ->
             if (it.url.isBlank()) return@forEachIndexed
             val url = Sites.normalizeUrl(it.url)
-            val name = it.name.ifBlank { hostOf(url) }
-            val s = Site("s${base + i}", name, url)
+            // এজেন্ট/AI নাম ঠিক করে দেয় না: হাতে বানানোর মতোই নাম = সাইটের হোস্ট, লগইন করা জিমেইল এলে সেটাই নাম হয়ে যায়।
+            // শুধু ব্যবহারকারী নিজে হাতে নাম লিখলে (একসাথে-বানান ডায়ালগ, useNames = true) সেটা থাকে ও জিমেইল আর বসে না
+            val typed = useNames && it.name.isNotBlank()
+            val s = Site("s${base + i}", if (typed) it.name else hostOf(url), url)
             list.add(s); made.add(s)
+            val ed = Store.prefs(c).edit().putBoolean("autoname_${s.id}", !typed)
+            // নাম থেকে ক্যাটাগরি (অডিও/ইমেজ/ভিডিও) ধরা হতো; নাম না বসানোয় আগের ক্যাটাগরি স্থির করে রাখি যাতে হোমে ঠিক হেডিংয়ে থাকে
+            if (!typed && it.name.isNotBlank()) { val ag = AgentBus.agentOf(Site(s.id, it.name, url)); if (AgentBus.isMedia(ag)) ed.putString("agcat_${s.id}", ag) }
+            ed.apply()
             if (it.email.isNotBlank()) {
                 setEmail(c, s.id, it.email)
                 if (!it.pw.isNullOrEmpty()) Creds.put(c, it.email, it.pw)
@@ -485,7 +492,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         l.addView(t)
         AlertDialog.Builder(a).setTitle("একসাথে ওয়ার্কস্পেস + অটো-লগইন").setView(l)
             .setPositiveButton("বানান") { _, _ ->
-                val made = create(a, parse(t.text.toString()))
+                val made = create(a, parse(t.text.toString()), true)
                 Toast.makeText(a, "${made.size}টি ওয়ার্কস্পেস তৈরি — একে একে খুলে লগইন হবে", Toast.LENGTH_LONG).show()
                 made.forEachIndexed { i, s -> a.window.decorView.postDelayed({ open(s) }, 4000L * i) }
             }

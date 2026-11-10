@@ -222,6 +222,37 @@ var e=c[0],b=e.closest('button,[role="button"],a')||e;window.__acPrepN=(window._
         return """(function(mod){try{var el=document.activeElement;if(el){var o={key:'Enter',code:'Enter',keyCode:13,which:13,bubbles:true,cancelable:true,ctrlKey:mod,metaKey:mod};el.dispatchEvent(new KeyboardEvent('keydown',o));el.dispatchEvent(new KeyboardEvent('keypress',o));el.dispatchEvent(new KeyboardEvent('keyup',o));return 'enter'}return 'no'}catch(e){return 'err'}})($mod)"""
     }
 
+    // ───────────────────────── ৬) ওয়ার্কস্পেসে Google সাইন-ইনের ধাপ (Vids ইত্যাদি) ─────────────────────────
+    /** workspace.google.com/…vids…: "Sign in to Vids"; gds.google.com: রিকভারি-ফোন/ইমেইল পাতায় Cancel, হোম-অ্যাড্রেস/ফোন পাতায় Skip;
+     *  accounts.google.com: পাসকী/"Simplify your sign-in" পাতায় Not now। শুধু ওয়ার্কস্পেস-ট্যাবে চলে (MainActivity.workspaceJs)। ইমেইল-পাসওয়ার্ড বসানো AutoLogin-এর কাজ। */
+    private const val FLOW_JS = """(function(){try{
+if(window.__tbFlow)return 'running';window.__tbFlow=1;
+var vis=function(e){var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'};
+var txt=function(e){return (e.innerText||e.textContent||e.value||'').replace(/\s+/g,' ').trim()};
+var btn=function(re){var l=document.querySelectorAll('button,[role=button],a,input[type=submit],input[type=button]');for(var i=0;i<l.length;i++){var e=l[i];if(!vis(e)||e.disabled)continue;var t=txt(e);if(t.length<=40&&re.test(t))return e}return null};
+var clk=function(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatchEvent(new MouseEvent('mousedown',o));b.dispatchEvent(new MouseEvent('mouseup',o))}catch(e){}try{b.click()}catch(e){}};
+var h=location.hostname,n=0,done=0;
+var t=setInterval(function(){n++;if(n>14||done>=2){clearInterval(t);window.__tbFlow=0;return}
+var body=(document.body&&document.body.innerText)||'';var b=null;
+if(h==='gds.google.com'){
+ if(/always sign in|recovery (phone|email)/i.test(body))b=btn(/^(cancel|skip|not now|no thanks|maybe later)${'$'}/i);
+ else if(/home address|work address|add a phone|phone number|personalize/i.test(body))b=btn(/^(skip|not now|no thanks|maybe later|cancel)${'$'}/i);
+}else if(h==='accounts.google.com'){
+ if(/passkey|simplify your sign-in/i.test(body))b=btn(/^(not now|skip|no thanks|maybe later)${'$'}/i);
+}else if(/(^|\.)workspace\.google\.com${'$'}/.test(h)&&/vids/i.test(location.pathname)){
+ b=btn(/^sign in to vids${'$'}/i);
+}
+if(b){done++;clk(b)}
+},900);
+return 'started'}catch(e){return 'err'}})()"""
+
+    /** শুধু ওয়ার্কস্পেস-ট্যাবের জন্য: সাইন-ইনের ধাপে অটো-ক্লিক স্ক্রিপ্ট (না থাকলে null) */
+    fun workspaceJs(url: String): String? = when {
+        url.startsWith("https://gds.google.com/") || url.startsWith("https://accounts.google.com/") ||
+            url.startsWith("https://workspace.google.com/") -> FLOW_JS
+        else -> null
+    }
+
     /** পাতা লোড শেষে যে অটো-ক্লিক স্ক্রিপ্ট চলবে (না থাকলে null)। স্ক্রিপ্ট নিজেও হোস্ট যাচাই করে */
     fun pageJs(url: String): String? = when {
         url.startsWith("https://claude.ai/") || url.startsWith("https://www.claude.ai/") -> CLAUDE_PERMS_JS
