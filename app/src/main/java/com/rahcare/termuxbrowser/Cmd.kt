@@ -127,7 +127,7 @@ echo '▸ ধাপ ২/৪: X11 রিপো'
 if ok x11-repo; then echo 'আগেই আছে — বাদ'; else pkg install -y x11-repo || { echo 'x11-repo ইনস্টল ব্যর্থ — আবার চাপলে এখান থেকেই শুরু হবে'; exit 1; }; pkg update -y || exit 1; fi
 echo '▸ ধাপ ৩/৪: ডেস্কটপ প্যাকেজ'
 need=''
-for p in termux-x11-nightly openbox tint2 xterm pcmanfm dbus; do ok §p || need="§need §p"; done
+for p in termux-x11-nightly openbox tint2 xterm pcmanfm dbus; do ok §p || { [ "§p" = xterm ] && ok aterm; } || need="§need §p"; done
 ok xorg-xsetroot || pkg install -y xorg-xsetroot >/dev/null 2>&1 || true
 if [ -z "§need" ]; then echo 'সব প্যাকেজ আগেই আছে — বাদ'; else echo "বাকি প্যাকেজ:§need"; pkg install -y §need || { echo 'ডেস্কটপ প্যাকেজ ইনস্টল ব্যর্থ — আবার চাপলে বাকিটা থেকেই শুরু হবে'; exit 1; }; fi
 command -v termux-x11 >/dev/null 2>&1 || { echo 'termux-x11 কমান্ড পাওয়া যায়নি'; exit 1; }
@@ -340,6 +340,11 @@ object Store {
             out.filter { it.id == "d11" }.forEach { o -> defaults.firstOrNull { it.id == "d11" }?.let { n -> o.script = n.script } }
             changed = true
         }
+        // v17: xterm-এর বদলে aterm বসলে ওটাকেও "আছে" ধরা (নইলে প্রতিবার xterm আবার ইনস্টলের চেষ্টা হতো)
+        if (sp(c).getInt("ver", 1) < 17) {
+            out.filter { it.id == "d10" }.forEach { o -> defaults.firstOrNull { it.id == "d10" }?.let { n -> o.script = n.script } }
+            changed = true
+        }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -348,7 +353,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 16)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 17)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
