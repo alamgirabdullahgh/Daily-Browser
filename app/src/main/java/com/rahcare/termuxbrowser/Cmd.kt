@@ -119,14 +119,20 @@ fun pre(label: String = "▸ প্যাকেজ আপডেট ও আপগ
     "pkg upgrade -y || exit 1\n").replace("SS", "\$")
 
 /** কম্পিউটার মোড: শুরু থেকে শেষ — আপডেট/আপগ্রেড, x11-repo, ডেস্কটপ প্যাকেজ, সার্ভার চালু; কোনো ধাপ ব্যর্থ হলে বাকি ধাপ চলে না */
-val DESKTOP: String = pre("▸ ধাপ ১/৪: প্যাকেজ আপডেট ও আপগ্রেড") + """echo '▸ ধাপ ২/৪: X11 রিপো'
-pkg install -y x11-repo || { echo 'x11-repo ইনস্টল ব্যর্থ'; exit 1; }
-pkg update -y || exit 1
+val DESKTOP: String = """if [ -n "§(find §HOME/.cm_upg -mmin -360 2>/dev/null)" ]; then echo '▸ ধাপ ১/৪: আপডেট ও আপগ্রেড আগেই হয়েছে — বাদ'; termux-wake-lock 2>/dev/null; else
+""".replace('§', '$') + pre("▸ ধাপ ১/৪: প্যাকেজ আপডেট ও আপগ্রেড") + """touch §HOME/.cm_upg
+fi
+ok() { dpkg -s "§1" 2>/dev/null | grep -q '^Status: install ok installed'; }
+echo '▸ ধাপ ২/৪: X11 রিপো'
+if ok x11-repo; then echo 'আগেই আছে — বাদ'; else pkg install -y x11-repo || { echo 'x11-repo ইনস্টল ব্যর্থ — আবার চাপলে এখান থেকেই শুরু হবে'; exit 1; }; pkg update -y || exit 1; fi
 echo '▸ ধাপ ৩/৪: ডেস্কটপ প্যাকেজ'
-pkg install -y termux-x11-nightly openbox tint2 xterm pcmanfm dbus || { echo 'ডেস্কটপ প্যাকেজ ইনস্টল ব্যর্থ'; exit 1; }
+need=''
+for p in termux-x11-nightly openbox tint2 xterm pcmanfm dbus; do ok §p || need="§need §p"; done
+if [ -z "§need" ]; then echo 'সব প্যাকেজ আগেই আছে — বাদ'; else echo "বাকি প্যাকেজ:§need"; pkg install -y §need || { echo 'ডেস্কটপ প্যাকেজ ইনস্টল ব্যর্থ — আবার চাপলে বাকিটা থেকেই শুরু হবে'; exit 1; }; fi
 command -v termux-x11 >/dev/null 2>&1 || { echo 'termux-x11 কমান্ড পাওয়া যায়নি'; exit 1; }
 echo '▸ ধাপ ৪/৪: ডেস্কটপ চালু'
-pkill -f termux-x11 2>/dev/null; pkill -x openbox 2>/dev/null; pkill -x tint2 2>/dev/null; sleep 1
+# pkill -f এখানে নিজের স্ক্রিপ্টকেই মেরে ফেলত (signal 15); তাই নাম ভেঙে লেখা, আর শুধু সঠিক নামে
+pkill -f "com.termux.x11.CmdEntry""Point" 2>/dev/null; pkill -x openbox 2>/dev/null; pkill -x tint2 2>/dev/null; sleep 1
 export XDG_RUNTIME_DIR=§{TMPDIR:-§PREFIX/tmp}
 (termux-x11 :0 >/dev/null 2>&1 &)
 sleep 3
@@ -225,7 +231,7 @@ object Store {
             "if curl -s -o /dev/null --max-time 5 -u tb:@@WEBPW@@ http://127.0.0.1:7681/; then echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; else echo 'ttyd চালু হয়নি — উপরের ত্রুটি দেখুন'; exit 1; fi"),
         Cmd("d13", "⏹ আটকে থাকা প্যাকেজ কাজ থামান",
             "pkill -x apt 2>/dev/null; pkill -x apt-get 2>/dev/null; pkill -x dpkg 2>/dev/null; sleep 1; dpkg --configure -a --force-confold 2>&1 | tail -5; echo 'থামানো হয়েছে — এখন নতুন কমান্ড চালাতে পারেন'"),
-        Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -f openbox; pkill -f tint2; pkill -f termux-x11; echo বন্ধ হয়েছে"),
+        Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -x openbox; pkill -x tint2; pkill -f \"com.termux.x11.CmdEntry\"\"Point\"; echo বন্ধ হয়েছে"),
         // Daily Agent ডাউনলোড ও আপডেট: Termux লাগে না; সর্বশেষ রিলিজের APK নামিয়ে ইনস্টলে দেয় (MainActivity.installAgent)
         Cmd("d16", "🤖 Daily Agent ডাউনলোড ও আপডেট", "", false),
         Cmd("d15", "🎧 রুকইয়াহ অডিও প্যাক ডাউনলোড (৩২kbps×১.২০)", AUDIO_PACK, false),
@@ -272,6 +278,11 @@ object Store {
             out.filter { it.id in setOf("d3", "d4", "d5", "d6", "d12") && !it.script.contains("pkg upgrade") }.forEach { o -> defaults.firstOrNull { it.id == o.id }?.let { n -> o.script = n.script } }
             changed = true
         }
+        // v14: কম্পিউটার মোড থেমে গেলে আবার চাপলে যেখান থেকে থেমেছিল সেখান থেকে এগোয় (অডিও-প্যাকের মতো); নিজের প্রক্রিয়া মারার ভুল (signal 15) ঠিক
+        if (sp(c).getInt("ver", 1) < 14) {
+            out.filter { it.id == "d10" || it.id == "d11" }.forEach { o -> defaults.firstOrNull { it.id == o.id }?.let { n -> o.script = n.script } }
+            changed = true
+        }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -280,7 +291,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 13)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 14)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
