@@ -43,6 +43,7 @@ class Tab(val web: WebView) {
     var stuckReloadAt = 0L     // শেষ স্বয়ংক্রিয় রিলোডের সময়
     var stuckReloads = 0       // একটানা কয়বার রিলোড করা হয়েছে (অনন্ত চক্র এড়াতে)
     var desk = false       // এই ট্যাবে আলাদা ডেস্কটপ মোড (মূল ডেস্কটপ সুইচ বন্ধ থাকলেও)
+    var flowShown = ""    // অটো-ক্লিকের শেষ দেখানো বার্তা
     var deskAuto = false   // Vids "computer-এ যান" পেজ দেখে নিজে চালু করা হয়ে গেছে কিনা (প্রতি ট্যাবে একবার)
     var mdSet = false      // setUserAgentMetadata বসানো আছে কিনা (বসানো না থাকলে মোবাইলে ছুঁই না)
     var deskScript: androidx.webkit.ScriptHandler? = null  // ডেস্কটপ-মোডের document-start স্ক্রিপ্ট (বন্ধ করলে সরানো হয়)
@@ -640,7 +641,17 @@ class MainActivity : Activity() {
                 AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
                 AutoLogin.onPage(this@MainActivity, t.site, u, v) { m -> Toast.makeText(this@MainActivity, m, Toast.LENGTH_LONG).show() }
                 // ওয়ার্কস্পেস-ট্যাবে Google সাইন-ইনের ধাপ (Sign in to Vids / Cancel / Skip) অটো-ক্লিক; Vids-এর "computer-এ যান" পেজে শুধু এই ট্যাবে ডেস্কটপ
-                if (t.site != null) { AutoClick.workspaceJs(u)?.let { js -> v.evaluateJavascript(js, null) }; checkVidsDesk(t, u) }
+                AutoClick.workspaceJs(u)?.let { js ->
+                    v.evaluateJavascript(js, null)
+                    // স্ক্রিপ্ট কী করল তা ছোট বার্তায় (চাপলাম / বোতাম পাইনি) — কাজ না করলে কারণ বোঝার জন্য
+                    for (d in longArrayOf(3500L, 14500L)) handler.postDelayed({
+                        if (tabs.contains(t)) v.evaluateJavascript("(function(){try{return window.__tbFlowLog||''}catch(e){return ''}})()") { r ->
+                            val m = Sites.unquote(r ?: "")
+                            if (m.isNotBlank() && m != t.flowShown) { t.flowShown = m; Toast.makeText(this@MainActivity, "অটো-ক্লিক: $m", Toast.LENGTH_SHORT).show() }
+                        }
+                    }, d)
+                }
+                checkVidsDesk(t, u)
                 if (u.startsWith(AGENT)) {
                     // অ্যাপে সংরক্ষিত GitHub টোকেন (এনক্রিপ্টেড) থাকলে হাব-পেজকে একবার দিই; পেজে আগে থেকে টোকেন থাকলে ছুঁই না
                     val tk = Secret.get(this@MainActivity)
@@ -693,9 +704,9 @@ class MainActivity : Activity() {
     private fun deskOf(t: Tab): Boolean = desktop || t.desk
     private fun gmode(t: Tab): Int = if (deskOf(t)) 0 else Store.prefs(this).getInt("gmode", 0)
 
-    /** ওয়ার্কস্পেস-ট্যাবে Google Vids-এর "Go to vids.new on a computer" পেজ এলে শুধু ওই ট্যাবে ডেস্কটপ মোড চালু করে আবার লোড (প্রতি ট্যাবে একবার, অনন্ত চক্র নেই) */
+    /** Google Vids-এর "Go to vids.new on a computer" পেজ এলে শুধু ওই ট্যাবে ডেস্কটপ মোড চালু করে আবার লোড (প্রতি ট্যাবে একবার, অনন্ত চক্র নেই) */
     private fun checkVidsDesk(t: Tab, u: String) {
-        if (t.site == null || deskOf(t) || t.deskAuto || !u.startsWith("https://docs.google.com")) return
+        if (deskOf(t) || t.deskAuto || !u.startsWith("https://docs.google.com")) return
         val js = "(function(){try{return /go to vids\\.new on a computer|want to create a video/i.test((document.body&&document.body.innerText)||'')?'1':''}catch(e){return ''}})()"
         val test = {
             t.web.evaluateJavascript(js) { r ->

@@ -231,9 +231,10 @@ var vis=function(e){var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)r
 var txt=function(e){return (e.innerText||e.textContent||e.value||'').replace(/\s+/g,' ').trim()};
 var btn=function(re){var l=document.querySelectorAll('button,[role=button],a,input[type=submit],input[type=button]');for(var i=0;i<l.length;i++){var e=l[i];if(!vis(e)||e.disabled)continue;var t=txt(e);if(t.length<=40&&re.test(t))return e}return null};
 var clk=function(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatchEvent(new MouseEvent('mousedown',o));b.dispatchEvent(new MouseEvent('mouseup',o))}catch(e){}try{b.click()}catch(e){}};
-var h=location.hostname,n=0,done=0;
-var t=setInterval(function(){n++;if(n>14||done>=2){clearInterval(t);window.__tbFlow=0;return}
-var body=(document.body&&document.body.innerText)||'';var b=null;
+var h=location.hostname,n=0,done=0,ln=-9;window.__tbFlowLog='';
+var t=setInterval(function(){n++;if(n>14||done>=2){clearInterval(t);window.__tbFlow=0;if(!done)window.__tbFlowLog='বোতাম পাইনি ('+h+location.pathname.slice(0,30)+')';return}
+if(done&&n-ln<4)return;
+var body=(document.body&&(document.body.innerText||document.body.textContent))||'';var b=null;
 if(h==='gds.google.com'){
  if(/always sign in|recovery (phone|email)/i.test(body))b=btn(/^(cancel|skip|not now|no thanks|maybe later)${'$'}/i);
  else if(/home address|work address|add a phone|phone number|personalize/i.test(body))b=btn(/^(skip|not now|no thanks|maybe later|cancel)${'$'}/i);
@@ -242,11 +243,11 @@ if(h==='gds.google.com'){
 }else if(/(^|\.)workspace\.google\.com${'$'}/.test(h)&&/vids/i.test(location.pathname)){
  b=btn(/^sign in to vids${'$'}/i);
 }
-if(b){done++;clk(b)}
+if(b){done++;ln=n;window.__tbFlowLog='চাপলাম: '+txt(b);clk(b)}
 },900);
 return 'started'}catch(e){return 'err'}})()"""
 
-    /** শুধু ওয়ার্কস্পেস-ট্যাবের জন্য: সাইন-ইনের ধাপে অটো-ক্লিক স্ক্রিপ্ট (না থাকলে null) */
+    /** সাইন-ইনের ধাপে অটো-ক্লিক স্ক্রিপ্ট (না থাকলে null); যেকোনো ট্যাবে চলে */
     fun workspaceJs(url: String): String? = when {
         url.startsWith("https://gds.google.com/") || url.startsWith("https://accounts.google.com/") ||
             url.startsWith("https://workspace.google.com/") -> FLOW_JS
