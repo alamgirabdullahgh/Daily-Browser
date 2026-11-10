@@ -128,6 +128,7 @@ if ok x11-repo; then echo 'আগেই আছে — বাদ'; else pkg insta
 echo '▸ ধাপ ৩/৪: ডেস্কটপ প্যাকেজ'
 need=''
 for p in termux-x11-nightly openbox tint2 xterm pcmanfm dbus; do ok §p || need="§need §p"; done
+ok xorg-xsetroot || pkg install -y xorg-xsetroot >/dev/null 2>&1 || true
 if [ -z "§need" ]; then echo 'সব প্যাকেজ আগেই আছে — বাদ'; else echo "বাকি প্যাকেজ:§need"; pkg install -y §need || { echo 'ডেস্কটপ প্যাকেজ ইনস্টল ব্যর্থ — আবার চাপলে বাকিটা থেকেই শুরু হবে'; exit 1; }; fi
 command -v termux-x11 >/dev/null 2>&1 || { echo 'termux-x11 কমান্ড পাওয়া যায়নি'; exit 1; }
 echo '▸ ধাপ ৪/৪: ডেস্কটপ চালু'
@@ -139,7 +140,14 @@ sleep 3
 echo 'ডেস্কটপ সার্ভার চালু — Termux:X11 খুলছে'
 am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || true
 export DISPLAY=:0
-(tint2 >/dev/null 2>&1 &)
+# openbox একা শুধু কালো পর্দা দেয়; তাই চালুর সময় রঙ, নিচের বার (tint2), ফাইল/আইকন (pcmanfm) ও একটা টার্মিনাল নিজে খোলে
+mkdir -p §HOME/.config/openbox
+cat > §HOME/.config/openbox/autostart <<'AUTOEOF'
+xsetroot -solid '#24324f' &
+tint2 &
+pcmanfm --desktop &
+xterm -geometry 60x16+16+48 &
+AUTOEOF
 if command -v dbus-launch >/dev/null 2>&1; then exec dbus-launch --exit-with-session openbox-session; else exec openbox-session; fi""".replace('§', '$')
 
 /** ধাপভিত্তিক ডিফল্ট স্ক্রিপ্ট: "▸ " দিয়ে শুরু লাইন = একটি ধাপের শিরোনাম (কাজের ট্যাবে হেডিং হয়ে দেখায়) */
@@ -283,6 +291,11 @@ object Store {
             out.filter { it.id == "d10" || it.id == "d11" }.forEach { o -> defaults.firstOrNull { it.id == o.id }?.let { n -> o.script = n.script } }
             changed = true
         }
+        // v15: কম্পিউটার মোডে ডেস্কটপের রঙ, বার, আইকন ও টার্মিনাল নিজে খোলা (আগে শুধু কালো পর্দা)
+        if (sp(c).getInt("ver", 1) < 15) {
+            out.filter { it.id == "d10" }.forEach { o -> defaults.firstOrNull { it.id == "d10" }?.let { n -> o.script = n.script } }
+            changed = true
+        }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -291,7 +304,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 14)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 15)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
