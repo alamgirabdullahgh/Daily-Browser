@@ -106,10 +106,20 @@ object Jobs {
     fun running() = list.count { it.status == "running" }
 }
 
+/** প্রতিটি কাজের নিজস্ব আপডেট-ধাপ (আলাদা "আপডেট/আপগ্রেড" বোতাম নেই): ঘুম আটকানো, আধা-থামা dpkg সারানো, আপডেট (ব্যর্থ হলে ডিফল্ট মিররে ফিরে আবার), তারপর আপগ্রেড — রুকইয়াহ অডিও প্যাকের মতো */
+fun pre(label: String = "▸ প্যাকেজ আপডেট ও আপগ্রেড"): String = ("termux-wake-lock 2>/dev/null\n" +
+    "echo '" + label + "'\n" +
+    "dpkg --configure -a --force-confold >/dev/null 2>&1\n" +
+    "if ! pkg update -y; then\n" +
+    "  echo 'আপডেট ব্যর্থ — ডিফল্ট মিররে ফিরে আবার চেষ্টা হচ্ছে'\n" +
+    "  U=https://packages-cf.termux.dev/apt/termux-main; S=SSPREFIX/etc/apt/sources.list\n" +
+    "  if curl -fsI --max-time 20 \"SSU/dists/stable/InRelease\" >/dev/null 2>&1; then cp \"SSS\" \"SSS.bak\" 2>/dev/null; echo \"deb SSU stable main\" > \"SSS\"; fi\n" +
+    "  pkg update -y || { echo 'আপডেট ব্যর্থ — নেট দেখে আবার চালান'; exit 1; }\n" +
+    "fi\n" +
+    "pkg upgrade -y || exit 1\n").replace('SS', '$')
+
 /** কম্পিউটার মোড: শুরু থেকে শেষ — আপডেট/আপগ্রেড, x11-repo, ডেস্কটপ প্যাকেজ, সার্ভার চালু; কোনো ধাপ ব্যর্থ হলে বাকি ধাপ চলে না */
-val DESKTOP: String = """echo '▸ ধাপ ১/৪: প্যাকেজ আপডেট ও আপগ্রেড'
-pkg update -y && pkg upgrade -y || { echo 'আপডেট/আপগ্রেড ব্যর্থ — উপরের ত্রুটি দেখুন'; exit 1; }
-echo '▸ ধাপ ২/৪: X11 রিপো'
+val DESKTOP: String = pre("▸ ধাপ ১/৪: প্যাকেজ আপডেট ও আপগ্রেড") + """echo '▸ ধাপ ২/৪: X11 রিপো'
 pkg install -y x11-repo || { echo 'x11-repo ইনস্টল ব্যর্থ'; exit 1; }
 pkg update -y || exit 1
 echo '▸ ধাপ ৩/৪: ডেস্কটপ প্যাকেজ'
@@ -127,9 +137,8 @@ export DISPLAY=:0
 if command -v dbus-launch >/dev/null 2>&1; then exec dbus-launch --exit-with-session openbox-session; else exec openbox-session; fi""".replace('§', '$')
 
 /** ধাপভিত্তিক ডিফল্ট স্ক্রিপ্ট: "▸ " দিয়ে শুরু লাইন = একটি ধাপের শিরোনাম (কাজের ট্যাবে হেডিং হয়ে দেখায়) */
-const val D1 = "echo '▸ প্যাকেজ তালিকা আপডেট'\npkg update -y || exit 1\necho '▸ প্যাকেজ আপগ্রেড'\npkg upgrade -y || exit 1\necho 'সম্পন্ন'"
-const val D3 = "echo '▸ Python ইনস্টল'\npkg install -y python || exit 1\necho '▸ সংস্করণ যাচাই'\npython --version && pip --version"
-const val D5 = "echo '▸ Node.js ইনস্টল'\npkg install -y nodejs || exit 1\necho '▸ সংস্করণ যাচাই'\nnode -v && npm -v"
+val D3 = pre() + "echo '▸ Python ইনস্টল'\npkg install -y python || exit 1\necho '▸ সংস্করণ যাচাই'\npython --version && pip --version"
+val D5 = pre() + "echo '▸ Node.js ইনস্টল'\npkg install -y nodejs || exit 1\necho '▸ সংস্করণ যাচাই'\nnode -v && npm -v"
 
 /** দৈনিক রুকইয়াহ অ্যাপের ৬,২৩৬ আয়াতের অডিও (Alafasy, মনো, ৩২kbps, ২২.০৫kHz, গতি ×১.২০) ফোনেই নামিয়ে সূরাভিত্তিক zip বানায়।
  *  আবার চালালে যা হয়ে গেছে তা বাদ দিয়ে বাকিটা থেকে এগোয়। রিলিজে তোলা আলাদা ধাপ (টোকেন লাগে বলে এই কমান্ডে নেই)। */
@@ -192,37 +201,30 @@ echo "সম্পন্ন: §HOME/audio/zips -এ s001.zip … s114.zip। Git
 object Store {
     /** আগের সংস্করণের ডিফল্ট স্ক্রিপ্ট → নতুন ধাপভিত্তিক স্ক্রিপ্ট (ব্যবহারকারী বদলে থাকলে ছোঁয়া হয় না) */
     private val legacy = mapOf(
-        "d1" to Pair("pkg update -y && pkg upgrade -y && echo 'সম্পন্ন'", D1),
         "d3" to Pair("pkg install -y python && python --version && pip --version", D3),
         "d5" to Pair("pkg install -y nodejs && node -v && npm -v", D5)
     )
     private fun sp(c: Context) = c.getSharedPreferences("cmds", Context.MODE_PRIVATE)
 
     private val defaults = listOf(
-        Cmd("d1", "প্যাকেজ আপডেট ও আপগ্রেড", D1),
         Cmd("d2", "স্টোরেজ অনুমতি", "termux-setup-storage", false),
         Cmd("d3", "Python ইনস্টল", D3),
-        Cmd("d4", "Git ইনস্টল", "pkg install -y git && git --version"),
+        Cmd("d4", "Git ইনস্টল", pre() + "pkg install -y git && git --version"),
         Cmd("d5", "Node.js ইনস্টল", D5),
-        Cmd("d6", "SSH সার্ভার চালু", "pkg install -y openssh || exit 1\npkill -x sshd 2>/dev/null; sshd && echo 'sshd চালু, পোর্ট 8022'\necho \"ব্যবহারকারী: \$(whoami)\"\necho 'পাসওয়ার্ড সেট করতে Termux স্ক্রিনে passwd চালান'"),
+        Cmd("d6", "SSH সার্ভার চালু", pre() + "pkg install -y openssh || exit 1\npkill -x sshd 2>/dev/null; sshd && echo 'sshd চালু, পোর্ট 8022'\necho \"ব্যবহারকারী: \$(whoami)\"\necho 'পাসওয়ার্ড সেট করতে Termux স্ক্রিনে passwd চালান'"),
         Cmd("d7", "ডিস্ক ব্যবহার", "df -h \$HOME"),
         Cmd("d8", "আইপি দেখুন", "(command -v ifconfig >/dev/null || pkg install -y net-tools) && ifconfig 2>/dev/null | grep -E \"inet |wlan|rmnet\" || /system/bin/ip -4 addr 2>/dev/null | grep inet"),
         Cmd("d9", "সিস্টেম তথ্য", "uname -a && echo && free -h 2>/dev/null | head -3"),
-        Cmd("d10", "🖥 কম্পিউটার মোড (হালকা ডেস্কটপ)", DESKTOP),
+        Cmd("d10", "🖥 কম্পিউটার মোড (হালকা ডেস্কটপ)", DESKTOP, false),
         // ওয়েব-টার্মিনাল: Termux-এ ttyd চালু হয়, তারপর অ্যাপ নতুন ট্যাবে খোলে। শুধু 127.0.0.1-এ, পাসওয়ার্ডসহ (@@WEBPW@@ অ্যাপ বসায়)
         Cmd("d12", "🌐 ওয়েব-টার্মিনাল (ট্যাবে পূর্ণ টার্মিনাল)",
-            "pkg install -y ttyd || exit 1\n" +
+            pre() + "pkg install -y ttyd || exit 1\n" +
             "pkill -x ttyd 2>/dev/null; sleep 1\n" +
             "nohup ttyd -W -i 127.0.0.1 -p 7681 -c tb:@@WEBPW@@ bash -l >/dev/null 2>&1 &\n" +
             "sleep 3\n" +
             "if curl -s -o /dev/null --max-time 5 -u tb:@@WEBPW@@ http://127.0.0.1:7681/; then echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; else echo 'ttyd চালু হয়নি — উপরের ত্রুটি দেখুন'; exit 1; fi"),
         Cmd("d13", "⏹ আটকে থাকা প্যাকেজ কাজ থামান",
             "pkill -x apt 2>/dev/null; pkill -x apt-get 2>/dev/null; pkill -x dpkg 2>/dev/null; sleep 1; dpkg --configure -a --force-confold 2>&1 | tail -5; echo 'থামানো হয়েছে — এখন নতুন কমান্ড চালাতে পারেন'"),
-        // ধীর/আটকে যাওয়া মিরর থেকে Termux-এর ডিফল্ট (Cloudflare) মিররে ফেরায়। আগে পৌঁছানো যায় কিনা যাচাই করে, পুরনো ফাইলের কপি রাখে
-        Cmd("d14", "🔄 মিরর ডিফল্টে ফেরান (আপডেট ধীর হলে)",
-            "U=https://packages-cf.termux.dev/apt/termux-main; S=\$PREFIX/etc/apt/sources.list\n" +
-            "if curl -fsI --max-time 20 \"\$U/dists/stable/InRelease\" >/dev/null 2>&1; then cp \"\$S\" \"\$S.bak\" 2>/dev/null; echo \"deb \$U stable main\" > \"\$S\"; echo 'মিরর ডিফল্টে ফেরানো হয়েছে'; pkg update -y; " +
-            "else echo 'ডিফল্ট মিরর এখন পৌঁছানো যাচ্ছে না — Termux-এ termux-change-repo চালিয়ে অন্য মিরর বাছুন'; exit 1; fi"),
         Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -f openbox; pkill -f tint2; pkill -f termux-x11; echo বন্ধ হয়েছে"),
         Cmd("d15", "🎧 রুকইয়াহ অডিও প্যাক ডাউনলোড (৩২kbps×১.২০)", AUDIO_PACK, false),
     )
@@ -261,6 +263,13 @@ object Store {
         if (sp(c).getInt("ver", 1) < 11) { out.filter { it.id == "d15" && it.script.contains("-P3") }.forEach { o -> defaults.firstOrNull { it.id == "d15" }?.let { n -> o.script = n.script } }; changed = true }
         // v12: অডিও-প্যাক Termux-এর খোলা পর্দায় চলবে (ব্যাকগ্রাউন্ড প্রক্রিয়া সিস্টেম মেরে ফেলছিল)
         if (sp(c).getInt("ver", 1) < 12) { out.filter { it.id == "d15" }.forEach { o -> o.background = false; defaults.firstOrNull { it.id == "d15" }?.let { n -> if (!o.script.contains("termux-wake-lock")) o.script = n.script } }; changed = true }
+        // v13: আলাদা আপডেট/আপগ্রেড ও মিরর বোতাম বাদ (প্রতিটি কাজে নিজস্ব আপডেট-ধাপ); কম্পিউটার মোড অডিও-প্যাকের মতো Termux-এর খোলা পর্দায় ও নতুন স্ক্রিপ্টে
+        if (sp(c).getInt("ver", 1) < 13) {
+            out.removeAll { it.id == "d1" || it.id == "d14" }
+            out.filter { it.id == "d10" }.forEach { o -> o.background = false; defaults.firstOrNull { it.id == "d10" }?.let { n -> o.script = n.script } }
+            out.filter { it.id in setOf("d3", "d4", "d5", "d6", "d12") && !it.script.contains("pkg upgrade") }.forEach { o -> defaults.firstOrNull { it.id == o.id }?.let { n -> o.script = n.script } }
+            changed = true
+        }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -269,7 +278,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 12)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 13)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 

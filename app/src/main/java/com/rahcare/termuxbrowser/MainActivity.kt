@@ -167,7 +167,7 @@ class MainActivity : Activity() {
         }
         bar.addView(icon("⌂", 26f) { openHome() })
         address = EditText(this).apply {
-            setSingleLine(); textSize = 14f; hint = "সার্চ বা ঠিকানা লিখুন"; background = bg(Color.parseColor("#F1F3F4"), 22)
+            setSingleLine(); textSize = 14f; hint = "Search"; background = bg(Color.parseColor("#F1F3F4"), 22)
             setPadding(dp(16), 0, dp(16), 0); imeOptions = EditorInfo.IME_ACTION_GO
             inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI or android.text.InputType.TYPE_CLASS_TEXT
             setOnEditorActionListener { _, a, e ->
@@ -772,7 +772,7 @@ class MainActivity : Activity() {
         refreshUpdBtn()
         val t = cur ?: return
         if (!address.hasFocus()) address.setText(if (t.isHome || t.url == "about:blank") "" else if (t.jobKey != null) "⚙ " + t.title else t.url)
-        address.hint = if (t.isHome) "Termux হোম — সার্চ বা ঠিকানা লিখুন" else "সার্চ বা ঠিকানা লিখুন"
+        address.hint = "Search"
     }
 
     private fun loadHome(t: Tab) {
