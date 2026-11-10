@@ -144,7 +144,7 @@ cat > "§T/cm_setup.sh" <<'SETUP'
 export DEBIAN_FRONTEND=noninteractive TZ=Asia/Dhaka LANG=C.UTF-8
 echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99cm-sandbox
 # আইকন-ক্যাশ বানানো proot-এ ফোনে ঘণ্টার পর ঘণ্টা আটকে থাকে ("Setting up ...icon-theme"); তাই ওই ধাপ বাদ রাখি (শুধু আইকন প্রথমবার একটু দেরিতে আঁকে)
-for f in /usr/sbin/update-icon-caches /usr/bin/gtk-update-icon-cache; do dpkg-divert --local --rename --add "$f" >/dev/null 2>&1; ln -sf /bin/true "$f"; done
+for f in /usr/sbin/update-icon-caches /usr/bin/gtk-update-icon-cache; do dpkg-divert --local --rename --add "§f" >/dev/null 2>&1; ln -sf /bin/true "§f"; done
 dpkg --configure -a
 apt-get update || exit 1
 apt-get install -y --no-install-recommends xfce4-session xfwm4 xfce4-panel xfdesktop4 xfce4-settings thunar xfce4-terminal dbus-x11 x11-xserver-utils adwaita-icon-theme fonts-noto-core nano curl || exit 1
