@@ -992,7 +992,7 @@ class MainActivity : Activity() {
         if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
         if (cmd.id == "d16") { installAgent(); return }
         if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
-        if (cmd.id == "d10" && !x11Installed()) {
+        if ((cmd.id == "d10" || cmd.id == "d16") && !x11Installed()) {
             AlertDialog.Builder(this).setTitle("Termux:X11 অ্যাপও লাগবে")
                 .setMessage("কম্পিউটার মোডের পর্দা দেখাতে আলাদা Termux:X11 অ্যাপ দরকার। এখন নামিয়ে ইনস্টল করব? (ইনস্টল শেষে কম্পিউটার মোডে আবার চাপুন)")
                 .setPositiveButton("ইনস্টল") { _, _ -> installX11() }

@@ -150,6 +150,44 @@ xterm -geometry 60x16+16+48 &
 AUTOEOF
 if command -v dbus-launch >/dev/null 2>&1; then exec dbus-launch --exit-with-session openbox-session; else exec openbox-session; fi""".replace('§', '$')
 
+/** উবুন্টু কম্পিউটার: proot-distro দিয়ে আসল উবুন্টু + পূর্ণ XFCE ডেস্কটপ। প্রতি ধাপ আগে দেখে নেয় হয়েছে কি না, তাই থেমে গেলে আবার চাপলে বাকিটা থেকে চলে (অডিও-প্যাকের মতো) */
+val UBUNTU: String = """if [ -n "§(find §HOME/.cm_upg -mmin -360 2>/dev/null)" ]; then echo '▸ ধাপ ১/৫: আপডেট ও আপগ্রেড আগেই হয়েছে — বাদ'; termux-wake-lock 2>/dev/null; else
+""".replace('§', '$') + pre("▸ ধাপ ১/৫: প্যাকেজ আপডেট ও আপগ্রেড") + """touch §HOME/.cm_upg
+fi
+ok() { dpkg -s "§1" 2>/dev/null | grep -q '^Status: install ok installed'; }
+R=§PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu
+echo '▸ ধাপ ২/৫: টুল (proot-distro, X11)'
+ok x11-repo || { pkg install -y x11-repo || exit 1; pkg update -y || exit 1; }
+need=''
+for p in proot-distro termux-x11-nightly; do ok §p || need="§need §p"; done
+if [ -z "§need" ]; then echo 'সব টুল আগেই আছে — বাদ'; else pkg install -y §need || { echo 'টুল ইনস্টল ব্যর্থ — আবার চাপলে এখান থেকেই শুরু হবে'; exit 1; }; fi
+command -v proot-distro >/dev/null 2>&1 && command -v termux-x11 >/dev/null 2>&1 || { echo 'proot-distro/termux-x11 পাওয়া যায়নি'; exit 1; }
+echo '▸ ধাপ ৩/৫: উবুন্টু ইনস্টল (বড় ফাইল, ধীর নেটে সময় লাগবে)'
+if [ -x "§R/bin/bash" ]; then echo 'উবুন্টু আগেই আছে — বাদ'; else
+  [ -d "§R" ] && { echo 'আধা-নামা উবুন্টু সরিয়ে আবার নামাচ্ছি'; proot-distro remove ubuntu >/dev/null 2>&1; rm -rf "§R"; }
+  proot-distro install ubuntu || { echo 'উবুন্টু নামেনি — নেট দেখে আবার চাপুন, এখান থেকেই শুরু হবে'; exit 1; }
+fi
+echo '▸ ধাপ ৪/৫: উবুন্টুর ভেতরে ডেস্কটপ (XFCE) ইনস্টল — সময় লাগবে'
+if [ -f "§R/root/.cm_ok" ]; then echo 'ডেস্কটপ আগেই বসানো — বাদ'; else
+cat > "§R/root/cm_setup.sh" <<'SETUP'
+export DEBIAN_FRONTEND=noninteractive TZ=Asia/Dhaka LANG=C.UTF-8
+echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99cm-sandbox
+dpkg --configure -a
+apt-get update || exit 1
+apt-get install -y xfce4 xfce4-terminal dbus-x11 x11-xserver-utils fonts-noto-core nano curl || exit 1
+touch /root/.cm_ok
+SETUP
+  proot-distro login ubuntu --shared-tmp -- bash /root/cm_setup.sh || { echo 'ডেস্কটপ ইনস্টল ব্যর্থ — আবার চাপলে বাকিটা থেকেই শুরু হবে'; exit 1; }
+fi
+echo '▸ ধাপ ৫/৫: উবুন্টু ডেস্কটপ চালু'
+pkill -f "com.termux.x11.CmdEntry""Point" 2>/dev/null; pkill -x proot 2>/dev/null; sleep 1
+export XDG_RUNTIME_DIR=§{TMPDIR:-§PREFIX/tmp}
+(termux-x11 :0 >/dev/null 2>&1 &)
+sleep 3
+echo 'ডেস্কটপ সার্ভার চালু — Termux:X11 খুলছে'
+am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || true
+exec proot-distro login ubuntu --shared-tmp -- env DISPLAY=:0 dbus-launch --exit-with-session startxfce4""".replace('§', '$')
+
 /** ধাপভিত্তিক ডিফল্ট স্ক্রিপ্ট: "▸ " দিয়ে শুরু লাইন = একটি ধাপের শিরোনাম (কাজের ট্যাবে হেডিং হয়ে দেখায়) */
 val D3 = pre() + "echo '▸ Python ইনস্টল'\npkg install -y python || exit 1\necho '▸ সংস্করণ যাচাই'\npython --version && pip --version"
 val D5 = pre() + "echo '▸ Node.js ইনস্টল'\npkg install -y nodejs || exit 1\necho '▸ সংস্করণ যাচাই'\nnode -v && npm -v"
@@ -230,6 +268,7 @@ object Store {
         Cmd("d8", "আইপি দেখুন", "(command -v ifconfig >/dev/null || pkg install -y net-tools) && ifconfig 2>/dev/null | grep -E \"inet |wlan|rmnet\" || /system/bin/ip -4 addr 2>/dev/null | grep inet"),
         Cmd("d9", "সিস্টেম তথ্য", "uname -a && echo && free -h 2>/dev/null | head -3"),
         Cmd("d10", "🖥 কম্পিউটার মোড (হালকা ডেস্কটপ)", DESKTOP, false),
+        Cmd("d16", "🐧 উবুন্টু কম্পিউটার (পূর্ণ ডেস্কটপ)", UBUNTU, false),
         // ওয়েব-টার্মিনাল: Termux-এ ttyd চালু হয়, তারপর অ্যাপ নতুন ট্যাবে খোলে। শুধু 127.0.0.1-এ, পাসওয়ার্ডসহ (@@WEBPW@@ অ্যাপ বসায়)
         Cmd("d12", "🌐 ওয়েব-টার্মিনাল (ট্যাবে পূর্ণ টার্মিনাল)",
             pre() + "pkg install -y ttyd || exit 1\n" +
@@ -239,7 +278,7 @@ object Store {
             "if curl -s -o /dev/null --max-time 5 -u tb:@@WEBPW@@ http://127.0.0.1:7681/; then echo 'ওয়েব-টার্মিনাল চালু — নতুন ট্যাব খুলছে'; else echo 'ttyd চালু হয়নি — উপরের ত্রুটি দেখুন'; exit 1; fi"),
         Cmd("d13", "⏹ আটকে থাকা প্যাকেজ কাজ থামান",
             "pkill -x apt 2>/dev/null; pkill -x apt-get 2>/dev/null; pkill -x dpkg 2>/dev/null; sleep 1; dpkg --configure -a --force-confold 2>&1 | tail -5; echo 'থামানো হয়েছে — এখন নতুন কমান্ড চালাতে পারেন'"),
-        Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -x openbox; pkill -x tint2; pkill -f \"com.termux.x11.CmdEntry\"\"Point\"; echo বন্ধ হয়েছে"),
+        Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -x openbox; pkill -x tint2; pkill -x proot; pkill -f \"com.termux.x11.CmdEntry\"\"Point\"; echo বন্ধ হয়েছে"),
         // Daily Agent ডাউনলোড ও আপডেট: Termux লাগে না; সর্বশেষ রিলিজের APK নামিয়ে ইনস্টলে দেয় (MainActivity.installAgent)
         Cmd("d16", "🤖 Daily Agent ডাউনলোড ও আপডেট", "", false),
         Cmd("d15", "🎧 রুকইয়াহ অডিও প্যাক ডাউনলোড (৩২kbps×১.২০)", AUDIO_PACK, false),
@@ -296,6 +335,11 @@ object Store {
             out.filter { it.id == "d10" }.forEach { o -> defaults.firstOrNull { it.id == "d10" }?.let { n -> o.script = n.script } }
             changed = true
         }
+        // v16: বন্ধ-কমান্ড উবুন্টুও থামায়
+        if (sp(c).getInt("ver", 1) < 16) {
+            out.filter { it.id == "d11" }.forEach { o -> defaults.firstOrNull { it.id == "d11" }?.let { n -> o.script = n.script } }
+            changed = true
+        }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -304,7 +348,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 15)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 16)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
