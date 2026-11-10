@@ -644,7 +644,7 @@ class MainActivity : Activity() {
                 AutoClick.workspaceJs(u)?.let { js ->
                     v.evaluateJavascript(js, null)
                     // স্ক্রিপ্ট কী করল তা ছোট বার্তায় (চাপলাম / বোতাম পাইনি) — কাজ না করলে কারণ বোঝার জন্য
-                    for (d in longArrayOf(3500L, 14500L)) handler.postDelayed({
+                    for (d in longArrayOf(3500L, 14500L, 33000L)) handler.postDelayed({
                         if (tabs.contains(t)) v.evaluateJavascript("(function(){try{return window.__tbFlowLog||''}catch(e){return ''}})()") { r ->
                             val m = Sites.unquote(r ?: "")
                             if (m.isNotBlank() && m != t.flowShown) { t.flowShown = m; Toast.makeText(this@MainActivity, "অটো-ক্লিক: $m", Toast.LENGTH_SHORT).show() }

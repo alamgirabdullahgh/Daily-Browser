@@ -228,11 +228,21 @@ var e=c[0],b=e.closest('button,[role="button"],a')||e;window.__acPrepN=(window._
     private const val FLOW_JS = """(function(){try{
 if(window.__tbFlow)return 'running';window.__tbFlow=1;
 var vis=function(e){var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'};
-var txt=function(e){return (e.innerText||e.textContent||e.value||'').replace(/\s+/g,' ').trim()};
-var btn=function(re){var l=document.querySelectorAll('button,[role=button],a,input[type=submit],input[type=button]');for(var i=0;i<l.length;i++){var e=l[i];if(!vis(e)||e.disabled)continue;var t=txt(e);if(t.length<=40&&re.test(t))return e}return null};
-var clk=function(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatchEvent(new MouseEvent('mousedown',o));b.dispatchEvent(new MouseEvent('mouseup',o))}catch(e){}try{b.click()}catch(e){}};
-var h=location.hostname,n=0,done=0,ln=-9;window.__tbFlowLog='';
-var t=setInterval(function(){n++;if(n>14||done>=2){clearInterval(t);window.__tbFlow=0;if(!done)window.__tbFlowLog='বোতাম পাইনি ('+h+location.pathname.slice(0,30)+')';return}
+var txt=function(e){return (e.innerText||e.textContent||e.value||e.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim()};
+var all=function(root,out){var l=root.querySelectorAll('*');for(var i=0;i<l.length;i++){out.push(l[i]);if(l[i].shadowRoot)all(l[i].shadowRoot,out)}return out};
+var cands=function(){return all(document,[]).filter(function(e){return /^(BUTTON|A|INPUT|DIV|SPAN|LI)${'$'}/.test(e.tagName)||e.getAttribute('role')==='button'||e.hasAttribute('jsaction')})};
+var btn=function(re){var c=[],l=cands();for(var i=0;i<l.length;i++){var e=l[i];if(e.disabled||!vis(e))continue;var t=txt(e);if(t&&t.length<=40&&re.test(t))c.push(e)}
+c=c.filter(function(e){return !c.some(function(o){return o!==e&&e.contains(o)})});return c[0]||null};
+var up=function(e){return e.closest('a,button,[role=button]')||e};
+var clk=function(e){var b=up(e);try{b.scrollIntoView({block:'center'})}catch(x){}
+try{var o={bubbles:true,cancelable:true,view:window};['pointerdown','mousedown','pointerup','mouseup'].forEach(function(k){try{b.dispatchEvent(new (k.indexOf('pointer')==0&&window.PointerEvent?PointerEvent:MouseEvent)(k,o))}catch(x){}})}catch(x){}
+try{b.click()}catch(x){}return b};
+var h=location.hostname,n=0,done=0,ln=-9,fb='',u0=location.href;window.__tbFlowLog='';
+var vidsPage=/vids|^\/videos(\/|${'$'})/i.test(location.pathname)||/vids/i.test(h);
+var diag=function(){var l=document.querySelectorAll('button,[role=button],a'),o=[];for(var i=0;i<l.length&&o.length<6;i++){if(!vis(l[i]))continue;var t=txt(l[i]);if(t&&t.length<=30)o.push(t)}return h+location.pathname.slice(0,40)+' | '+(o.join(' / ')||'কোনো বোতাম দেখা যায়নি')};
+var t=setInterval(function(){n++;
+if(done&&fb&&location.href===u0&&n-ln>=2){var f=fb;fb='';window.__tbFlowLog+=' (সরাসরি লিংকে গেলাম)';location.href=f;return}
+if(n>30||done>=2){clearInterval(t);window.__tbFlow=0;if(!done)window.__tbFlowLog='বোতাম পাইনি — '+diag();return}
 if(done&&n-ln<4)return;
 var body=(document.body&&(document.body.innerText||document.body.textContent))||'';var b=null;
 if(h==='gds.google.com'){
@@ -240,17 +250,18 @@ if(h==='gds.google.com'){
  else if(/home address|work address|add a phone|phone number|personalize/i.test(body))b=btn(/^(skip|not now|no thanks|maybe later|cancel)${'$'}/i);
 }else if(h==='accounts.google.com'){
  if(/passkey|simplify your sign-in/i.test(body))b=btn(/^(not now|skip|no thanks|maybe later)${'$'}/i);
-}else if(/(^|\.)workspace\.google\.com${'$'}/.test(h)&&/vids/i.test(location.pathname)){
- b=btn(/^sign in to vids${'$'}/i);
+}else if(/(^|\.)google\.com${'$'}/.test(h)&&vidsPage){
+ b=btn(/^sign in to vids${'$'}/i)||btn(/sign in to vids/i)||btn(/^sign in${'$'}/i);
 }
-if(b){done++;ln=n;window.__tbFlowLog='চাপলাম: '+txt(b);clk(b)}
-},900);
+if(b){done++;ln=n;u0=location.href;var a=up(b);fb=(a.tagName==='A'&&a.href&&/^https?:/.test(a.href))?a.href:'';window.__tbFlowLog='চাপলাম: '+txt(b).slice(0,30);clk(b)}
+},1000);
 return 'started'}catch(e){return 'err'}})()"""
 
     /** সাইন-ইনের ধাপে অটো-ক্লিক স্ক্রিপ্ট (না থাকলে null); যেকোনো ট্যাবে চলে */
     fun workspaceJs(url: String): String? = when {
         url.startsWith("https://gds.google.com/") || url.startsWith("https://accounts.google.com/") ||
-            url.startsWith("https://workspace.google.com/") -> FLOW_JS
+            url.startsWith("https://workspace.google.com/") || url.startsWith("https://docs.google.com/") ||
+            url.startsWith("https://vids.google.com/") -> FLOW_JS
         else -> null
     }
 
