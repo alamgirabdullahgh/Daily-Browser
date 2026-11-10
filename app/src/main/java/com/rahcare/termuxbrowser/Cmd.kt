@@ -143,9 +143,11 @@ T=§{TMPDIR:-§PREFIX/tmp}; mkdir -p "§T"
 cat > "§T/cm_setup.sh" <<'SETUP'
 export DEBIAN_FRONTEND=noninteractive TZ=Asia/Dhaka LANG=C.UTF-8
 echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99cm-sandbox
+# আইকন-ক্যাশ বানানো proot-এ ফোনে ঘণ্টার পর ঘণ্টা আটকে থাকে ("Setting up ...icon-theme"); তাই ওই ধাপ বাদ রাখি (শুধু আইকন প্রথমবার একটু দেরিতে আঁকে)
+for f in /usr/sbin/update-icon-caches /usr/bin/gtk-update-icon-cache; do dpkg-divert --local --rename --add "$f" >/dev/null 2>&1; ln -sf /bin/true "$f"; done
 dpkg --configure -a
 apt-get update || exit 1
-apt-get install -y xfce4 xfce4-terminal dbus-x11 x11-xserver-utils fonts-noto-core nano curl || exit 1
+apt-get install -y --no-install-recommends xfce4-session xfwm4 xfce4-panel xfdesktop4 xfce4-settings thunar xfce4-terminal dbus-x11 x11-xserver-utils adwaita-icon-theme fonts-noto-core nano curl || exit 1
 touch /root/.cm_ok
 SETUP
   proot-distro login ubuntu --shared-tmp -- bash /tmp/cm_setup.sh || { echo 'ডেস্কটপ ইনস্টল ব্যর্থ — আবার চাপলে বাকিটা থেকেই শুরু হবে'; exit 1; }
@@ -324,6 +326,11 @@ object Store {
             out.add(defaults.first { it.id == "d17" }.copy())
             changed = true
         }
+        // v21: উবুন্টু ডেস্কটপ ধাপ আইকন-থিমে আটকে যেত; হালকা প্যাকেজ-সেট ও আইকন-ক্যাশ বাদ দিয়ে নতুন স্ক্রিপ্ট
+        if (sp(c).getInt("ver", 1) < 21) {
+            out.filter { it.id == "d17" }.forEach { o -> defaults.firstOrNull { it.id == "d17" }?.let { n -> o.script = n.script } }
+            changed = true
+        }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -332,7 +339,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 20)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 21)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
