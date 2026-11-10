@@ -118,38 +118,6 @@ fun pre(label: String = "▸ প্যাকেজ আপডেট ও আপগ
     "fi\n" +
     "pkg upgrade -y || exit 1\n").replace("SS", "\$")
 
-/** কম্পিউটার মোড: শুরু থেকে শেষ — আপডেট/আপগ্রেড, x11-repo, ডেস্কটপ প্যাকেজ, সার্ভার চালু; কোনো ধাপ ব্যর্থ হলে বাকি ধাপ চলে না */
-val DESKTOP: String = """if [ -n "§(find §HOME/.cm_upg -mmin -360 2>/dev/null)" ]; then echo '▸ ধাপ ১/৪: আপডেট ও আপগ্রেড আগেই হয়েছে — বাদ'; termux-wake-lock 2>/dev/null; else
-""".replace('§', '$') + pre("▸ ধাপ ১/৪: প্যাকেজ আপডেট ও আপগ্রেড") + """touch §HOME/.cm_upg
-fi
-ok() { dpkg -s "§1" 2>/dev/null | grep -q '^Status: install ok installed'; }
-echo '▸ ধাপ ২/৪: X11 রিপো'
-if ok x11-repo; then echo 'আগেই আছে — বাদ'; else pkg install -y x11-repo || { echo 'x11-repo ইনস্টল ব্যর্থ — আবার চাপলে এখান থেকেই শুরু হবে'; exit 1; }; pkg update -y || exit 1; fi
-echo '▸ ধাপ ৩/৪: ডেস্কটপ প্যাকেজ'
-need=''
-for p in termux-x11-nightly openbox tint2 xterm pcmanfm dbus; do ok §p || { [ "§p" = xterm ] && ok aterm; } || need="§need §p"; done
-ok xorg-xsetroot || pkg install -y xorg-xsetroot >/dev/null 2>&1 || true
-if [ -z "§need" ]; then echo 'সব প্যাকেজ আগেই আছে — বাদ'; else echo "বাকি প্যাকেজ:§need"; pkg install -y §need || { echo 'ডেস্কটপ প্যাকেজ ইনস্টল ব্যর্থ — আবার চাপলে বাকিটা থেকেই শুরু হবে'; exit 1; }; fi
-command -v termux-x11 >/dev/null 2>&1 || { echo 'termux-x11 কমান্ড পাওয়া যায়নি'; exit 1; }
-echo '▸ ধাপ ৪/৪: ডেস্কটপ চালু'
-# pkill -f এখানে নিজের স্ক্রিপ্টকেই মেরে ফেলত (signal 15); তাই নাম ভেঙে লেখা, আর শুধু সঠিক নামে
-pkill -f "com.termux.x11.CmdEntry""Point" 2>/dev/null; pkill -x openbox 2>/dev/null; pkill -x tint2 2>/dev/null; sleep 1
-export XDG_RUNTIME_DIR=§{TMPDIR:-§PREFIX/tmp}
-(termux-x11 :0 >/dev/null 2>&1 &)
-sleep 3
-echo 'ডেস্কটপ সার্ভার চালু — Termux:X11 খুলছে'
-am start --user 0 -n com.termux.x11/com.termux.x11.MainActivity >/dev/null 2>&1 || true
-export DISPLAY=:0
-# openbox একা শুধু কালো পর্দা দেয়; তাই চালুর সময় রঙ, নিচের বার (tint2), ফাইল/আইকন (pcmanfm) ও একটা টার্মিনাল নিজে খোলে
-mkdir -p §HOME/.config/openbox
-cat > §HOME/.config/openbox/autostart <<'AUTOEOF'
-xsetroot -solid '#24324f' &
-tint2 &
-pcmanfm --desktop &
-xterm -geometry 60x16+16+48 &
-AUTOEOF
-if command -v dbus-launch >/dev/null 2>&1; then exec dbus-launch --exit-with-session openbox-session; else exec openbox-session; fi""".replace('§', '$')
-
 /** উবুন্টু কম্পিউটার: proot-distro দিয়ে আসল উবুন্টু + পূর্ণ XFCE ডেস্কটপ। প্রতি ধাপ আগে দেখে নেয় হয়েছে কি না, তাই থেমে গেলে আবার চাপলে বাকিটা থেকে চলে (অডিও-প্যাকের মতো) */
 val UBUNTU: String = """if [ -n "§(find §HOME/.cm_upg -mmin -360 2>/dev/null)" ]; then echo '▸ ধাপ ১/৫: আপডেট ও আপগ্রেড আগেই হয়েছে — বাদ'; termux-wake-lock 2>/dev/null; else
 """.replace('§', '$') + pre("▸ ধাপ ১/৫: প্যাকেজ আপডেট ও আপগ্রেড") + """touch §HOME/.cm_upg
@@ -267,8 +235,7 @@ object Store {
         Cmd("d7", "ডিস্ক ব্যবহার", "df -h \$HOME"),
         Cmd("d8", "আইপি দেখুন", "(command -v ifconfig >/dev/null || pkg install -y net-tools) && ifconfig 2>/dev/null | grep -E \"inet |wlan|rmnet\" || /system/bin/ip -4 addr 2>/dev/null | grep inet"),
         Cmd("d9", "সিস্টেম তথ্য", "uname -a && echo && free -h 2>/dev/null | head -3"),
-        Cmd("d10", "🖥 কম্পিউটার মোড (হালকা ডেস্কটপ)", DESKTOP, false),
-        Cmd("d16", "🐧 উবুন্টু কম্পিউটার (পূর্ণ ডেস্কটপ)", UBUNTU, false),
+        Cmd("d16", "🖥 কম্পিউটার মোড (উবুন্টু, পূর্ণ ডেস্কটপ)", UBUNTU, false),
         // ওয়েব-টার্মিনাল: Termux-এ ttyd চালু হয়, তারপর অ্যাপ নতুন ট্যাবে খোলে। শুধু 127.0.0.1-এ, পাসওয়ার্ডসহ (@@WEBPW@@ অ্যাপ বসায়)
         Cmd("d12", "🌐 ওয়েব-টার্মিনাল (ট্যাবে পূর্ণ টার্মিনাল)",
             pre() + "pkg install -y ttyd || exit 1\n" +
@@ -345,6 +312,12 @@ object Store {
             out.filter { it.id == "d10" }.forEach { o -> defaults.firstOrNull { it.id == "d10" }?.let { n -> o.script = n.script } }
             changed = true
         }
+        // v18: পুরনো হালকা কম্পিউটার-মোড (d10) বাদ; তার জায়গায় শুধু উবুন্টু কম্পিউটার-মোড
+        if (sp(c).getInt("ver", 1) < 18) {
+            out.removeAll { it.id == "d10" }
+            out.filter { it.id == "d16" }.forEach { o -> defaults.firstOrNull { it.id == "d16" }?.let { n -> o.title = n.title } }
+            changed = true
+        }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -353,7 +326,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 17)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 18)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 
