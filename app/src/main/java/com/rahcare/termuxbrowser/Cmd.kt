@@ -123,7 +123,6 @@ val UBUNTU: String = """if [ -n "§(find §HOME/.cm_upg -mmin -360 2>/dev/null)"
 """.replace('§', '$') + pre("▸ ধাপ ১/৫: প্যাকেজ আপডেট ও আপগ্রেড") + """touch §HOME/.cm_upg
 fi
 ok() { dpkg -s "§1" 2>/dev/null | grep -q '^Status: install ok installed'; }
-R=§PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu
 echo '▸ ধাপ ২/৫: টুল (proot-distro, X11)'
 ok x11-repo || { pkg install -y x11-repo || exit 1; pkg update -y || exit 1; }
 need=''
@@ -131,13 +130,17 @@ for p in proot-distro termux-x11-nightly; do ok §p || need="§need §p"; done
 if [ -z "§need" ]; then echo 'সব টুল আগেই আছে — বাদ'; else pkg install -y §need || { echo 'টুল ইনস্টল ব্যর্থ — আবার চাপলে এখান থেকেই শুরু হবে'; exit 1; }; fi
 command -v proot-distro >/dev/null 2>&1 && command -v termux-x11 >/dev/null 2>&1 || { echo 'proot-distro/termux-x11 পাওয়া যায়নি'; exit 1; }
 echo '▸ ধাপ ৩/৫: উবুন্টু ইনস্টল (বড় ফাইল, ধীর নেটে সময় লাগবে)'
-if [ -x "§R/bin/bash" ]; then echo 'উবুন্টু আগেই আছে — বাদ'; else
-  [ -d "§R" ] && { echo 'আধা-নামা উবুন্টু সরিয়ে আবার নামাচ্ছি'; proot-distro remove ubuntu >/dev/null 2>&1; rm -rf "§R"; }
+if proot-distro login ubuntu --shared-tmp -- test -x /bin/bash >/dev/null 2>&1; then echo 'উবুন্টু আগেই আছে — বাদ'; else
+  echo 'অসম্পূর্ণ/আধা-নামা উবুন্টু থাকলে সরিয়ে আবার বসাচ্ছি (ডাউনলোড করা ফাইল ক্যাশে থাকলে আবার নামবে না)'
+  proot-distro remove ubuntu >/dev/null 2>&1
+  rm -rf "§PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu" "§PREFIX/var/lib/proot-distro/containers/ubuntu"
   proot-distro install ubuntu || { echo 'উবুন্টু নামেনি — নেট দেখে আবার চাপুন, এখান থেকেই শুরু হবে'; exit 1; }
+  proot-distro login ubuntu --shared-tmp -- test -x /bin/bash >/dev/null 2>&1 || { echo 'উবুন্টু চালু হয়নি — আবার চাপুন'; exit 1; }
 fi
 echo '▸ ধাপ ৪/৫: উবুন্টুর ভেতরে ডেস্কটপ (XFCE) ইনস্টল — সময় লাগবে'
-if [ -f "§R/root/.cm_ok" ]; then echo 'ডেস্কটপ আগেই বসানো — বাদ'; else
-cat > "§R/root/cm_setup.sh" <<'SETUP'
+if proot-distro login ubuntu --shared-tmp -- test -f /root/.cm_ok >/dev/null 2>&1; then echo 'ডেস্কটপ আগেই বসানো — বাদ'; else
+T=§{TMPDIR:-§PREFIX/tmp}; mkdir -p "§T"
+cat > "§T/cm_setup.sh" <<'SETUP'
 export DEBIAN_FRONTEND=noninteractive TZ=Asia/Dhaka LANG=C.UTF-8
 echo 'APT::Sandbox::User "root";' > /etc/apt/apt.conf.d/99cm-sandbox
 dpkg --configure -a
@@ -145,7 +148,7 @@ apt-get update || exit 1
 apt-get install -y xfce4 xfce4-terminal dbus-x11 x11-xserver-utils fonts-noto-core nano curl || exit 1
 touch /root/.cm_ok
 SETUP
-  proot-distro login ubuntu --shared-tmp -- bash /root/cm_setup.sh || { echo 'ডেস্কটপ ইনস্টল ব্যর্থ — আবার চাপলে বাকিটা থেকেই শুরু হবে'; exit 1; }
+  proot-distro login ubuntu --shared-tmp -- bash /tmp/cm_setup.sh || { echo 'ডেস্কটপ ইনস্টল ব্যর্থ — আবার চাপলে বাকিটা থেকেই শুরু হবে'; exit 1; }
 fi
 echo '▸ ধাপ ৫/৫: উবুন্টু ডেস্কটপ চালু'
 pkill -f "com.termux.x11.CmdEntry""Point" 2>/dev/null; pkill -x proot 2>/dev/null; sleep 1
@@ -246,8 +249,6 @@ object Store {
         Cmd("d13", "⏹ আটকে থাকা প্যাকেজ কাজ থামান",
             "pkill -x apt 2>/dev/null; pkill -x apt-get 2>/dev/null; pkill -x dpkg 2>/dev/null; sleep 1; dpkg --configure -a --force-confold 2>&1 | tail -5; echo 'থামানো হয়েছে — এখন নতুন কমান্ড চালাতে পারেন'"),
         Cmd("d11", "কম্পিউটার মোড বন্ধ", "pkill -x openbox; pkill -x tint2; pkill -x proot; pkill -f \"com.termux.x11.CmdEntry\"\"Point\"; echo বন্ধ হয়েছে"),
-        // Daily Agent ডাউনলোড ও আপডেট: Termux লাগে না; সর্বশেষ রিলিজের APK নামিয়ে ইনস্টলে দেয় (MainActivity.installAgent)
-        Cmd("d16", "🤖 Daily Agent ডাউনলোড ও আপডেট", "", false),
         Cmd("d15", "🎧 রুকইয়াহ অডিও প্যাক ডাউনলোড (৩২kbps×১.২০)", AUDIO_PACK, false),
     )
 
@@ -317,12 +318,9 @@ object Store {
             out.filter { it.id == "d16" }.forEach { o -> defaults.firstOrNull { it.id == "d16" }?.let { n -> o.title = n.title } }
             changed = true
         }
-        // v19: উবুন্টু আর Daily Agent দুটোর আইডি একই (d16) ছিল, তাই একটা অন্যটাকে ঢেকে দিচ্ছিল। উবুন্টু এখন d17; d16 শুধু Daily Agent
-        if (sp(c).getInt("ver", 1) < 19) {
-            val ag = defaults.first { it.id == "d16" }
-            out.removeAll { it.id == "d16" }
-            out.add(ag.copy())
-            out.removeAll { it.id == "d17" }
+        // v20: "Daily Agent ডাউনলোড ও আপডেট" কমান্ড চিরতরে বাদ (d16)। উবুন্টু এখন d17; আগে দুটোর আইডি এক (d16) ছিল বলে একটা অন্যটাকে ঢেকে দিত
+        if (sp(c).getInt("ver", 1) < 20) {
+            out.removeAll { it.id == "d16" || it.id == "d17" }
             out.add(defaults.first { it.id == "d17" }.copy())
             changed = true
         }
@@ -334,7 +332,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 19)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 20)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 

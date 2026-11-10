@@ -990,7 +990,6 @@ class MainActivity : Activity() {
     private fun runById(id: String) {
         val cmd = Store.all(this).firstOrNull { it.id == id }
         if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
-        if (cmd.id == "d16") { installAgent(); return }
         if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
         if ((cmd.id == "d10" || cmd.id == "d17") && !x11Installed()) {
             AlertDialog.Builder(this).setTitle("Termux:X11 অ্যাপও লাগবে")
@@ -2284,27 +2283,6 @@ class MainActivity : Activity() {
             }
         }
         handler.postDelayed(r, 2000L)
-    }
-
-    /** Daily Agent-এর সর্বশেষ রিলিজ নামিয়ে ইনস্টলে দেয় (Termux ছাড়াই); আগে ইনস্টল না থাকলে নতুন ইনস্টল, থাকলে আপডেট */
-    private fun installAgent() {
-        if (!packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(this, "\"Allow from this source\" চালু করে ফিরে এসে আবার চাপুন", Toast.LENGTH_LONG).show()
-            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
-            return
-        }
-        Toast.makeText(this, "Daily Agent নামানো হচ্ছে… শেষ হলে ইনস্টল নিশ্চিত করুন", Toast.LENGTH_LONG).show()
-        Thread {
-            val repo = "alamgirabdullahgh/Daily-Agent"
-            val tag = try {
-                val cn = java.net.URL("https://github.com/$repo/releases/latest").openConnection() as java.net.HttpURLConnection
-                cn.instanceFollowRedirects = false; cn.connectTimeout = 10000; cn.readTimeout = 10000
-                val t = (cn.getHeaderField("Location") ?: "").substringAfterLast('/'); cn.disconnect(); t
-            } catch (_: Exception) { "" }
-            if (tag.isEmpty()) { runOnUiThread { Toast.makeText(this, "নেট বা GitHub পাওয়া যায়নি, আবার চেষ্টা করুন", Toast.LENGTH_LONG).show() }; return@Thread }
-            val err = Updater.install(this, "https://github.com/$repo/releases/download/$tag/DailyAgent.apk", false) { }
-            if (err != null) runOnUiThread { Toast.makeText(this, "নামানো যায়নি ($err)", Toast.LENGTH_LONG).show() }
-        }.start()
     }
 
     private fun installX11() {
