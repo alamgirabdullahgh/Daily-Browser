@@ -2070,7 +2070,7 @@ class MainActivity : Activity() {
         m.menu.add(0, 2, 1, "রিলোড")
         if (cur?.web?.canGoForward() == true) m.menu.add(0, 12, 1, "এগিয়ে যান →")
         m.menu.add(0, 3, 2, "ডেস্কটপ সাইট (সব ট্যাব)").apply { isCheckable = true; isChecked = desktop }
-        cur?.let { ct -> m.menu.add(0, 70, 2, if (desktop) "এই ট্যাবে ডেস্কটপ (সব ট্যাবে চালু আছে)" else "এই ট্যাবে ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = deskOf(ct); setEnabled(!desktop) } }
+        cur?.let { ct -> m.menu.add(0, 70, 2, if (desktop) "এই ট্যাবে ডেস্কটপ (সব ট্যাবে চালু আছে)" else "এই ট্যাবে ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = deskOf(ct) } }
         m.menu.add(0, 60, 2, "Google লগইন মোড: " + listOf("০ WebView", "১ Chrome-সদৃশ", "২ Chrome-সদৃশ+")[Store.prefs(this).getInt("gmode", 0).coerceIn(0, 2)] + (if (desktop) " (ডেস্কটপ মোড চালু — প্রযোজ্য নয়)" else ""))
         m.menu.add(0, 61, 3, "লগইন তথ্য (ইমেইল-পাসওয়ার্ড)")
         m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
