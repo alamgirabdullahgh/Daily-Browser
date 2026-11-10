@@ -253,6 +253,7 @@ if(h==='gds.google.com'){
 }else if(/(^|\.)google\.com${'$'}/.test(h)&&vidsPage){
  b=btn(/^sign in to vids${'$'}/i)||btn(/sign in to vids/i)||btn(/^sign in${'$'}/i);
 }
+if(!b&&!done&&n>=3&&/(^|\.)google\.com${'$'}/.test(h)&&vidsPage&&h!=='accounts.google.com'&&h!=='gds.google.com'){var as=document.querySelectorAll('a[href*="accounts.google.com"]');for(var j=0;j<as.length;j++){if(/sign in/i.test(txt(as[j]))||/AccountChooser|ServiceLogin/i.test(as[j].href)){done++;ln=n;fb='';window.__tbFlowLog='সাইন-ইন লিংকে সরাসরি গেলাম';location.href=as[j].href;return}}}
 if(b){done++;ln=n;u0=location.href;var a=up(b);fb=(a.tagName==='A'&&a.href&&/^https?:/.test(a.href))?a.href:'';window.__tbFlowLog='চাপলাম: '+txt(b).slice(0,30);clk(b)}
 },1000);
 return 'started'}catch(e){return 'err'}})()"""
