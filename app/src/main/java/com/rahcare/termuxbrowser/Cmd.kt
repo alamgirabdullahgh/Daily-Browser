@@ -116,7 +116,7 @@ fun pre(label: String = "▸ প্যাকেজ আপডেট ও আপগ
     "  if curl -fsI --max-time 20 \"SSU/dists/stable/InRelease\" >/dev/null 2>&1; then cp \"SSS\" \"SSS.bak\" 2>/dev/null; echo \"deb SSU stable main\" > \"SSS\"; fi\n" +
     "  pkg update -y || { echo 'আপডেট ব্যর্থ — নেট দেখে আবার চালান'; exit 1; }\n" +
     "fi\n" +
-    "pkg upgrade -y || exit 1\n").replace('SS', '$')
+    "pkg upgrade -y || exit 1\n").replace("SS", "\$")
 
 /** কম্পিউটার মোড: শুরু থেকে শেষ — আপডেট/আপগ্রেড, x11-repo, ডেস্কটপ প্যাকেজ, সার্ভার চালু; কোনো ধাপ ব্যর্থ হলে বাকি ধাপ চলে না */
 val DESKTOP: String = pre("▸ ধাপ ১/৪: প্যাকেজ আপডেট ও আপগ্রেড") + """echo '▸ ধাপ ২/৪: X11 রিপো'
