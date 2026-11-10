@@ -235,7 +235,7 @@ object Store {
         Cmd("d7", "ডিস্ক ব্যবহার", "df -h \$HOME"),
         Cmd("d8", "আইপি দেখুন", "(command -v ifconfig >/dev/null || pkg install -y net-tools) && ifconfig 2>/dev/null | grep -E \"inet |wlan|rmnet\" || /system/bin/ip -4 addr 2>/dev/null | grep inet"),
         Cmd("d9", "সিস্টেম তথ্য", "uname -a && echo && free -h 2>/dev/null | head -3"),
-        Cmd("d16", "🖥 কম্পিউটার মোড (উবুন্টু, পূর্ণ ডেস্কটপ)", UBUNTU, false),
+        Cmd("d17", "🖥 কম্পিউটার মোড (উবুন্টু, পূর্ণ ডেস্কটপ)", UBUNTU, false),
         // ওয়েব-টার্মিনাল: Termux-এ ttyd চালু হয়, তারপর অ্যাপ নতুন ট্যাবে খোলে। শুধু 127.0.0.1-এ, পাসওয়ার্ডসহ (@@WEBPW@@ অ্যাপ বসায়)
         Cmd("d12", "🌐 ওয়েব-টার্মিনাল (ট্যাবে পূর্ণ টার্মিনাল)",
             pre() + "pkg install -y ttyd || exit 1\n" +
@@ -317,6 +317,15 @@ object Store {
             out.filter { it.id == "d16" }.forEach { o -> defaults.firstOrNull { it.id == "d16" }?.let { n -> o.title = n.title } }
             changed = true
         }
+        // v19: উবুন্টু আর Daily Agent দুটোর আইডি একই (d16) ছিল, তাই একটা অন্যটাকে ঢেকে দিচ্ছিল। উবুন্টু এখন d17; d16 শুধু Daily Agent
+        if (sp(c).getInt("ver", 1) < 19) {
+            val ag = defaults.first { it.id == "d16" }
+            out.removeAll { it.id == "d16" }
+            out.add(ag.copy())
+            out.removeAll { it.id == "d17" }
+            out.add(defaults.first { it.id == "d17" }.copy())
+            changed = true
+        }
         for (d in defaults) if (d.id !in seen && out.none { it.id == d.id }) { out.add(d.copy()); changed = true }
         if (changed) save(c, out)
         return out
@@ -325,7 +334,7 @@ object Store {
     fun save(c: Context, list: List<Cmd>) {
         val a = JSONArray()
         list.forEach { a.put(JSONObject().put("id", it.id).put("t", it.title).put("s", it.script).put("b", it.background)) }
-        sp(c).edit().putString("list", a.toString()).putInt("ver", 18)
+        sp(c).edit().putString("list", a.toString()).putInt("ver", 19)
             .putString("seen", defaults.joinToString(",") { it.id }).apply()
     }
 

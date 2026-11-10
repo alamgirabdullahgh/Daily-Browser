@@ -842,7 +842,7 @@ class MainActivity : Activity() {
         if (!Runner.installed(this)) { Toast.makeText(this, "আগে F-Droid থেকে Termux ইনস্টল করুন", Toast.LENGTH_LONG).show(); return }
         if (chainQ.isNotEmpty()) { Toast.makeText(this, "আগের ক্রম এখনো চলছে", Toast.LENGTH_SHORT).show(); return }
         // যেগুলোর বিশেষ ব্যবস্থা লাগে (ডেস্কটপ মোড, ওয়েব-টার্মিনাল) সেগুলো বাদ; Termux-পর্দায় চলা কমান্ডেরও কাজ-ট্র্যাকিং নেই
-        val all = Store.all(this).filter { it.background && it.id != "d10" && it.id != "d11" && it.id != "d12" }
+        val all = Store.all(this).filter { it.background && it.id != "d10" && it.id != "d17" && it.id != "d11" && it.id != "d12" }
         val sel = BooleanArray(all.size)
         AlertDialog.Builder(this).setTitle("ক্রমানুসারে চালাতে বাছুন (তালিকার ক্রমে চলবে)")
             .setMultiChoiceItems(all.map { it.title }.toTypedArray(), sel) { _, i, on -> sel[i] = on }
@@ -992,7 +992,7 @@ class MainActivity : Activity() {
         if (cmd == null) { Toast.makeText(this, "কমান্ড পাওয়া যায়নি, হোম রিফ্রেশ করুন", Toast.LENGTH_SHORT).show(); return }
         if (cmd.id == "d16") { installAgent(); return }
         if (Runner.installed(this) && !Runner.hasPermission(this)) { askRunPermission(true); return }
-        if ((cmd.id == "d10" || cmd.id == "d16") && !x11Installed()) {
+        if ((cmd.id == "d10" || cmd.id == "d17") && !x11Installed()) {
             AlertDialog.Builder(this).setTitle("Termux:X11 অ্যাপও লাগবে")
                 .setMessage("কম্পিউটার মোডের পর্দা দেখাতে আলাদা Termux:X11 অ্যাপ দরকার। এখন নামিয়ে ইনস্টল করব? (ইনস্টল শেষে কম্পিউটার মোডে আবার চাপুন)")
                 .setPositiveButton("ইনস্টল") { _, _ -> installX11() }
@@ -1002,7 +1002,7 @@ class MainActivity : Activity() {
         val run = if (cmd.id == "d12") cmd.copy(script = cmd.script.replace("@@WEBPW@@", webPw())) else cmd
         val (job, err) = Runner.run(this, run)
         if (err == null && cmd.id == "d12") waitWebTerm()
-        if (err == null && cmd.id == "d10" && job != null) openX11WhenReady(job)
+        if (err == null && (cmd.id == "d10" || cmd.id == "d17") && job != null) openX11WhenReady(job)
         if (err != null) AlertDialog.Builder(this).setTitle("চালানো যায়নি").setMessage(err).setPositiveButton("ঠিক আছে", null).show()
         else if (job != null) openJobTab(job)
         else Toast.makeText(this, "Termux স্ক্রিনে চলছে: ${cmd.title}", Toast.LENGTH_SHORT).show()

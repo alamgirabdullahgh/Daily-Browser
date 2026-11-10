@@ -182,6 +182,7 @@ details.cat>.g,details.cat>h3,details.cat>h3+.g{padding-left:12px;padding-right:
 details.cat>.g:last-child,details.cat>h3+.g:last-child{padding-bottom:12px}
 details.cat h3{font-size:11.5px;font-weight:700;color:var(--mu);margin:4px 12px 8px;letter-spacing:.3px}
 details.cat h3 .m{margin-left:6px}
+.ib{padding:0 12px 12px}.ib .add{margin-top:8px}
 .g{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:10px}@media(min-width:560px){.g{grid-template-columns:repeat(3,1fr)}}
 .card{position:relative;background:var(--card);border:1px solid var(--ln);border-radius:16px;box-shadow:var(--sh);overflow:hidden}
 .run{display:flex;align-items:center;gap:10px;min-height:62px;padding:11px 28px 11px 11px;color:var(--tx);text-decoration:none}
@@ -206,7 +207,7 @@ details.cat h3 .m{margin-left:6px}
 <div class=stats><div class=stat><b>${sites.size}</b>ওয়ার্কস্পেস</div><div class=stat><b>${cmds.size}</b>কমান্ড</div><div class=stat><b>${Jobs.list.count { it.status == "running" }}</b>চলছে</div></div></div>
 $warn
 $bmSection$siteSection<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
-<h2>কমান্ড</h2><div class=g>$cards</div><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a><div style='height:8px'></div><a class=add href='termux://chain/x'>▶ কয়েকটা কমান্ড ক্রমানুসারে চালান</a>
+<details class=cat id=tcmd><summary>Termux Command<span class=m>${cmds.size}</span></summary><div class=g>$cards</div><div class=ib><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a><a class=add href='termux://chain/x'>▶ কয়েকটা কমান্ড ক্রমানুসারে চালান</a></div></details>
 <h2>কাজ <a class=clr href='termux://clear/all'>শেষ হওয়াগুলো মুছুন</a></h2><div id=jobs>${jobsHtml()}</div>
 </body></html>"""
     }
