@@ -739,7 +739,10 @@ class MainActivity : Activity() {
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
                 val md = if (dk) androidx.webkit.UserAgentMetadata.Builder().setBrandVersionList(brands)
-                    .setFullVersion(ver).setPlatform("Linux").setPlatformVersion("6.5.0").setArchitecture("x86").setBitness(64).setModel("").setMobile(false).build()
+                    .setFullVersion(ver).setPlatform("Linux").setPlatformVersion("6.5.0").setArchitecture("x86").setBitness(64).setModel("").setMobile(false)
+                    .also { b -> // ক্রোমের ডেক্সটপ মোডের মতো Sec-CH-UA-Form-Factors: "Desktop" (নইলে WebView ফোনের "Mobile" পাঠায়)
+                        try { if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA_FORM_FACTORS)) b.setFormFactors(listOf(androidx.webkit.UserAgentMetadata.FORM_FACTOR_DESKTOP)) } catch (_: Throwable) {}
+                    }.build()
                 else if (gm >= 1) {
                     val av = Regex("Android ([0-9.]+)").find(ua)?.groupValues?.get(1) ?: "14"
                     val pv = av.split('.').let { l -> (l + List(3) { "0" }).take(3).joinToString(".") }

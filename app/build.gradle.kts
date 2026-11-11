@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.rahcare.termuxbrowser"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.rahcare.termuxbrowser"
@@ -42,7 +42,7 @@ android {
 
 dependencies {
     // আলাদা লগইন-প্রোফাইল (Multi-Profile API) — প্রতিটি ওয়ার্কস্পেসের কুকি/সেশন আলাদা রাখে
-    implementation("androidx.webkit:webkit:1.12.1")
+    implementation("androidx.webkit:webkit:1.16.0")
     // টেনে রিফ্রেশ (পেজের একদম ওপরে নামিয়ে টানলে রিলোড)
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     // কিবোর্ডের ক্লিপবোর্ড থেকে ছবি বসানো (InputConnectionCompat)
