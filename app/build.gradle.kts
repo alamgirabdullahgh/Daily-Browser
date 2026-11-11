@@ -40,6 +40,15 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 
+// androidx.webkit 1.16 Kotlin stdlib 2.1 টেনে আনে, কিন্তু কম্পাইলার 1.9.24 — তাই stdlib ১.৯-এ আটকানো
+configurations.all {
+    resolutionStrategy {
+        force("org.jetbrains.kotlin:kotlin-stdlib:1.9.24")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.9.24")
+        force("org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.9.24")
+    }
+}
+
 dependencies {
     // আলাদা লগইন-প্রোফাইল (Multi-Profile API) — প্রতিটি ওয়ার্কস্পেসের কুকি/সেশন আলাদা রাখে
     implementation("androidx.webkit:webkit:1.16.0")
