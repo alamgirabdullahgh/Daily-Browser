@@ -632,7 +632,7 @@ class MainActivity : Activity() {
                 h.cancel()
                 if (e.url == v.url) v.loadDataWithBaseURL(e.url, Browse.errorHtml(e.url, "সংযোগ নিরাপদ নয় (SSL): সাইটের সার্টিফিকেট যাচাই করা যায়নি"), "text/html", "utf-8", e.url)
             }
-            override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) updateBar() }
+            override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) { if (address.text.isNullOrEmpty()) releaseBar(); updateBar() } }
             override fun onPageFinished(v: WebView, u: String) {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
                 handler.removeCallbacks(flushRun); handler.postDelayed(flushRun, 4000L)   // পাতা লোডের পর (লগইন সম্ভবত হয়েছে) কুকি ডিস্কে

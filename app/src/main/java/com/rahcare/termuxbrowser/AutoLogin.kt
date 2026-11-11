@@ -115,9 +115,13 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
     /** প্রতিটি পাতা লোড শেষে ডাকা হয় (UI থ্রেডে)। */
     fun onPage(c: Context, siteId: String?, url: String, web: WebView, toast: (String) -> Unit) {
         if (siteId == null || !url.startsWith("https://")) return
-        val email = emailOf(c, siteId); if (email.isBlank()) return
+        val email = emailOf(c, siteId)
+        if (email.isBlank()) { if (hostOf(url) == "accounts.google.com" && warned.add("noem$siteId")) toast("এই ওয়ার্কস্পেসের সাথে কোনো ইমেইল জোড়া নেই — মেনু → লগইন তথ্য থেকে জোড়ুন"); return }
         val site = Sites.all(c).firstOrNull { it.id == siteId } ?: return
-        if (!CODING_AUTOLOGIN && AgentBus.groupOf(AgentBus.agentOf(site) ?: "text") == "text") return
+        if (!CODING_AUTOLOGIN && AgentBus.groupOf(AgentBus.agentOf(site) ?: "text") == "text") {
+            if (hostOf(url) == "accounts.google.com" && warned.add("grp$siteId")) toast("“${site.name}”: ওয়ার্কস্পেসের ধরন চেনা যায়নি (কোডিং ধরা পড়েছে), তাই অটো-লগইন বন্ধ — হোম থেকে ক্যাটাগরি ঠিক করুন")
+            return
+        }
         val pw = Creds.get(c, email)
         val host = hostOf(url); val siteHost = hostOf(site.url)
         val google = isGoogle(email, site.url)
