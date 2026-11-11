@@ -759,7 +759,7 @@ class MainActivity : Activity() {
         //  ডেস্কটপ লেআউট (width=1280), navigator.platform ও userAgentData: পেজ লোডের শুরুতেই বসে
         try {
             t.deskScript?.let { try { it.remove() } catch (_: Exception) {} }; t.deskScript = null
-            val scr = if (dk) DesktopMode.JS else if (gm >= 2) ChromeShim.JS else null
+            val scr = if (dk) (ChromeShim.JS + ";" + DesktopMode.JS) else if (gm >= 2) ChromeShim.JS else null
             if (scr != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
                 t.deskScript = WebViewCompat.addDocumentStartJavaScript(t.web, scr, setOf("*"))
         } catch (e: Exception) { if (dk) Toast.makeText(this, "ডেস্কটপ স্ক্রিপ্ট বসেনি: " + (e.message ?: e.javaClass.simpleName).take(80), Toast.LENGTH_LONG).show() }
@@ -833,13 +833,18 @@ class MainActivity : Activity() {
     /** ডেস্কটপ মোড ঠিকমতো বসেছে কিনা: পেজের নিজের চোখে UA, platform, userAgentData, width ইত্যাদি দেখায় */
     private fun deskDiag() {
         val t = cur ?: return
-        val js = "(function(){try{var u=navigator.userAgentData;return JSON.stringify({ua:navigator.userAgent,platform:navigator.platform,uadMobile:u?u.mobile:'n/a',uadPlatform:u?u.platform:'n/a',inner:innerWidth+'x'+innerHeight,screen:screen.width+'x'+screen.height,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,vp:(document.querySelector('meta[name=viewport]')||{}).content||'-',url:location.href.slice(0,60)},null,1)}catch(e){return 'ERR '+e}})()"
+        val js = "(function(){try{var u=navigator.userAgentData;return JSON.stringify({ua:navigator.userAgent,platform:navigator.platform,uadMobile:u?u.mobile:'n/a',uadPlatform:u?u.platform:'n/a',inner:innerWidth+'x'+innerHeight,screen:screen.width+'x'+screen.height,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,chrome:typeof window.chrome,webdriver:navigator.webdriver,vp:(document.querySelector('meta[name=viewport]')||{}).content||'-',url:location.href.slice(0,60)},null,1)}catch(e){return 'ERR '+e}})()"
         t.web.evaluateJavascript(js) { raw ->
             val sup = "UA-মেটাডেটা: " + WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA) +
                 "\nডকুমেন্ট-স্টার্ট স্ক্রিপ্ট: " + WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) +
                 "\nX-Requested-With নিয়ন্ত্রণ: " + WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST) +
                 "\nএই ট্যাবে ডেস্কটপ: " + deskOf(t) + "\n\nপেজ যা দেখছে:\n" + Sites.unquote(raw)
-            AlertDialog.Builder(this).setTitle("ডেস্কটপ মোড পরীক্ষা").setMessage(sup).setPositiveButton("ঠিক আছে", null).show()
+            AlertDialog.Builder(this).setTitle("ডেস্কটপ মোড পরীক্ষা").setMessage(sup).setPositiveButton("ঠিক আছে", null)
+                .setNeutralButton("সার্ভারে যাওয়া হেডার দেখুন") { _, _ ->
+                    // একই মোডে নতুন ট্যাবে হেডার-প্রতিধ্বনি পেজ: সার্ভার আসলে কী পাচ্ছে (UA, Sec-CH-UA-*, X-Requested-With) — ক্রোমের সাথে মিলিয়ে দেখার জন্য
+                    val d = deskOf(t); val nt = newTab(null); nt.desk = d; applyDesktop(nt); nt.web.loadUrl("https://httpbin.org/headers")
+                    select(nt)
+                }.show()
         }
     }
 
