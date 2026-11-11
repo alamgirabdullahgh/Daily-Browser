@@ -44,6 +44,7 @@ class Tab(val web: WebView) {
     var stuckReloads = 0       // একটানা কয়বার রিলোড করা হয়েছে (অনন্ত চক্র এড়াতে)
     var desk = false       // এই ট্যাবে আলাদা ডেস্কটপ মোড (মূল ডেস্কটপ সুইচ বন্ধ থাকলেও)
     var flowShown = ""    // অটো-ক্লিকের শেষ দেখানো বার্তা
+    var deskReport = false  // 🖥 চাপার পর পরের পেজ-লোডে ফলাফল দেখানোর চিহ্ন
     var deskAuto = false   // Vids "computer-এ যান" পেজ দেখে নিজে চালু করা হয়ে গেছে কিনা (প্রতি ট্যাবে একবার)
     var mdSet = false      // setUserAgentMetadata বসানো আছে কিনা (বসানো না থাকলে মোবাইলে ছুঁই না)
     var deskScript: androidx.webkit.ScriptHandler? = null  // ডেস্কটপ-মোডের document-start স্ক্রিপ্ট (বন্ধ করলে সরানো হয়)
@@ -641,6 +642,7 @@ class MainActivity : Activity() {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
                 handler.removeCallbacks(flushRun); handler.postDelayed(flushRun, 4000L)   // পাতা লোডের পর (লগইন সম্ভবত হয়েছে) কুকি ডিস্কে
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
+                if (t.deskReport && u.startsWith("http")) { t.deskReport = false; reportDesk(t) }
                 // সাইটভেদে অটো-ক্লিক (যেমন claude.ai-এর অনুমতি-কার্ড) — সব AutoClick.kt-তে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
                 AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
                 AutoLogin.onPage(this@MainActivity, t.site, u, v) { m -> Toast.makeText(this@MainActivity, m, Toast.LENGTH_LONG).show() }
@@ -824,10 +826,25 @@ class MainActivity : Activity() {
         deskBtn.background = if (on) bg(Color.parseColor("#DBEAFE"), 10) else null
     }
 
+    /** 🖥 চাপার পর পেজ লোড হলে: পেজ নিজের চোখে কী দেখছে — ডেস্কটপ আসলে প্রয়োগ হলো কিনা ও কোন অ্যাপ-সংস্করণ চলছে */
+    private fun reportDesk(t: Tab) {
+        val vc = try { packageManager.getPackageInfo(packageName, 0).let { if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode.toLong() } } catch (_: Exception) { 0L }
+        val want = t.desk
+        val js = "(function(){try{var u=navigator.userAgentData;var ua=navigator.userAgent;return JSON.stringify({x11:/X11; Linux/.test(ua),mob:/Mobile|Android/.test(ua),uadMobile:u?u.mobile:null,plat:navigator.platform,inner:innerWidth,chrome:typeof window.chrome})}catch(e){return '{}'}})()"
+        t.web.evaluateJavascript(js) { raw ->
+            val j = try { org.json.JSONObject(Sites.unquote(raw)) } catch (_: Exception) { org.json.JSONObject() }
+            val isDesk = j.optBoolean("x11") && !j.optBoolean("mob")
+            val msg = "[সংস্করণ $vc] চাওয়া: " + (if (want) "ডেস্কটপ" else "মোবাইল") + " → পেজ দেখছে: " + (if (isDesk) "ডেস্কটপ" else "মোবাইল") +
+                "\nপ্ল্যাটফর্ম=" + j.optString("plat") + ", UA-mobile=" + j.opt("uadMobile") + ", প্রস্থ=" + j.optInt("inner") + ", window.chrome=" + j.optString("chrome") +
+                (if (want != isDesk) "\n⚠ প্রয়োগ হয়নি — ⋮ › 🔍 পরীক্ষা খুলে স্ক্রিনশট দিন" else "")
+            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
     /** শুধু এই ট্যাবে ডেস্কটপ মোড চালু/বন্ধ (অন্য ট্যাব অপরিবর্তিত) */
     private fun toggleDeskCur() {
         val t = cur ?: return
-        t.desk = !t.desk; applyDesktop(t); try { t.web.clearCache(false) } catch (_: Exception) {}
+        t.desk = !t.desk; t.deskReport = true; applyDesktop(t); try { t.web.clearCache(false) } catch (_: Exception) {}
         if (!t.isHome) t.web.reload()
         refreshDeskBtn()
         Toast.makeText(this, if (t.desk) "শুধু এই ট্যাবে ডেস্কটপ মোড চালু" else "এই ট্যাবে ডেস্কটপ মোড বন্ধ", Toast.LENGTH_SHORT).show()
