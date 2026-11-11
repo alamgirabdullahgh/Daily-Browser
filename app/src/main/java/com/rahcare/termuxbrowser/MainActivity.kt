@@ -66,6 +66,7 @@ class MainActivity : Activity() {
     private var desktop = false
     private lateinit var content: FrameLayout
     private lateinit var address: EditText
+    private lateinit var deskBtn: TextView
     private lateinit var countBox: TextView
     private lateinit var runBox: TextView
     private var refreshQueued = false
@@ -179,6 +180,8 @@ class MainActivity : Activity() {
             setOnFocusChangeListener { v, f -> if (f) (v as EditText).post { v.selectAll() } }
         }
         bar.addView(address, LinearLayout.LayoutParams(0, dp(40), 1f))
+        deskBtn = icon("🖥", 20f) { toggleDeskCur() }
+        bar.addView(deskBtn)
         bar.addView(icon("↻", 24f) { reloadCur() })
         bar.addView(icon("＋", 24f) { newTab(null); openHome() })
         runBox = TextView(this).apply {
@@ -584,6 +587,7 @@ class MainActivity : Activity() {
             builtInZoomControls = true; displayZoomControls = false
             useWideViewPort = true; loadWithOverviewMode = true
         }
+        t.desk = desktop
         applyDesktop(t); applyView(t)
         // ব্যাকগ্রাউন্ডে গেলেও ওয়েব-রেন্ডারার "গুরুত্বপূর্ণ" থাকে, যাতে সাইটের কাজ/স্ট্রিম থামে না
         if (android.os.Build.VERSION.SDK_INT >= 26) try { w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false) } catch (_: Exception) {}
@@ -701,7 +705,7 @@ class MainActivity : Activity() {
 
     /** Google লগইন মোড (মোবাইল মোডে): 0 = WebView-এর নিজস্ব; 1 = Chrome-সদৃশ (UA, Client Hints, X-Requested-With সব একসাথে মেলানো); 2 = ১ + window.chrome ইত্যাদি */
     /** ডেস্কটপ মোড এই ট্যাবে চালু? — মূল সুইচ (সব ট্যাব) অথবা শুধু এই ট্যাবের নিজস্ব সুইচ */
-    private fun deskOf(t: Tab): Boolean = desktop || t.desk
+    private fun deskOf(t: Tab): Boolean = t.desk
     private fun gmode(t: Tab): Int = if (deskOf(t)) 0 else Store.prefs(this).getInt("gmode", 0)
 
     /** Google Vids-এর "Go to vids.new on a computer" পেজ এলে শুধু ওই ট্যাবে ডেস্কটপ মোড চালু করে আবার লোড (প্রতি ট্যাবে একবার, অনন্ত চক্র নেই) */
@@ -806,6 +810,46 @@ class MainActivity : Activity() {
         val t = cur ?: return
         if (!address.hasFocus()) address.setText(if (t.isHome || t.url == "about:blank") "" else if (t.jobKey != null) "⚙ " + t.title else t.url)
         address.hint = "Search"
+        refreshDeskBtn()
+    }
+
+    /** 🖥 বোতামের রং: নীল = এই ট্যাবে ডেস্কটপ চালু, ধূসর = মোবাইল */
+    private fun refreshDeskBtn() {
+        val t = cur
+        val on = t != null && deskOf(t)
+        deskBtn.alpha = if (on) 1f else 0.35f
+        deskBtn.background = if (on) bg(Color.parseColor("#DBEAFE"), 10) else null
+    }
+
+    /** শুধু এই ট্যাবে ডেস্কটপ মোড চালু/বন্ধ (অন্য ট্যাব অপরিবর্তিত) */
+    private fun toggleDeskCur() {
+        val t = cur ?: return
+        t.desk = !t.desk; applyDesktop(t); if (!t.isHome) t.web.reload()
+        refreshDeskBtn()
+        Toast.makeText(this, if (t.desk) "শুধু এই ট্যাবে ডেস্কটপ মোড চালু" else "এই ট্যাবে ডেস্কটপ মোড বন্ধ", Toast.LENGTH_SHORT).show()
+    }
+
+    /** AI-এজেন্টের জন্য (UI থ্রেডে): আইডি ধরে ওয়ার্কস্পেস মোছে — ট্যাব বন্ধ, তালিকা থেকে বাদ, লগইন-প্রোফাইল মুছে ফেলা। ফেরত: কয়টা মোছা হলো */
+    fun agDelete(ids: List<String>): Int {
+        val list = Sites.all(this)
+        val del = list.filter { it.id in ids }
+        if (del.isEmpty()) return 0
+        val dset = del.map { it.id }.toSet()
+        tabs.filter { it.site in dset }.forEach { closeTab(it) }
+        list.removeAll { it.id in dset }; Sites.save(this, list)
+        del.forEach { s ->
+            try { ProfileStore.getInstance().deleteProfile(Sites.profile(s.id)) } catch (_: Exception) {}
+            AutoLogin.reset(s.id)
+        }
+        refreshHomes()
+        return del.size
+    }
+
+    /** AI-এজেন্টের জন্য (UI থ্রেডে): ওয়ার্কস্পেসের ট্যাবে ডেস্কটপ মোড চালু/বন্ধ; ট্যাব না থাকলে খুলে নেয় */
+    fun agSetDesktop(id: String, on: Boolean): Boolean {
+        val t = tabs.firstOrNull { it.site == id } ?: openSite(id) ?: return false
+        t.desk = on; applyDesktop(t); if (!t.isHome) t.web.reload()
+        refreshDeskBtn(); return true
     }
 
     private fun loadHome(t: Tab) {
@@ -2081,8 +2125,8 @@ class MainActivity : Activity() {
         m.menu.add(0, 2, 1, "রিলোড")
         if (cur?.web?.canGoForward() == true) m.menu.add(0, 12, 1, "এগিয়ে যান →")
         m.menu.add(0, 3, 2, "ডেস্কটপ সাইট (সব ট্যাব)").apply { isCheckable = true; isChecked = desktop }
-        cur?.let { ct -> m.menu.add(0, 70, 2, if (desktop) "এই ট্যাবে ডেস্কটপ (সব ট্যাবে চালু আছে)" else "এই ট্যাবে ডেস্কটপ সাইট").apply { isCheckable = true; isChecked = deskOf(ct) } }
-        m.menu.add(0, 60, 2, "Google লগইন মোড: " + listOf("০ WebView", "১ Chrome-সদৃশ", "২ Chrome-সদৃশ+")[Store.prefs(this).getInt("gmode", 0).coerceIn(0, 2)] + (if (desktop) " (ডেস্কটপ মোড চালু — প্রযোজ্য নয়)" else ""))
+        cur?.let { ct -> m.menu.add(0, 70, 2, "এই ট্যাবে ডেস্কটপ সাইট (🖥 বোতামেও)").apply { isCheckable = true; isChecked = deskOf(ct) } }
+        m.menu.add(0, 60, 2, "Google লগইন মোড: " + listOf("০ WebView", "১ Chrome-সদৃশ", "২ Chrome-সদৃশ+")[Store.prefs(this).getInt("gmode", 0).coerceIn(0, 2)] + (if (cur?.let { deskOf(it) } == true) " (এই ট্যাবে ডেস্কটপ চালু — প্রযোজ্য নয়)" else ""))
         m.menu.add(0, 61, 3, "লগইন তথ্য (ইমেইল-পাসওয়ার্ড)")
         m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
         m.menu.add(0, 63, 3, "AI সহকারী (Gemini কী)")
@@ -2159,9 +2203,8 @@ class MainActivity : Activity() {
                 2 -> reloadCur()
                 12 -> cur?.web?.goForward()
                 3 -> { desktop = !desktop; Store.prefs(this).edit().putBoolean("desktop", desktop).apply()
-                    tabs.forEach { t -> applyDesktop(t) }; cur?.let { t -> if (!t.isHome) t.web.reload() } }
-                70 -> cur?.let { t -> if (!desktop) { t.desk = !t.desk; applyDesktop(t); if (!t.isHome) t.web.reload()
-                    Toast.makeText(this, if (t.desk) "শুধু এই ট্যাবে ডেস্কটপ মোড চালু" else "এই ট্যাবে ডেস্কটপ মোড বন্ধ", Toast.LENGTH_SHORT).show() } }
+                    tabs.forEach { t -> t.desk = desktop; applyDesktop(t) }; cur?.let { t -> if (!t.isHome) t.web.reload() }; refreshDeskBtn() }
+                70 -> toggleDeskCur()
                 60 -> { val n = (Store.prefs(this).getInt("gmode", 0) + 1) % 3; Store.prefs(this).edit().putInt("gmode", n).apply()
                     tabs.forEach { t -> applyDesktop(t) }
                     Toast.makeText(this, listOf("মোড ০: WebView-এর নিজস্ব অবস্থা", "মোড ১: Chrome-সদৃশ (UA + হিন্ট + হেডার মিলানো)", "মোড ২: মোড ১ + window.chrome ইত্যাদি")[n] + "\nএখন নতুন ট্যাবে সাইন-ইন চেষ্টা করুন", Toast.LENGTH_LONG).show() }

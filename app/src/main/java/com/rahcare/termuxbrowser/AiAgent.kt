@@ -77,6 +77,7 @@ object AiAgent {
         "3) To log in existing workspaces call login_workspaces with assignments [{workspace: n or exact name, email}]. If the user gave several emails give each workspace a DIFFERENT email, in order; if only one email, use it for all chosen workspaces. When the user says the remaining / বাকিগুলো / not-logged-in ones, choose workspaces with state login_page first, then unknown ones (if you need more), never ones with state logged_in. When the user says all / সবগুলো / প্রত্যেকটা, include all. If there are more workspaces than emails, log in as many as there are emails and say how many are left. Not-open workspaces are fine: the app opens them itself. " +
         "4) After starting logins call wait(25) once or twice and list_workspaces again to verify, then report honestly (logged in, still on login page, needs the user e.g. 2-step verification / captcha). Page-state is only a guess; say so when unsure. " +
         "5) For normal questions, chat, explanations, writing, translation just answer yourself. " +
+        "5b) CREATING many: if the user wants N new workspaces, call create_workspace ONCE with count=N (never loop N single calls), never pass a name, then call list_workspaces and compare the real number with N; if fewer exist, create the missing difference and report honestly. DELETING: when the user asks to delete/remove workspaces, use delete_workspaces (all=true for everything, only_site to filter) — you DO have this tool, never say you cannot. DESKTOP: set_desktop_mode toggles desktop-site for one workspace only. " +
         "6) Use hand_to_coding_agent ONLY when the user clearly wants a coding agent (Claude Code etc.) to do coding/repository work. " +
         "7) Final answer: short, in the user's language (Bengali stays Bengali), say exactly what you did and what is left. Ask a question only if it is truly impossible to continue. " +
         "8) If the message starts with [ভয়েস] it was SPOKEN by voice and your answer will be read aloud: the speech recognizer may have small errors, so infer the intended meaning; reply in natural spoken sentences, no markdown, no lists, no emojis, no URLs, about 2 to 5 sentences unless the user asks for more detail. For greetings, small talk and general questions answer DIRECTLY without calling any tool (each tool call wastes the limited free quota)."
@@ -101,8 +102,12 @@ object AiAgent {
             .put(fn("login_workspaces", "Log in existing workspaces: assigns the email to each workspace and opens/reloads it so the browser fills in the saved password automatically. Runs in the background, about 6 seconds per workspace.",
                 JSONObject().put("assignments", JSONObject().put("type", "array").put("description", "one entry per workspace").put("items",
                     JSONObject().put("type", "object").put("properties", JSONObject().put("workspace", str(ref)).put("email", str("email address"))).put("required", JSONArray(listOf("workspace", "email"))))), listOf("assignments")))
-            .put(fn("create_workspace", "Create a NEW workspace for a website and open it (only when the user wants a new one).",
-                JSONObject().put("name", str("workspace name")).put("url", str("site address. If the user gave a link or named a specific page/tool, give that exact page WITH its path (Google AI Studio text-to-speech = aistudio.google.com/generate-speech); otherwise the host, e.g. gemini.google.com")).put("email", str("optional email")), listOf("name", "url")))
+            .put(fn("create_workspace", "Create one or MANY NEW workspaces for a website and open them (only when the user wants new ones). The app names them itself (site host, later the logged-in Gmail): NEVER invent or pass a name. If the user wants N workspaces, call this ONCE with count=N, not N times.",
+                JSONObject().put("url", str("site address. If the user gave a link or named a specific page/tool, give that exact page WITH its path (Google AI Studio text-to-speech = aistudio.google.com/generate-speech); otherwise the host, e.g. gemini.google.com")).put("count", JSONObject().put("type", "integer").put("description", "how many workspaces to create, 1 to 100 (default 1)")).put("email", str("optional email (only valid with count=1)")), listOf("url")))
+            .put(fn("delete_workspaces", "PERMANENTLY delete workspaces together with their saved login/session. Use when the user asks to delete/remove/clean workspaces. Give either all=true (every workspace) or a list of workspace refs.",
+                JSONObject().put("workspaces", JSONObject().put("type", "array").put("items", JSONObject().put("type", "string")).put("description", "$ref, one per item")).put("all", JSONObject().put("type", "boolean").put("description", "true = delete every workspace")).put("only_site", str("optional: with all=true delete only workspaces whose site contains this text, e.g. aistudio.google.com")), emptyList()))
+            .put(fn("set_desktop_mode", "Turn desktop-site mode on or off for ONE workspace tab only (other tabs unchanged); reloads it.",
+                JSONObject().put("workspace", str(ref)).put("on", JSONObject().put("type", "boolean").put("description", "true = desktop, false = mobile")), listOf("workspace", "on")))
             .put(fn("saved_emails", "List emails whose passwords are saved in the app (passwords are never shown)."))
             .put(fn("wait", "Wait so that pages can load / logins can finish (max 25 seconds).", JSONObject().put("seconds", JSONObject().put("type", "integer").put("description", "1 to 25")), listOf("seconds")))
             .put(fn("hand_to_coding_agent", "Give the user's original request to the coding agent (Claude Code etc.) instead of doing it here."))
@@ -173,9 +178,34 @@ object AiAgent {
                     .put("workspace_not_found", JSONArray(bad)).put("emails_without_saved_password", JSONArray(noPw.toList()))
             }
             "create_workspace" -> {
-                val made = AutoLogin.create(act, listOf(AutoLogin.Item(args.optString("name"), args.optString("url"), args.optString("email"))))
-                act.runOnUiThread { m.agOpenMany(made.map { it.id }, false, 2000L) }
-                return JSONObject().put("created", made.size)
+                val n = args.optInt("count", 1).coerceIn(1, 100)
+                val url = args.optString("url"); val em = if (n == 1) args.optString("email") else ""
+                // নাম ইচ্ছে করে খালি: অ্যাপ সাইটের হোস্ট বসায়, লগইনের পর জিমেইল-নাম বসে
+                val made = AutoLogin.create(act, List(n) { AutoLogin.Item("", url, em) })
+                act.runOnUiThread { m.agOpenMany(made.map { it.id }, false, 2500L) }
+                return JSONObject().put("requested", n).put("created", made.size).put("note", "নতুনগুলো ২.৫ সেকেন্ড অন্তর খুলছে; list_workspaces দিয়ে মিলিয়ে নাও")
+            }
+            "delete_workspaces" -> {
+                val ids = mutableListOf<String>(); val bad = mutableListOf<String>()
+                if (args.optBoolean("all", false)) {
+                    val f = args.optString("only_site").trim()
+                    all.filter { f.isEmpty() || it.url.contains(f, true) }.forEach { ids.add(it.id) }
+                } else {
+                    val refs = args.optJSONArray("workspaces") ?: JSONArray()
+                    for (i in 0 until refs.length()) { val s = find(all, refs.optString(i)); if (s != null) ids.add(s.id) else bad.add(refs.optString(i)) }
+                }
+                if (ids.isEmpty()) return JSONObject().put("deleted", 0).put("not_found", JSONArray(bad)).put("note", "কিছু মেলেনি")
+                val latch = CountDownLatch(1); var n = 0
+                act.runOnUiThread { try { n = m.agDelete(ids.distinct()) } finally { latch.countDown() } }
+                latch.await(20, TimeUnit.SECONDS)
+                return JSONObject().put("deleted", n).put("remaining", Sites.all(act).size).put("not_found", JSONArray(bad))
+            }
+            "set_desktop_mode" -> {
+                val s = find(all, args.optString("workspace")) ?: return JSONObject().put("error", "ওয়ার্কস্পেস মেলেনি")
+                val latch = CountDownLatch(1); var ok = false
+                act.runOnUiThread { try { ok = m.agSetDesktop(s.id, args.optBoolean("on", true)) } finally { latch.countDown() } }
+                latch.await(10, TimeUnit.SECONDS)
+                return JSONObject().put("ok", ok).put("workspace", s.name).put("desktop", args.optBoolean("on", true))
             }
             "saved_emails" -> return JSONObject().put("emails", JSONArray(Creds.emails(act)))
             "wait" -> {
