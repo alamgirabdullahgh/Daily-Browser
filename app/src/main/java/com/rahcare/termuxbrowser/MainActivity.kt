@@ -754,15 +754,15 @@ class MainActivity : Activity() {
         //  X-Requested-With (অ্যাপের প্যাকেজ নাম) — মোড ১/২-এ বাদ, মোড ০-তে WebView-এর স্বাভাবিক আচরণ
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST))
-                androidx.webkit.WebSettingsCompat.setRequestedWithHeaderOriginAllowList(ds, if (!dk && gm >= 1) emptySet() else setOf("*"))
+                androidx.webkit.WebSettingsCompat.setRequestedWithHeaderOriginAllowList(ds, if (dk || gm >= 1) emptySet() else setOf("*"))
         } catch (_: Exception) {}
         //  ডেস্কটপ লেআউট (width=1280), navigator.platform ও userAgentData: পেজ লোডের শুরুতেই বসে
         try {
             t.deskScript?.let { try { it.remove() } catch (_: Exception) {} }; t.deskScript = null
             val scr = if (dk) DesktopMode.JS else if (gm >= 2) ChromeShim.JS else null
             if (scr != null && WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
-                t.deskScript = WebViewCompat.addDocumentStartJavaScript(t.web, scr, setOf("https://*", "http://*"))
-        } catch (_: Exception) {}
+                t.deskScript = WebViewCompat.addDocumentStartJavaScript(t.web, scr, setOf("*"))
+        } catch (e: Exception) { if (dk) Toast.makeText(this, "ডেস্কটপ স্ক্রিপ্ট বসেনি: " + (e.message ?: e.javaClass.simpleName).take(80), Toast.LENGTH_LONG).show() }
     }
 
     /** ট্যাবের ছোট ছবি তোলে (ট্যাব তালিকায় ক্রোমের মতো প্রিভিউ দেখাতে) */
@@ -824,9 +824,23 @@ class MainActivity : Activity() {
     /** শুধু এই ট্যাবে ডেস্কটপ মোড চালু/বন্ধ (অন্য ট্যাব অপরিবর্তিত) */
     private fun toggleDeskCur() {
         val t = cur ?: return
-        t.desk = !t.desk; applyDesktop(t); if (!t.isHome) t.web.reload()
+        t.desk = !t.desk; applyDesktop(t); try { t.web.clearCache(false) } catch (_: Exception) {}
+        if (!t.isHome) t.web.reload()
         refreshDeskBtn()
         Toast.makeText(this, if (t.desk) "শুধু এই ট্যাবে ডেস্কটপ মোড চালু" else "এই ট্যাবে ডেস্কটপ মোড বন্ধ", Toast.LENGTH_SHORT).show()
+    }
+
+    /** ডেস্কটপ মোড ঠিকমতো বসেছে কিনা: পেজের নিজের চোখে UA, platform, userAgentData, width ইত্যাদি দেখায় */
+    private fun deskDiag() {
+        val t = cur ?: return
+        val js = "(function(){try{var u=navigator.userAgentData;return JSON.stringify({ua:navigator.userAgent,platform:navigator.platform,uadMobile:u?u.mobile:'n/a',uadPlatform:u?u.platform:'n/a',inner:innerWidth+'x'+innerHeight,screen:screen.width+'x'+screen.height,dpr:devicePixelRatio,touch:navigator.maxTouchPoints,vp:(document.querySelector('meta[name=viewport]')||{}).content||'-',url:location.href.slice(0,60)},null,1)}catch(e){return 'ERR '+e}})()"
+        t.web.evaluateJavascript(js) { raw ->
+            val sup = "UA-মেটাডেটা: " + WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA) +
+                "\nডকুমেন্ট-স্টার্ট স্ক্রিপ্ট: " + WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) +
+                "\nX-Requested-With নিয়ন্ত্রণ: " + WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST) +
+                "\nএই ট্যাবে ডেস্কটপ: " + deskOf(t) + "\n\nপেজ যা দেখছে:\n" + Sites.unquote(raw)
+            AlertDialog.Builder(this).setTitle("ডেস্কটপ মোড পরীক্ষা").setMessage(sup).setPositiveButton("ঠিক আছে", null).show()
+        }
     }
 
     /** AI-এজেন্টের জন্য (UI থ্রেডে): আইডি ধরে ওয়ার্কস্পেস মোছে — ট্যাব বন্ধ, তালিকা থেকে বাদ, লগইন-প্রোফাইল মুছে ফেলা। ফেরত: কয়টা মোছা হলো */
@@ -2126,6 +2140,7 @@ class MainActivity : Activity() {
         if (cur?.web?.canGoForward() == true) m.menu.add(0, 12, 1, "এগিয়ে যান →")
         m.menu.add(0, 3, 2, "ডেস্কটপ সাইট (সব ট্যাব)").apply { isCheckable = true; isChecked = desktop }
         cur?.let { ct -> m.menu.add(0, 70, 2, "এই ট্যাবে ডেস্কটপ সাইট (🖥 বোতামেও)").apply { isCheckable = true; isChecked = deskOf(ct) } }
+        m.menu.add(0, 71, 2, "🔍 ডেস্কটপ মোড পরীক্ষা (পেজ কী দেখছে)")
         m.menu.add(0, 60, 2, "Google লগইন মোড: " + listOf("০ WebView", "১ Chrome-সদৃশ", "২ Chrome-সদৃশ+")[Store.prefs(this).getInt("gmode", 0).coerceIn(0, 2)] + (if (cur?.let { deskOf(it) } == true) " (এই ট্যাবে ডেস্কটপ চালু — প্রযোজ্য নয়)" else ""))
         m.menu.add(0, 61, 3, "লগইন তথ্য (ইমেইল-পাসওয়ার্ড)")
         m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
@@ -2205,6 +2220,7 @@ class MainActivity : Activity() {
                 3 -> { desktop = !desktop; Store.prefs(this).edit().putBoolean("desktop", desktop).apply()
                     tabs.forEach { t -> t.desk = desktop; applyDesktop(t) }; cur?.let { t -> if (!t.isHome) t.web.reload() }; refreshDeskBtn() }
                 70 -> toggleDeskCur()
+                71 -> deskDiag()
                 60 -> { val n = (Store.prefs(this).getInt("gmode", 0) + 1) % 3; Store.prefs(this).edit().putInt("gmode", n).apply()
                     tabs.forEach { t -> applyDesktop(t) }
                     Toast.makeText(this, listOf("মোড ০: WebView-এর নিজস্ব অবস্থা", "মোড ১: Chrome-সদৃশ (UA + হিন্ট + হেডার মিলানো)", "মোড ২: মোড ১ + window.chrome ইত্যাদি")[n] + "\nএখন নতুন ট্যাবে সাইন-ইন চেষ্টা করুন", Toast.LENGTH_LONG).show() }
