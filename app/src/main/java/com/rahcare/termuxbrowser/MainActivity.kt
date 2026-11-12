@@ -680,6 +680,9 @@ class MainActivity : Activity() {
             override fun onReceivedTitle(v: WebView, title: String?) { if (!t.isHome && t.jobKey == null && !title.isNullOrBlank()) t.title = title }
             override fun onCreateWindow(v: WebView, d: Boolean, g: Boolean, m: Message): Boolean {
                 val n = newTab(null, t.site, t.incognito, t.profileName)  // পপআপ (যেমন লগইন) একই প্রোফাইলে খুলুক
+                // পপআপ/নতুন উইন্ডো যে ট্যাব থেকে খুলল তার ডেস্কটপ-অবস্থা পাবে (আগে সাধারণ সুইচ থেকে আসত, তাই ডেস্কটপ হারিয়ে যেত); লোড শুরুর আগেই বসে
+                if (n.desk != t.desk) { n.desk = t.desk; applyDesktop(n) }
+                n.deskAuto = t.deskAuto; n.deskReport = t.desk
                 (m.obj as WebView.WebViewTransport).webView = n.web; m.sendToTarget(); return true
             }
             override fun onCloseWindow(v: WebView) { closeTab(t) }
@@ -834,7 +837,8 @@ class MainActivity : Activity() {
         t.web.evaluateJavascript(js) { raw ->
             val j = try { org.json.JSONObject(Sites.unquote(raw)) } catch (_: Exception) { org.json.JSONObject() }
             val isDesk = j.optBoolean("x11") && !j.optBoolean("mob")
-            val msg = "[সংস্করণ $vc] চাওয়া: " + (if (want) "ডেস্কটপ" else "মোবাইল") + " → পেজ দেখছে: " + (if (isDesk) "ডেস্কটপ" else "মোবাইল") +
+            val host = try { Uri.parse(t.url).host ?: "" } catch (_: Exception) { "" }
+            val msg = "[সংস্করণ $vc] ট্যাব ${tabs.indexOf(t) + 1}/${tabs.size} (" + (if (t === cur) "সামনের" else "পেছনের") + ", $host), 🖥 বোতাম=" + (if (cur?.let { deskOf(it) } == true) "নীল" else "ধূসর") + "\nচাওয়া: " + (if (want) "ডেস্কটপ" else "মোবাইল") + " → পেজ দেখছে: " + (if (isDesk) "ডেস্কটপ" else "মোবাইল") +
                 "\nপ্ল্যাটফর্ম=" + j.optString("plat") + ", UA-mobile=" + j.opt("uadMobile") + ", প্রস্থ=" + j.optInt("inner") + ", window.chrome=" + j.optString("chrome") +
                 (if (want != isDesk) "\n⚠ প্রয়োগ হয়নি — ⋮ › 🔍 পরীক্ষা খুলে স্ক্রিনশট দিন" else "")
             Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
