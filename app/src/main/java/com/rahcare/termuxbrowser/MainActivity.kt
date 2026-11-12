@@ -44,6 +44,7 @@ class Tab(val web: WebView) {
     var stuckReloads = 0       // একটানা কয়বার রিলোড করা হয়েছে (অনন্ত চক্র এড়াতে)
     var desk = false       // এই ট্যাবে আলাদা ডেস্কটপ মোড (মূল ডেস্কটপ সুইচ বন্ধ থাকলেও)
     var flowShown = ""    // অটো-ক্লিকের শেষ দেখানো বার্তা
+    val navLog = ArrayList<String>()   // শেষ কয়েকটা মূল-পেজ নেভিগেশন (সার্ভার-রিডাইরেক্ট না পেজ-স্ক্রিপ্ট বোঝার জন্য)
     var deskReport = false  // 🖥 চাপার পর পরের পেজ-লোডে ফলাফল দেখানোর চিহ্ন
     var deskAuto = false   // Vids "computer-এ যান" পেজ দেখে নিজে চালু করা হয়ে গেছে কিনা (প্রতি ট্যাবে একবার)
     var mdSet = false      // setUserAgentMetadata বসানো আছে কিনা (বসানো না থাকলে মোবাইলে ছুঁই না)
@@ -606,7 +607,10 @@ class MainActivity : Activity() {
             override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest): Boolean {
                 val u = r.url
                 when (u.scheme) {
-                    "http", "https" -> return false
+                    "http", "https" -> {
+                        if (r.isForMainFrame) navNote(t, (if (r.isRedirect) "সার্ভার-রিডাইরেক্ট" else if (r.hasGesture()) "আপনার ক্লিক" else "পেজের স্ক্রিপ্ট/লিংক"), u.toString())
+                        return false
+                    }
                     "termux" -> {
                         // শুধু আমাদের নিজস্ব হোম পেজ থেকেই Termux কমান্ড চলবে; অন্য কোনো সাইট পারবে না
                         // v.url ডেটা-লোড করা পেজে অনির্ভরযোগ্য (null/about:blank হতে পারে), তাই ট্যাবের নিজের url-ও দেখি
@@ -637,7 +641,7 @@ class MainActivity : Activity() {
                 h.cancel()
                 if (e.url == v.url) v.loadDataWithBaseURL(e.url, Browse.errorHtml(e.url, "সংযোগ নিরাপদ নয় (SSL): সাইটের সার্টিফিকেট যাচাই করা যায়নি"), "text/html", "utf-8", e.url)
             }
-            override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t === cur) { if (address.text.isNullOrEmpty()) releaseBar(); updateBar() } }
+            override fun onPageStarted(v: WebView, u: String, f: Bitmap?) { t.url = u; if (t.navLog.lastOrNull()?.contains(u.take(90)) != true) navNote(t, "লোড", u); if (t === cur) { if (address.text.isNullOrEmpty()) releaseBar(); updateBar() } }
             override fun onPageFinished(v: WebView, u: String) {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
                 handler.removeCallbacks(flushRun); handler.postDelayed(flushRun, 4000L)   // পাতা লোডের পর (লগইন সম্ভবত হয়েছে) কুকি ডিস্কে
@@ -830,6 +834,10 @@ class MainActivity : Activity() {
     }
 
     /** 🖥 চাপার পর পেজ লোড হলে: পেজ নিজের চোখে কী দেখছে — ডেস্কটপ আসলে প্রয়োগ হলো কিনা ও কোন অ্যাপ-সংস্করণ চলছে */
+    private fun navNote(t: Tab, how: String, url: String) {
+        t.navLog.add("[$how] " + url.take(90)); while (t.navLog.size > 8) t.navLog.removeAt(0)
+    }
+
     private fun reportDesk(t: Tab) {
         val vc = try { packageManager.getPackageInfo(packageName, 0).let { if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode.toLong() } } catch (_: Exception) { 0L }
         val js = "(function(){try{var u=navigator.userAgentData;var ua=navigator.userAgent;var mq=function(q){try{return matchMedia(q).matches}catch(e){return null}};" +
@@ -847,6 +855,7 @@ class MainActivity : Activity() {
                 "\n\nপ্ল্যাটফর্ম=" + j.optString("plat") + "\nUA-mobile=" + j.opt("uadMobile") + "\nপ্রস্থ(inner)=" + j.optInt("inner") + ", স্ক্রিন=" + j.optString("scr") + ", dpr=" + j.optString("dpr") +
                 "\nটাচ-পয়েন্ট=" + j.optString("touch") + ", pointer:coarse=" + j.optString("coarse") + ", hover=" + j.optString("hover") +
                 "\nwindow.chrome=" + j.optString("chrome") + "\nviewport=" + j.optString("vp") + "\nUA=" + j.optString("ua") + "\nURL=" + j.optString("url") +
+                "\n\nনেভিগেশনের ধাপ (পুরোনো→নতুন):\n" + t.navLog.joinToString("\n").ifBlank { "(কিছু নেই)" } +
                 (if (want != isDesk) "\n\n⚠ প্রয়োগ হয়নি — চাওয়া আর পেজের দেখা মেলেনি" else if (want) "\n\n✔ ডেস্কটপ প্রয়োগ হয়েছে। এরপরও সাইট মোবাইল বললে সে অন্য সংকেত (টাচ/স্ক্রিন মাপ) দেখছে" else "")
             try {
                 AlertDialog.Builder(this).setTitle("ডেস্কটপ মোড ফলাফল").setMessage(msg).setPositiveButton("ঠিক আছে", null).show()
