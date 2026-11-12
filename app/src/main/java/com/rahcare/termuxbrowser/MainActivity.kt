@@ -1985,7 +1985,7 @@ class MainActivity : Activity() {
                         //  workspace switch: age box-e lekha boshao, tarpor settings-e giye GitHub connected kina dekho (na thakle connect), shesh hole abar boshiye (send hole) pathao
                         val toClaude = (Uri.parse(destUrl).host ?: "").endsWith("claude.ai")
                         if (toClaude && send && autoSwitch && gcAuto() && GitCred.has(this) && gcTab == null)
-                            fillInput(tab, payload, 0, false) { if (tabs.contains(tab) && gcTab == null) gcBegin(tab, payload, send, destUrl) }
+                            fillInput(tab, payload, 0, false, onFilled = { if (tabs.contains(tab) && gcTab == null) gcBegin(tab, payload, send, destUrl) })
                         else fillInput(tab, payload, 0, send)
                     }
                 }
