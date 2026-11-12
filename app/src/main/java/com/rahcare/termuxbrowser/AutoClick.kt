@@ -192,6 +192,18 @@ else{var okk=false;try{document.execCommand('selectAll',false,null);okk=document
 return 'ok'}catch(e){return 'err'}})(${JSONObject.quote(text)},${arr(p.fillSel)},${p.largest})"""
     }
 
+    /** পাঠানোর পর যাচাই: ইনপুট ঘরে এখনো লেখা আছে কিনা। ফল: full (লেখা আছে = পাঠানো হয়নি) / empty (খালি = গেছে) / no (ঘর নেই) / err */
+    fun inputStateJs(agent: String?): String {
+        val p = profileFor(agent)
+        return """(function(sels,largest){try{$HELPERS
+var els=[],c=all(sels);for(var i=0;i<c.length;i++){if(vis(c[i]))els.push(c[i])}
+if(!els.length)return 'no';
+var el=els[0];
+if(largest){var best=-1;for(var j=0;j<els.length;j++){var r=els[j].getBoundingClientRect(),a=r.width*r.height;if(a>best){best=a;el=els[j]}}}
+var v=(el.tagName==='TEXTAREA'||el.tagName==='INPUT')?(el.value||''):(el.innerText||el.textContent||'');
+return v.trim().length>0?'full':'empty'}catch(e){return 'err'}})(${arr(p.fillSel)},${p.largest})"""
+    }
+
     /** পাঠানোর/চালানোর বোতাম খুঁজে চাপে। ফল: clicked / no (চালু বোতাম মেলেনি) / err */
     fun sendJs(agent: String?): String {
         val p = profileFor(agent)

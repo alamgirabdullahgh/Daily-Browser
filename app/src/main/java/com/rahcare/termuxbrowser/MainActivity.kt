@@ -416,7 +416,7 @@ class MainActivity : Activity() {
         if (pendingInstall && packageManager.canRequestPackageInstalls()) { pendingInstall = false; startUpdate() }
         handler.removeCallbacks(updCheck); updCheck.run()
         handler.removeCallbacks(jobSaver); handler.postDelayed(jobSaver, 5000L)
-        handler.removeCallbacks(siteWatcher); handler.postDelayed(siteWatcher, 6000L)
+        handler.removeCallbacks(siteWatcher); handler.postDelayed(siteWatcher, 6000L); handler.removeCallbacks(popWatcher); handler.postDelayed(popWatcher, 2000L)
         handler.removeCallbacks(agentTick); handler.postDelayed(agentTick, 15000L)
     }
 
@@ -502,7 +502,7 @@ class MainActivity : Activity() {
         flushCookies()
         Updater.fg = false
         AutoUpdate.fg = false; AutoUpdate.kick(this, 60_000L)
-        handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher); handler.removeCallbacks(agentTick)
+        handler.removeCallbacks(updCheck); handler.removeCallbacks(jobSaver); handler.removeCallbacks(siteWatcher); handler.removeCallbacks(popWatcher); handler.removeCallbacks(agentTick)
         try { unregisterReceiver(rx) } catch (_: Exception) {}
         Live.onUpdate = null
         // সাইটের ট্যাব খোলা থাকলে ব্যাকগ্রাউন্ডেও সচল রাখি (ফোরগ্রাউন্ড সার্ভিস + CPU/Wi-Fi জাগানো)
@@ -1543,7 +1543,7 @@ class MainActivity : Activity() {
                         else {
                             t.limitHits++
                             // আপগ্রেড পপআপের লেখা স্পষ্ট সংকেত — সাথে সাথে সুইচ; অন্যগুলো পরপর ২ বার দেখলে
-                            val strong = Regex("hit your|upgrade to keep chatting", RegexOption.IGNORE_CASE).containsMatchIn(hit)
+                            val strong = Regex("hit your|upgrade to keep chatting|keep chatting with|free messages until", RegexOption.IGNORE_CASE).containsMatchIn(hit)
                             if ((strong || t.limitHits >= 2) && !limitDialogOpen && System.currentTimeMillis() - t.limitAt > 600000L) {
                                 t.limitHits = 0; t.limitAt = System.currentTimeMillis(); onLimit(t, hit)
                             }
@@ -1602,7 +1602,7 @@ class MainActivity : Activity() {
             //  workspace switch flow: chat-e fire giye lekha abar boshao; GitHub connected hole (ok) tobei send
             if (tabs.contains(t)) {
                 t.web.loadUrl(if (gcBack.startsWith("http")) gcBack else "https://claude.ai/new")
-                fillInput(t, pend, 0, ps && ok)
+                fillInput(t, pend, 0, ps)   // কানেক্ট ব্যর্থ/সময় শেষ হলেও পাঠাই — নইলে মেসেজ বসে থাকত, সেন্ড হতো না
             }
         } else if (ok && gcBack.startsWith("http") && tabs.contains(t)) {
             t.web.loadUrl(gcBack)
@@ -1959,9 +1959,11 @@ class MainActivity : Activity() {
     private fun agentOfTab(t: Tab): String? = t.site?.let { sid -> Sites.all(this).firstOrNull { it.id == sid }?.let { AgentBus.agentOf(it) } }
 
     private fun fillInput(t: Tab, text: String, n: Int, send: Boolean, onFilled: (() -> Unit)? = null) {
-        if (n >= 12) { if (send) Toast.makeText(this, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান", Toast.LENGTH_LONG).show(); onFilled?.invoke(); return }
+        if (n >= 12) { if (send) giveUp(t, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান"); onFilled?.invoke(); return }
         handler.postDelayed({
             if (!tabs.contains(t)) return@postDelayed
+            // লিমিট/আপগ্রেড পপআপ ঘর ঢেকে রাখলে আগে সরাই
+            t.web.evaluateJavascript(Sites.DISMISS_JS, null)
             t.web.evaluateJavascript(AutoClick.fillJs(agentOfTab(t), text)) { r ->
                 if (r == null || !r.contains("ok")) {
                     // ইনপুট ঘর নেই: ১) মিডিয়া/অচেনা সাইটে "Create new dialog"-জাতীয় শুরুর বোতাম চাপি; ২) নইলে প্ল্যান/স্বাগত পেজ আটকালে "Use Claude for free" বা ← চেপে পার করি; তারপর আবার চেষ্টা
@@ -1969,21 +1971,92 @@ class MainActivity : Activity() {
                         if (pr != null && pr.contains("clicked")) fillInput(t, text, n + 1, send, onFilled)
                         else t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send, onFilled) }
                     }
-                } else if (send) sendInput(t, 0) else onFilled?.invoke()
+                } else if (send) sendInput(t, 0, text, 0) else onFilled?.invoke()
             }
         }, if (n == 0) 4000L else 3000L)
     }
 
-    /** বসানো লেখা পাঠায়: বোতাম চেপে, না পেলে Enter দিয়ে (সাইটভেদে বোতাম তৈরি হতে একটু সময় লাগে, তাই কয়েকবার চেষ্টা) */
-    private fun sendInput(t: Tab, n: Int) {
+    /** বসানো লেখা পাঠায়: বোতাম চেপে, না পেলে Enter দিয়ে (সাইটভেদে বোতাম তৈরি হতে একটু সময় লাগে, তাই কয়েকবার চেষ্টা)।
+     *  পাঠানোর পর যাচাই করে ঘর খালি হয়েছে কিনা (verifySent); না হলে পপআপ সরিয়ে আবার চাপে, শেষে লিমিট দেখে পরের অ্যাকাউন্টে যায় */
+    private fun sendInput(t: Tab, n: Int, text: String = "", round: Int = 0) {
         // বসানোর পর পাঠানোর বোতাম চালু হতে সময় লাগে (লেখা লম্বা হলে আরও) — তাই চালু বোতাম পাওয়া পর্যন্ত ১২ বার চেষ্টা; শেষে Enter
-        if (n > 12) return
+        if (n > 12) { giveUp(t, "স্বয়ংক্রিয় পাঠানো যায়নি — লেখা চ্যাট বক্সে আছে, নিজে পাঠান"); return }
         handler.postDelayed({
             if (!tabs.contains(t)) return@postDelayed
             val ag = agentOfTab(t)
+            t.web.evaluateJavascript(Sites.DISMISS_JS, null)
             val js = if (n == 12) AutoClick.fallbackJs(ag) else AutoClick.sendJs(ag)
-            t.web.evaluateJavascript(js) { r -> if (r == null || !r.contains("clicked") && !r.contains("enter")) sendInput(t, n + 1) }
+            t.web.evaluateJavascript(js) { r ->
+                if (r == null || !r.contains("clicked") && !r.contains("enter")) sendInput(t, n + 1, text, round)
+                else verifySent(t, text, round)
+            }
         }, if (n == 0) 2500L else 1500L)
+    }
+
+    /** পাঠানোর বোতাম চাপার ৪ সেকেন্ড পর ঘর এখনো ভরা থাকলে মানে যায়নি: পপআপ সরিয়ে আবার চেষ্টা (সর্বোচ্চ ২ বার বাড়তি)।
+     *  শুধু চ্যাট-ধরনের এজেন্টে (Claude/Gemini/Grok) — মিডিয়া টুলে Run-এর পরও প্রম্পট ঘরে থেকে যায়, তাই সেখানে নয় */
+    private fun verifySent(t: Tab, text: String, round: Int) {
+        val ag = agentOfTab(t)
+        if (ag != "claude" && ag != "gemini" && ag != "grok") return
+        handler.postDelayed({
+            if (!tabs.contains(t)) return@postDelayed
+            t.web.evaluateJavascript(AutoClick.inputStateJs(ag)) { r ->
+                if (r == null || !r.contains("full")) return@evaluateJavascript   // খালি = গেছে
+                t.web.evaluateJavascript(Sites.DISMISS_JS, null)
+                if (round >= 2) { giveUp(t, "পাঠানো নিশ্চিত হয়নি — লেখা চ্যাট বক্সে আছে, দেখে নিজে পাঠান"); return@evaluateJavascript }
+                // অ্যাকাউন্টটাই লিমিটে থাকলে আর চেষ্টা নয়, পরেরটায় যাই
+                t.web.evaluateJavascript(Sites.LIMIT_JS) { lr ->
+                    val hit = Sites.unquote(lr)
+                    if (hit.isNotBlank() && t.site != null) cascadeLimit(t, hit)
+                    else sendInput(t, 0, text, round + 1)
+                }
+            }
+        }, 4000L)
+    }
+
+    /** নতুন অ্যাকাউন্টেই লিমিট পাওয়া গেলে (বা পাঠানো আটকে গেলে) আবার পরের অ্যাকাউন্টে নেয়; ওয়াচার আগেই ধরে থাকলে দ্বিতীয়বার নয় */
+    private fun cascadeLimit(t: Tab, hit: String) {
+        val now = System.currentTimeMillis()
+        if (limitDialogOpen || now - t.limitAt < 15000L) return
+        t.limitAt = now
+        onLimit(t, hit)
+    }
+
+    /** শেষ ভরসা: কারণ লিমিট হলে পরের অ্যাকাউন্টে, নইলে ব্যবহারকারীকে জানায় (চুপচাপ থেমে যায় না) */
+    private fun giveUp(t: Tab, msg: String) {
+        if (!tabs.contains(t)) return
+        t.web.evaluateJavascript(Sites.LIMIT_JS) { lr ->
+            val hit = Sites.unquote(lr)
+            if (hit.isNotBlank() && t.site != null) cascadeLimit(t, hit)
+            else Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** লিমিট/আপগ্রেড পপআপ প্রতি ২ সেকেন্ডে দেখে সরায় (পপআপ ঘর ঢেকে রাখলে সুইচ/পাঠানো আটকে যেত)।
+     *  সরানো পপআপের লেখা লিমিটের কথা বললে সাথে সাথে পরের অ্যাকাউন্টে সুইচ */
+    private val popWatcher = object : Runnable {
+        override fun run() {
+            try {
+                val t = cur
+                if (t != null && t.site != null && overlay == null && t.url.startsWith("http")) {
+                    t.web.evaluateJavascript(Sites.DISMISS_JS) { raw ->
+                        val r = Sites.unquote(raw)
+                        if (r.startsWith("closed")) {
+                            val txt = r.substringAfter('|', "")
+                            val limited = Regex("keep chatting|hit your|free messages|usage limit|message limit|limit (reached|resets)", RegexOption.IGNORE_CASE).containsMatchIn(txt)
+                            val now = System.currentTimeMillis()
+                            if (limited && t === cur && !limitDialogOpen && now - t.limitAt > 600000L) {
+                                t.limitAt = now; t.limitHits = 0
+                                onLimit(t, txt.ifBlank { "Keep chatting" })
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+            } finally {
+                handler.postDelayed(this, 2000L)
+            }
+        }
     }
 
     // ---------- GitHub লগইন: প্রতিটি ওয়ার্কস্পেসে আলাদা। নিজে থেকে কখনো কপি হয় না (আগে হতো, তাই লগআউটের পর পুরনো অ্যাকাউন্ট ফিরে আসত) ----------
