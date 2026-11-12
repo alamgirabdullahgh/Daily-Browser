@@ -61,6 +61,8 @@ object Sites {
      *  কিছু না মিললে শুধু modal dialog-এর ভেতরের "Not now/Skip"-ও চাপে (github/accounts.google বাদে)।
      *  ফল: "closed|<পপআপের লেখা>" অথবা খালি */
     const val DISMISS_JS = """(function(){try{
+/* claude.ai-তে শুধু চ্যাট/নতুন/কোড পাতায়; Plugins, Customize, Settings ইত্যাদিতে কখনো নয় */
+var pth=location.pathname;if(location.hostname.indexOf('claude.ai')>=0&&!(pth==='/'||pth.indexOf('/new')===0||pth.indexOf('/chat')===0||pth.indexOf('/code')===0))return '';
 var vis=function(e){var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'};
 var tx=function(e){return (e.innerText||e.textContent||'').replace(/\s+/g,' ').trim()};
 var pop=/keep chatting|upgrade to keep chatting|hit your[^.\n]{0,40}limit|message limit|usage limit|free messages until|out of free messages|upgrade to (claude )?(pro|max)|claude pro|limit (reached|resets)/i;
@@ -70,11 +72,11 @@ var press=function(b){try{var o={bubbles:true,cancelable:true,view:window};b.dis
 var boxOf=function(e){var c=e.parentElement;for(var k=0;k<12&&c&&c!==document.body;k++){var t=tx(c);if(t.length>900)return null;if(pop.test(t))return c;c=c.parentElement}return null};
 var bs=document.querySelectorAll('button,[role="button"],a,div[tabindex],span[tabindex]');
 var x=null,y=null,z=null,bx=null;
-for(var j=0;j<bs.length;j++){var b=bs[j];if(!vis(b)||b.closest(bad))continue;
+for(var j=0;j<bs.length;j++){var b=bs[j];if(!vis(b)||b.closest(bad)||b.closest('nav,aside,[role="navigation"]'))continue;
 var l=((b.getAttribute('aria-label')||'')+' '+(b.getAttribute('title')||'')+' '+(b.getAttribute('data-testid')||'')).toLowerCase(),t=tx(b);
 var isX=/close|dismiss|বন্ধ/.test(l)||/^[x×✕✖]${'$'}/i.test(t);
 var isN=t.length<24&&no.test(t);
-var isI=t===''&&!!b.querySelector('svg');
+var isI=t===''&&!!b.querySelector('svg')&&!!b.closest('[role="dialog"],[aria-modal="true"],dialog');
 if(!isX&&!isN&&!isI)continue;
 var c=boxOf(b);if(!c)continue;
 if(isI&&!isX){var r=b.getBoundingClientRect(),d=c.getBoundingClientRect();if(!(r.top-d.top<140&&d.right-r.right<140))continue}

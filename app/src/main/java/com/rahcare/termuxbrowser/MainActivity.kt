@@ -668,10 +668,10 @@ class MainActivity : Activity() {
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
                 if (t.deskReport && u.startsWith("http")) { t.deskReport = false; reportDesk(t) }
                 // সাইটভেদে অটো-ক্লিক (যেমন claude.ai-এর অনুমতি-কার্ড) — সব AutoClick.kt-তে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
-                AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
+                if (clickOn()) AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
                 AutoLogin.onPage(this@MainActivity, t.site, u, v) { m -> Toast.makeText(this@MainActivity, m, Toast.LENGTH_LONG).show() }
                 // ওয়ার্কস্পেস-ট্যাবে Google সাইন-ইনের ধাপ (Sign in to Vids / Cancel / Skip) অটো-ক্লিক; Vids-এর "computer-এ যান" পেজে শুধু এই ট্যাবে ডেস্কটপ
-                AutoClick.workspaceJs(u)?.let { js ->
+                if (clickOn()) AutoClick.workspaceJs(u)?.let { js ->
                     v.evaluateJavascript(js, null)
                     // স্ক্রিপ্ট কী করল তা ছোট বার্তায় (চাপলাম / বোতাম পাইনি) — কাজ না করলে কারণ বোঝার জন্য
                     for (d in longArrayOf(3500L, 14500L, 33000L)) handler.postDelayed({
@@ -1591,9 +1591,9 @@ class MainActivity : Activity() {
                                 t.limitHits = 0; t.limitAt = System.currentTimeMillis(); onLimit(t, hit)
                             }
                         }
-                        t.web.evaluateJavascript(Sites.DISMISS_JS, null)
+                        if (clickOn()) t.web.evaluateJavascript(Sites.DISMISS_JS, null)
                     }
-                } else if (t != null && t.site != null && overlay == null) {
+                } else if (t != null && t.site != null && overlay == null && clickOn()) {
                     t.web.evaluateJavascript(Sites.DISMISS_JS, null)
                 }
                 // Claude বলছে GitHub টুল/কানেকশন নেই → নিজে কানেক্ট করার চেষ্টা (সেটিংসে চালু ও ইমেইল/পাসওয়ার্ড দেওয়া থাকলে)
@@ -1624,6 +1624,10 @@ class MainActivity : Activity() {
     private var gcPendSend = false
     private var gcCodeTries = 0
     private var gcAskedNotif = false
+    /** সব অটো-ক্লিক/অটো-পাঠানোর মাস্টার সুইচ (মেনু) ও চলমান চেইন বাতিলের সংখ্যা: বাড়লে আগে শুরু হওয়া সব ফিল/সেন্ড চেইন থেমে যায় */
+    private var autoEpoch = 0
+    private fun clickOn() = Store.prefs(this).getBoolean("auto_click", true)
+    private fun autoStopAll(why: String) { autoEpoch++; gcStop(why) }
     private var gcCoolUntil = 0L          // ব্যর্থ/থামানোর পর এই সময় পর্যন্ত নিজে থেকে আর শুরু হয় না
     private val gcStarts = ArrayList<Long>() // নিজে-শুরুর সময়ের তালিকা (ঘণ্টায় সর্বোচ্চ ৩)
     private var gcReloads = 0             // কানেক্টর পাতা ফের লোডের সংখ্যা (সর্বোচ্চ ২)
@@ -2043,57 +2047,60 @@ class MainActivity : Activity() {
     /** ট্যাবের সাইট কোন এজেন্ট (claude/gemini/grok/audio/image/video); সাইট না হলে/অচেনা হলে null → সাধারণ আচরণ */
     private fun agentOfTab(t: Tab): String? = t.site?.let { sid -> Sites.all(this).firstOrNull { it.id == sid }?.let { AgentBus.agentOf(it) } }
 
-    private fun fillInput(t: Tab, text: String, n: Int, send: Boolean, onFilled: (() -> Unit)? = null) {
+    private fun fillInput(t: Tab, text: String, n: Int, send: Boolean, onFilled: (() -> Unit)? = null, ep: Int = autoEpoch) {
+        if (ep != autoEpoch) return
         if (n >= 12) { if (send) giveUp(t, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান"); onFilled?.invoke(); return }
         handler.postDelayed({
-            if (!tabs.contains(t)) return@postDelayed
+            if (!tabs.contains(t) || ep != autoEpoch) return@postDelayed
             // লিমিট/আপগ্রেড পপআপ ঘর ঢেকে রাখলে আগে সরাই
-            t.web.evaluateJavascript(Sites.DISMISS_JS, null)
+            if (clickOn()) t.web.evaluateJavascript(Sites.DISMISS_JS, null)
             t.web.evaluateJavascript(AutoClick.fillJs(agentOfTab(t), text)) { r ->
                 if (r == null || !r.contains("ok")) {
                     // ইনপুট ঘর নেই: ১) মিডিয়া/অচেনা সাইটে "Create new dialog"-জাতীয় শুরুর বোতাম চাপি; ২) নইলে প্ল্যান/স্বাগত পেজ আটকালে "Use Claude for free" বা ← চেপে পার করি; তারপর আবার চেষ্টা
+                    if (!clickOn()) { fillInput(t, text, n + 1, send, onFilled, ep); return@evaluateJavascript }
                     t.web.evaluateJavascript(AutoClick.prepJs(agentOfTab(t))) { pr ->
-                        if (pr != null && pr.contains("clicked")) fillInput(t, text, n + 1, send, onFilled)
-                        else t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send, onFilled) }
+                        if (pr != null && pr.contains("clicked")) fillInput(t, text, n + 1, send, onFilled, ep)
+                        else t.web.evaluateJavascript(Sites.PASS_JS) { _ -> fillInput(t, text, n + 1, send, onFilled, ep) }
                     }
-                } else if (send) sendInput(t, 0, text, 0) else onFilled?.invoke()
+                } else if (send && clickOn()) sendInput(t, 0, text, 0, ep) else onFilled?.invoke()
             }
         }, if (n == 0) 4000L else 3000L)
     }
 
     /** বসানো লেখা পাঠায়: বোতাম চেপে, না পেলে Enter দিয়ে (সাইটভেদে বোতাম তৈরি হতে একটু সময় লাগে, তাই কয়েকবার চেষ্টা)।
      *  পাঠানোর পর যাচাই করে ঘর খালি হয়েছে কিনা (verifySent); না হলে পপআপ সরিয়ে আবার চাপে, শেষে লিমিট দেখে পরের অ্যাকাউন্টে যায় */
-    private fun sendInput(t: Tab, n: Int, text: String = "", round: Int = 0) {
+    private fun sendInput(t: Tab, n: Int, text: String = "", round: Int = 0, ep: Int = autoEpoch) {
+        if (ep != autoEpoch || !clickOn()) return
         // বসানোর পর পাঠানোর বোতাম চালু হতে সময় লাগে (লেখা লম্বা হলে আরও) — তাই চালু বোতাম পাওয়া পর্যন্ত ১২ বার চেষ্টা; শেষে Enter
         if (n > 12) { giveUp(t, "স্বয়ংক্রিয় পাঠানো যায়নি — লেখা চ্যাট বক্সে আছে, নিজে পাঠান"); return }
         handler.postDelayed({
-            if (!tabs.contains(t)) return@postDelayed
+            if (!tabs.contains(t) || ep != autoEpoch || !clickOn()) return@postDelayed
             val ag = agentOfTab(t)
             t.web.evaluateJavascript(Sites.DISMISS_JS, null)
             val js = if (n == 12) AutoClick.fallbackJs(ag) else AutoClick.sendJs(ag)
             t.web.evaluateJavascript(js) { r ->
-                if (r == null || !r.contains("clicked") && !r.contains("enter")) sendInput(t, n + 1, text, round)
-                else verifySent(t, text, round)
+                if (r == null || !r.contains("clicked") && !r.contains("enter")) sendInput(t, n + 1, text, round, ep)
+                else verifySent(t, text, round, ep)
             }
         }, if (n == 0) 2500L else 1500L)
     }
 
     /** পাঠানোর বোতাম চাপার ৪ সেকেন্ড পর ঘর এখনো ভরা থাকলে মানে যায়নি: পপআপ সরিয়ে আবার চেষ্টা (সর্বোচ্চ ২ বার বাড়তি)।
      *  শুধু চ্যাট-ধরনের এজেন্টে (Claude/Gemini/Grok) — মিডিয়া টুলে Run-এর পরও প্রম্পট ঘরে থেকে যায়, তাই সেখানে নয় */
-    private fun verifySent(t: Tab, text: String, round: Int) {
+    private fun verifySent(t: Tab, text: String, round: Int, ep: Int = autoEpoch) {
         val ag = agentOfTab(t)
         if (ag != "claude" && ag != "gemini" && ag != "grok") return
         handler.postDelayed({
-            if (!tabs.contains(t)) return@postDelayed
+            if (!tabs.contains(t) || ep != autoEpoch || !clickOn()) return@postDelayed
             t.web.evaluateJavascript(AutoClick.inputStateJs(ag)) { r ->
                 if (r == null || !r.contains("full")) return@evaluateJavascript   // খালি = গেছে
-                t.web.evaluateJavascript(Sites.DISMISS_JS, null)
+                if (clickOn()) t.web.evaluateJavascript(Sites.DISMISS_JS, null)
                 if (round >= 2) { giveUp(t, "পাঠানো নিশ্চিত হয়নি — লেখা চ্যাট বক্সে আছে, দেখে নিজে পাঠান"); return@evaluateJavascript }
                 // অ্যাকাউন্টটাই লিমিটে থাকলে আর চেষ্টা নয়, পরেরটায় যাই
                 t.web.evaluateJavascript(Sites.LIMIT_JS) { lr ->
                     val hit = Sites.unquote(lr)
                     if (hit.isNotBlank() && t.site != null) cascadeLimit(t, hit)
-                    else sendInput(t, 0, text, round + 1)
+                    else sendInput(t, 0, text, round + 1, ep)
                 }
             }
         }, 4000L)
@@ -2123,7 +2130,7 @@ class MainActivity : Activity() {
         override fun run() {
             try {
                 val t = cur
-                if (t != null && t.site != null && overlay == null && t.url.startsWith("http")) {
+                if (t != null && t.site != null && overlay == null && t.url.startsWith("http") && clickOn() && gcTab == null) {
                     t.web.evaluateJavascript(Sites.DISMISS_JS) { raw ->
                         val r = Sites.unquote(raw)
                         if (r.startsWith("closed")) {
@@ -2336,6 +2343,8 @@ class MainActivity : Activity() {
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
         cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 14, 9, "🔍 লিমিট শনাক্তকরণ পরীক্ষা") }
+        m.menu.add(0, 45, 0, "🛑 সব অটো-কাজ এখনই থামান")
+        m.menu.add(0, 44, 7, "🖱 অটো-ক্লিক (পপআপ বন্ধ, অনুমতি-কার্ড, পাঠানো)").apply { isCheckable = true; isChecked = clickOn() }
         if (gcTab != null) m.menu.add(0, 43, 0, "⛔ GitHub অটো-কানেক্ট এখনই থামান")
         m.menu.add(0, 18, 8, if (GitCred.has(this)) "🔗 GitHub অটো-কানেক্ট: " + (if (gcAuto()) "চালু" else "বন্ধ") else "🔗 GitHub অটো-কানেক্ট (ইমেইল/পাসওয়ার্ড)")
         m.menu.add(0, 17, 9, "🔍 claude.ai অনুমতি-কার্ড পরীক্ষা")
@@ -2364,7 +2373,7 @@ class MainActivity : Activity() {
         m.setOnMenuItemClickListener {
             when (it.itemId) {
                 50 -> openAgentHub()
-                51 -> { val on = !agentAuto(); Store.prefs(this).edit().putBoolean("agent_auto", on).apply()
+                51 -> { val on = !agentAuto(); Store.prefs(this).edit().putBoolean("agent_auto", on).apply(); if (!on) autoEpoch++
                     Toast.makeText(this, if (on) "সারিতে কাজ এলে খোলা ওয়ার্কস্পেসের চ্যাটে নিজে থেকে পাঠানো হবে" else "স্বয়ংক্রিয় পাঠানো বন্ধ — কাজ হাতে পাঠাতে হবে", Toast.LENGTH_LONG).show() }
                 13 -> editRepo()
                 16 -> editToken()
@@ -2392,12 +2401,15 @@ class MainActivity : Activity() {
                     AlertDialog.Builder(this).setTitle("লিমিট শনাক্তকরণ").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 11 -> cur?.let { t -> makeWorkspace(t) }
                 43 -> gcStop("GitHub অটো-কানেক্ট থামানো হলো")
+                45 -> { autoStopAll("সব অটো-কাজ থামানো হলো"); handler.removeCallbacks(gcTick); Toast.makeText(this, "চলমান সব অটো-ক্লিক/পাঠানো/কানেক্ট থামানো হলো", Toast.LENGTH_LONG).show() }
+                44 -> { val on = !clickOn(); Store.prefs(this).edit().putBoolean("auto_click", on).apply(); if (!on) autoStopAll("অটো-ক্লিক বন্ধ")
+                    Toast.makeText(this, if (on) "অটো-ক্লিক চালু" else "অটো-ক্লিক সম্পূর্ণ বন্ধ — কোনো বোতাম নিজে চাপা হবে না", Toast.LENGTH_LONG).show() }
                 18 -> editGitCred()
                 17 -> cur?.let { t -> t.web.evaluateJavascript("(function(){try{if(location.hostname.indexOf('claude.ai')<0)return 'এটা claude.ai ট্যাব নয়';return window.__rcDbg?window.__rcDbg():'স্ক্রিপ্ট লোড হয়নি (পেজ রিলোড করুন)'}catch(e){return 'ERR '+e}})()") { raw ->
                     AlertDialog.Builder(this).setTitle("অনুমতি-কার্ড পরীক্ষা").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 15 -> { val on = !Store.prefs(this).getBoolean("keep_web", true); Store.prefs(this).edit().putBoolean("keep_web", on).apply()
                     Toast.makeText(this, if (on) "অন্য অ্যাপে গেলেও ট্যাব সচল থাকবে (নোটিফিকেশন দেখাবে)" else "অন্য অ্যাপে গেলে ট্যাব থেমে যেতে পারে", Toast.LENGTH_LONG).show() }
-                10 -> { autoSwitch = !autoSwitch; Store.prefs(this).edit().putBoolean("autoswitch", autoSwitch).apply(); if (!autoSwitch) gcStop("স্বয়ংক্রিয় সুইচ বন্ধ — GitHub অটো-কানেক্টও থামল")
+                10 -> { autoSwitch = !autoSwitch; Store.prefs(this).edit().putBoolean("autoswitch", autoSwitch).apply(); autoEpoch++; if (!autoSwitch) gcStop("স্বয়ংক্রিয় সুইচ বন্ধ — চলমান অটো-পাঠানো ও GitHub অটো-কানেক্টও থামল")
                     Toast.makeText(this, if (autoSwitch) "স্বয়ংক্রিয় সুইচ চালু" else "স্বয়ংক্রিয় সুইচ বন্ধ — শুধু প্রস্তাব আসবে", Toast.LENGTH_SHORT).show() }
                 1 -> { newTab(null); openHome() }
                 2 -> reloadCur()
