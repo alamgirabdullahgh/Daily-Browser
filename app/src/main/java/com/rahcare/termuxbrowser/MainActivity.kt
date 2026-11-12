@@ -720,7 +720,7 @@ class MainActivity : Activity() {
         val test = {
             t.web.evaluateJavascript(js) { r ->
                 if (r != null && r.contains("1") && tabs.contains(t) && !deskOf(t) && !t.deskAuto) {
-                    t.deskAuto = true; t.desk = true; applyDesktop(t); t.web.reload()
+                    t.deskAuto = true; t.desk = true; t.deskReport = true; applyDesktop(t); refreshDeskBtn(); t.web.reload()
                     Toast.makeText(this, "এই পেজ ডেস্কটপ চায় — শুধু এই ট্যাবে ডেস্কটপ মোড চালু করলাম", Toast.LENGTH_LONG).show()
                 }
             }
@@ -832,16 +832,25 @@ class MainActivity : Activity() {
     /** 🖥 চাপার পর পেজ লোড হলে: পেজ নিজের চোখে কী দেখছে — ডেস্কটপ আসলে প্রয়োগ হলো কিনা ও কোন অ্যাপ-সংস্করণ চলছে */
     private fun reportDesk(t: Tab) {
         val vc = try { packageManager.getPackageInfo(packageName, 0).let { if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode.toLong() } } catch (_: Exception) { 0L }
-        val want = t.desk
-        val js = "(function(){try{var u=navigator.userAgentData;var ua=navigator.userAgent;return JSON.stringify({x11:/X11; Linux/.test(ua),mob:/Mobile|Android/.test(ua),uadMobile:u?u.mobile:null,plat:navigator.platform,inner:innerWidth,chrome:typeof window.chrome})}catch(e){return '{}'}})()"
+        val js = "(function(){try{var u=navigator.userAgentData;var ua=navigator.userAgent;var mq=function(q){try{return matchMedia(q).matches}catch(e){return null}};" +
+            "return JSON.stringify({x11:/X11; Linux/.test(ua),mob:/Mobile|Android/.test(ua),uadMobile:u?u.mobile:null,plat:navigator.platform,inner:innerWidth,chrome:typeof window.chrome," +
+            "ua:ua.slice(0,110),touch:navigator.maxTouchPoints,scr:screen.width+'x'+screen.height,dpr:devicePixelRatio,coarse:mq('(pointer:coarse)'),hover:mq('(hover:hover)')," +
+            "vp:(document.querySelector('meta[name=viewport]')||{}).content||'-',url:location.href.slice(0,70)})}catch(e){return '{}'}})()"
         t.web.evaluateJavascript(js) { raw ->
             val j = try { org.json.JSONObject(Sites.unquote(raw)) } catch (_: Exception) { org.json.JSONObject() }
+            val want = t.desk
             val isDesk = j.optBoolean("x11") && !j.optBoolean("mob")
             val host = try { Uri.parse(t.url).host ?: "" } catch (_: Exception) { "" }
-            val msg = "[সংস্করণ $vc] ট্যাব ${tabs.indexOf(t) + 1}/${tabs.size} (" + (if (t === cur) "সামনের" else "পেছনের") + ", $host), 🖥 বোতাম=" + (if (cur?.let { deskOf(it) } == true) "নীল" else "ধূসর") + "\nচাওয়া: " + (if (want) "ডেস্কটপ" else "মোবাইল") + " → পেজ দেখছে: " + (if (isDesk) "ডেস্কটপ" else "মোবাইল") +
-                "\nপ্ল্যাটফর্ম=" + j.optString("plat") + ", UA-mobile=" + j.opt("uadMobile") + ", প্রস্থ=" + j.optInt("inner") + ", window.chrome=" + j.optString("chrome") +
-                (if (want != isDesk) "\n⚠ প্রয়োগ হয়নি — ⋮ › 🔍 পরীক্ষা খুলে স্ক্রিনশট দিন" else "")
-            Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            val msg = "[সংস্করণ $vc] ট্যাব ${tabs.indexOf(t) + 1}/${tabs.size} (" + (if (t === cur) "সামনের" else "পেছনের") + ", $host)" +
+                "\n🖥 বোতাম (এখন)=" + (if (cur?.let { deskOf(it) } == true) "নীল" else "ধূসর") +
+                "\n\nচাওয়া: " + (if (want) "ডেস্কটপ" else "মোবাইল") + " → পেজ দেখছে: " + (if (isDesk) "ডেস্কটপ" else "মোবাইল") +
+                "\n\nপ্ল্যাটফর্ম=" + j.optString("plat") + "\nUA-mobile=" + j.opt("uadMobile") + "\nপ্রস্থ(inner)=" + j.optInt("inner") + ", স্ক্রিন=" + j.optString("scr") + ", dpr=" + j.optString("dpr") +
+                "\nটাচ-পয়েন্ট=" + j.optString("touch") + ", pointer:coarse=" + j.optString("coarse") + ", hover=" + j.optString("hover") +
+                "\nwindow.chrome=" + j.optString("chrome") + "\nviewport=" + j.optString("vp") + "\nUA=" + j.optString("ua") + "\nURL=" + j.optString("url") +
+                (if (want != isDesk) "\n\n⚠ প্রয়োগ হয়নি — চাওয়া আর পেজের দেখা মেলেনি" else if (want) "\n\n✔ ডেস্কটপ প্রয়োগ হয়েছে। এরপরও সাইট মোবাইল বললে সে অন্য সংকেত (টাচ/স্ক্রিন মাপ) দেখছে" else "")
+            try {
+                AlertDialog.Builder(this).setTitle("ডেস্কটপ মোড ফলাফল").setMessage(msg).setPositiveButton("ঠিক আছে", null).show()
+            } catch (_: Exception) { Toast.makeText(this, msg, Toast.LENGTH_LONG).show() }
         }
     }
 
