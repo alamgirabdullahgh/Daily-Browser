@@ -68,6 +68,8 @@ class MainActivity : Activity() {
     private var desktop = false
     private lateinit var content: FrameLayout
     private lateinit var address: EditText
+    private lateinit var addrActions: LinearLayout
+    private fun curPageUrl(): String? = cur?.takeIf { !it.isHome && it.url != "about:blank" && it.jobKey == null }?.url
     private lateinit var deskBtn: TextView
     private lateinit var countBox: TextView
     private lateinit var runBox: TextView
@@ -179,7 +181,11 @@ class MainActivity : Activity() {
             setOnEditorActionListener { _, a, e ->
                 if (a == EditorInfo.IME_ACTION_GO || (e != null && e.keyCode == KeyEvent.KEYCODE_ENTER)) { go(text.toString()); true } else false
             }
-            setOnFocusChangeListener { v, f -> if (f) (v as EditText).post { v.selectAll() } }
+            setOnFocusChangeListener { v, f ->
+                if (f) (v as EditText).post { v.selectAll() }
+                addrActions.visibility = if (f && !curPageUrl().isNullOrEmpty()) View.VISIBLE else View.GONE
+            }
+            setOnClickListener { if (!curPageUrl().isNullOrEmpty()) addrActions.visibility = View.VISIBLE }
         }
         bar.addView(address, LinearLayout.LayoutParams(0, dp(40), 1f))
         deskBtn = icon("🖥", 20f) { toggleDeskCur() }
@@ -206,6 +212,20 @@ class MainActivity : Activity() {
         bar.addView(dots)
         bar.elevation = dp(3).toFloat()
         root.addView(bar)
+        addrActions = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            setBackgroundColor(Color.WHITE); setPadding(dp(8), dp(4), dp(8), dp(6)); visibility = View.GONE
+        }
+        fun chip(t: String, click: () -> Unit) = TextView(this).apply {
+            text = t; textSize = 14f; gravity = Gravity.CENTER; setTextColor(Color.parseColor("#1F2937"))
+            background = bg(Color.parseColor("#F1F3F4"), 18)
+            layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { setMargins(dp(4), 0, dp(4), 0) }
+            setOnClickListener { click() }
+        }
+        addrActions.addView(chip("✏ সম্পাদনা") { address.setText(curPageUrl() ?: ""); address.requestFocus(); address.setSelection(address.text.length); addrActions.visibility = View.GONE })
+        addrActions.addView(chip("📋 কপি") { curPageUrl()?.let { copyText(it) }; addrActions.visibility = View.GONE })
+        addrActions.addView(chip("↗ শেয়ার") { curPageUrl()?.let { shareText(it) }; addrActions.visibility = View.GONE })
+        root.addView(addrActions, LinearLayout.LayoutParams(-1, -2))
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; visibility = View.GONE }
         root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
         banner = TextView(this).apply {
@@ -924,6 +944,7 @@ class MainActivity : Activity() {
 
     private fun go(input: String) {
         val q = input.trim(); if (q.isEmpty()) return
+        addrActions.visibility = View.GONE
         val u = when {
             q.startsWith("http://") || q.startsWith("https://") -> q
             !q.contains(" ") && (q.startsWith("localhost") || Regex("^\\d{1,3}(\\.\\d{1,3}){3}(:\\d+)?(/.*)?$").containsMatchIn(q)) -> "http://$q"
