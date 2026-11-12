@@ -69,9 +69,12 @@ var m=s.match(re);return m?s.slice(Math.max(0,m.index-20),m.index+160):'';
 
     /** claude.ai-এর GitHub Integration পাতায়: কানেক্ট আছে কিনা দেখে, না থাকলে Connect, পরে Install on GitHub চাপে */
     fun claudeJs(allowInstall: Boolean) = """(function(){try{
+/* নিরাপত্তা: শুধু GitHub কানেক্টর পাতায় চলে। Plugins/অন্য পাতায় (যেখানে অন্য জিনিসের Install/Connect বোতাম থাকে) কিছুই চাপে না */
+var PP=location.pathname;if(PP.indexOf('/customize/connectors')!==0||PP.indexOf('github')<0)return 'wrongpage';
 function vis(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0}
 function tx(e){return(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim()}
-var bs=[].slice.call(document.querySelectorAll('button,[role=button],a')).filter(vis);
+var root=document.querySelector('main')||document.body;
+var bs=[].slice.call(root.querySelectorAll('button,[role=button]')).filter(vis);
 function by(re){for(var i=0;i<bs.length;i++){var t=tx(bs[i]);if(t.length<40&&re.test(t)&&!bs[i].disabled)return bs[i]}return null}
 var dis=by(/^(disconnect|disconnect github)${'$'}/i);
 var conn=by(/^(connect|connect github|install github account|connect account)${'$'}/i);
