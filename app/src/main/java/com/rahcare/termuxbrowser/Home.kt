@@ -150,7 +150,7 @@ draw();
             if (rest.isNotEmpty()) b.append("<details class=cat open><summary>${if (rest.size == sites.size) "ওয়ার্কস্পেস" else "অন্যান্য ওয়ার্কস্পেস"}<span class=m>${rest.size}</span></summary><div class=g>${rest.joinToString("") { siteCard(it) }}</div></details>")
             b.toString()
         }
-        val rsvRow = if (rsv == null) "" else "<div class=rsv><a class=run href='termux://site/${rsv.id}'><span class='mo w'>র</span><span class=nm>রিজার্ভ</span><span class=m>অটো-ক্লিক মেরামত</span></a><a class=ed href='termux://siteedit/${rsv.id}'>✎</a></div>"
+        val rsvRow = if (rsv == null) "" else "<div class=rsv><a class=run href='termux://site/${rsv.id}'><span class='mo w'>R</span><span class=nm>Reserve</span><span class=m>অটো-ক্লিক মেরামত</span></a><a class=ed href='termux://siteedit/${rsv.id}'>✎</a></div>"
         val setupBtn = "<a class=add href='termux://setup'>⚡ এক চাপে সেটআপ</a>"
         val bm = Bookmarks.all(c).take(12)
         val bmSection = if (bm.isEmpty()) "" else "<h2>বুকমার্ক</h2><div class=g>" + bm.joinToString("") { b ->

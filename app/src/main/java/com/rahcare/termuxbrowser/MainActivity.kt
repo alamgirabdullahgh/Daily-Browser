@@ -1933,7 +1933,11 @@ class MainActivity : Activity() {
             val tk = Secret.get(this); if (tk.isNotBlank()) Thread { AgentBus.limit(tk, ag, hit) }.start() } }
         t.site?.let { siteLimited[it] = System.currentTimeMillis() + 5 * 3600 * 1000L }
         val nx = nextAvailable(Sites.all(this), t.site)
-        if (nx == null) { Toast.makeText(this, "সব ওয়ার্কস্পেসের লিমিট শেষ মনে হচ্ছে — পরে আবার চেষ্টা করুন", Toast.LENGTH_LONG).show(); return }
+        if (nx == null) {
+            val isRsv = Sites.all(this).firstOrNull { it.id == t.site }?.let { Sites.isReserve(this, it) } == true
+            Toast.makeText(this, if (isRsv) "Reserve-এর লিমিট শেষ মনে হচ্ছে — Reserve অটো সুইচ করে না; চাইলে মেনু › “এই চ্যাট অন্য ওয়ার্কস্পেসে নিন” থেকে নিজে বেছে নিন" else "সব ওয়ার্কস্পেসের লিমিট শেষ মনে হচ্ছে — পরে আবার চেষ্টা করুন", Toast.LENGTH_LONG).show()
+            return
+        }
         if (autoSwitch) {
             Toast.makeText(this, "লিমিট শেষ (“$hit”) — ${nx.name}-এ নেওয়া হচ্ছে", Toast.LENGTH_LONG).show()
             handoff(t, nx, true)
@@ -1953,7 +1957,7 @@ class MainActivity : Activity() {
 
     /** এই চ্যাট কোন ওয়ার্কস্পেসে নেবেন তা বেছে নেওয়ার তালিকা */
     private fun pickHandoff(t: Tab) {
-        val others = Sites.all(this).filter { it.id != t.site && !Sites.isReserve(this, it) }
+        val others = Sites.all(this).filter { it.id != t.site }   // হাতে বেছে নেওয়ায় Reserve-ও থাকে (শুধু অটো সুইচে বাদ)
         if (others.isEmpty()) { Toast.makeText(this, "আর কোনো ওয়ার্কস্পেস নেই — হোম থেকে নতুন যোগ করুন", Toast.LENGTH_LONG).show(); return }
         AlertDialog.Builder(this).setTitle("এই চ্যাট কোথায় নেবেন?")
             .setItems(others.map { it.name }.toTypedArray()) { _, i -> handoff(t, others[i]) }
@@ -2185,7 +2189,7 @@ if(!el)return 'no';el.focus();el.dispatchEvent(new ClipboardEvent('paste',{clipb
     private fun deliverReport(rs: Site, msg: String, shot: String) {
         val tab = openSite(rs.id, true, rs.url)
         if (tab == null) { reportBusy = false; return }
-        Toast.makeText(this, "অটো-ক্লিক রিপোর্ট রিজার্ভে পাঠানো হচ্ছে…", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "অটো-ক্লিক রিপোর্ট Reserve-এ পাঠানো হচ্ছে…", Toast.LENGTH_LONG).show()
         fillInput(tab, msg, 0, false, onFilled = {
             if (shot.isNotEmpty() && tabs.contains(tab)) tab.web.evaluateJavascript(attachShotJs(shot), null)
             handler.postDelayed({

@@ -34,20 +34,26 @@ object Sites {
     // ───────── রিজার্ভ ওয়ার্কস্পেস: অটো সুইচ/কাজ পাঠানোর বাইরে; শুধু অন্য ওয়ার্কস্পেসের অটো-ক্লিক সমস্যা মেরামত করে ─────────
     const val RESERVE_EMAIL = "alamgirabdullahmail@gmail.com"
     const val RESERVE_URL = "https://claude.ai/code"
+    const val RESERVE_NAME = "Reserve"
 
     /** রিজার্ভ কিনা: জোড়া ইমেইল বা নাম (লগইনের পর নাম ইমেইল হয়ে যায়) মিললে */
     fun isReserve(c: Context, s: Site): Boolean =
-        AutoLogin.emailOf(c, s.id).equals(RESERVE_EMAIL, true) || s.name.trim().equals(RESERVE_EMAIL, true) || s.name.trim() == "রিজার্ভ"
+        AutoLogin.emailOf(c, s.id).equals(RESERVE_EMAIL, true) || s.name.trim().equals(RESERVE_EMAIL, true) || s.name.trim().equals(RESERVE_NAME, true) || s.name.trim() == "রিজার্ভ"
 
     fun reserve(c: Context): Site? = all(c).firstOrNull { isReserve(c, it) }
 
     /** একবার: রিজার্ভ ওয়ার্কস্পেস না থাকলে তালিকার একদম উপরে বানায় (মুছে ফেললে আর নিজে ফেরে না) */
     fun ensureReserve(c: Context) {
         val p = Store.prefs(c)
+        // আগের সংস্করণে বাংলা নামে বানানো হয়েছিল: নামটা ইংরেজি "Reserve" করে দেয় (ইমেইল-নাম হয়ে গেলে ছোঁয় না)
+        run {
+            val l0 = all(c)
+            if (l0.any { it.name.trim() == "রিজার্ভ" }) save(c, l0.map { if (it.name.trim() == "রিজার্ভ") it.copy(name = RESERVE_NAME) else it })
+        }
         if (p.getBoolean("reserve_made", false)) return
         val list = all(c)
         if (list.none { isReserve(c, it) }) {
-            val s = Site("s${System.currentTimeMillis()}", "রিজার্ভ", RESERVE_URL)
+            val s = Site("s${System.currentTimeMillis()}", RESERVE_NAME, RESERVE_URL)
             list.add(0, s); save(c, list)
             AutoLogin.setEmail(c, s.id, RESERVE_EMAIL)
         }
