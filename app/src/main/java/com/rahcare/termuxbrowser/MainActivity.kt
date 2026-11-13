@@ -163,6 +163,8 @@ class MainActivity : Activity() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         desktop = Store.prefs(this).getBoolean("desktop", false)
         autoSwitch = Store.prefs(this).getBoolean("autoswitch", true)
+        Sites.ensureReserve(this)            // রিজার্ভ ওয়ার্কস্পেস (তালিকার উপরে, অটো সুইচের বাইরে)
+        RemoteRules.load(this); RemoteRules.refresh(this, true)   // রিপোর অটো-ক্লিক নিয়ম
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
         val bar = LinearLayout(this).apply {
@@ -682,6 +684,8 @@ class MainActivity : Activity() {
                     }, d)
                 }
                 checkVidsDesk(t, u)
+                // নতুন (নিয়ম-না-থাকা) ওয়ার্কস্পেস সাইট হলে স্ক্রিনশট ও পাতার ঘর-বোতাম রিজার্ভকে পাঠায়
+                if (clickOn() && t.site != null && u.startsWith("http")) handler.postDelayed({ if (tabs.contains(t)) checkNewSite(t) }, 6000L)
                 if (u.startsWith(AGENT)) {
                     // অ্যাপে সংরক্ষিত GitHub টোকেন (এনক্রিপ্টেড) থাকলে হাব-পেজকে একবার দিই; পেজে আগে থেকে টোকেন থাকলে ছুঁই না
                     val tk = Secret.get(this@MainActivity)
@@ -1796,7 +1800,10 @@ class MainActivity : Activity() {
     }
 
     /** তালিকায় এর পরের সেই ওয়ার্কস্পেস যার লিমিট সম্প্রতি শেষ হয়নি; না থাকলে null (দুটো সাইটের মধ্যে অনন্ত দৌড় এড়ায়) */
-    private fun nextAvailable(list: List<Site>, id: String?): Site? {
+    private fun nextAvailable(all0: List<Site>, id: String?): Site? {
+        // রিজার্ভ অটো সুইচের বাইরে: তাতে সুইচ হয় না, আর রিজার্ভের নিজের লিমিটে অন্যটায় যাওয়াও নয়
+        if (all0.firstOrNull { it.id == id }?.let { Sites.isReserve(this, it) } == true) return null
+        val list = all0.filter { !Sites.isReserve(this, it) }
         if (list.size < 2) return null
         val i = list.indexOfFirst { it.id == id }; val now = System.currentTimeMillis()
         val ck = list.getOrNull(i)?.let { AgentBus.kindOf(it) } ?: "text"
@@ -1822,6 +1829,7 @@ class MainActivity : Activity() {
     private val agentTick = object : Runnable {
         override fun run() {
             // আগে ব্রাউজার নিজে করার মতো কাজ (ওয়ার্কস্পেস কমান্ড) সেরে নেয়, তারপর বাকিগুলো এজেন্টকে পাঠায়
+            try { RemoteRules.refresh(this@MainActivity) } catch (_: Exception) {}
             try {
                 val tk = Secret.get(this@MainActivity)
                 if (tk.isNotEmpty()) Thread {
@@ -1843,7 +1851,7 @@ class MainActivity : Activity() {
             return
         }
         if (System.currentTimeMillis() - agLastLimitAt < 120000L) return
-        val sites = Sites.all(this)
+        val sites = Sites.all(this).filter { !Sites.isReserve(this, it) }   // রিজার্ভে কাজ পাঠানো হয় না
         val cands = tabs.filter { it.site != null }.mapNotNull { t ->
             val s = sites.firstOrNull { it.id == t.site } ?: return@mapNotNull null
             val a = AgentBus.agentOf(s) ?: return@mapNotNull null
@@ -1945,7 +1953,7 @@ class MainActivity : Activity() {
 
     /** এই চ্যাট কোন ওয়ার্কস্পেসে নেবেন তা বেছে নেওয়ার তালিকা */
     private fun pickHandoff(t: Tab) {
-        val others = Sites.all(this).filter { it.id != t.site }
+        val others = Sites.all(this).filter { it.id != t.site && !Sites.isReserve(this, it) }
         if (others.isEmpty()) { Toast.makeText(this, "আর কোনো ওয়ার্কস্পেস নেই — হোম থেকে নতুন যোগ করুন", Toast.LENGTH_LONG).show(); return }
         AlertDialog.Builder(this).setTitle("এই চ্যাট কোথায় নেবেন?")
             .setItems(others.map { it.name }.toTypedArray()) { _, i -> handoff(t, others[i]) }
@@ -2045,7 +2053,9 @@ class MainActivity : Activity() {
     }
 
     /** ট্যাবের সাইট কোন এজেন্ট (claude/gemini/grok/audio/image/video); সাইট না হলে/অচেনা হলে null → সাধারণ আচরণ */
-    private fun agentOfTab(t: Tab): String? = t.site?.let { sid -> Sites.all(this).firstOrNull { it.id == sid }?.let { AgentBus.agentOf(it) } }
+    private fun agentOfTab(t: Tab): String? =
+        t.site?.let { sid -> Sites.all(this).firstOrNull { it.id == sid }?.let { AgentBus.agentOf(it) } }
+            ?: (if (t.site != null) RemoteRules.agentForHost(AutoLogin.hostOf(t.web.url ?: t.url)) else null)   // অচেনা সাইট: রিপোর নিয়ম শিখিয়ে দিলে
 
     private fun fillInput(t: Tab, text: String, n: Int, send: Boolean, onFilled: (() -> Unit)? = null, ep: Int = autoEpoch) {
         if (ep != autoEpoch) return
@@ -2106,6 +2116,85 @@ class MainActivity : Activity() {
         }, 4000L)
     }
 
+
+    // ---------- অটো-ক্লিক রিপোর্ট: নতুন সাইট বা ব্যর্থতায় স্ক্রিনশট + ঘর/বোতামের তালিকা রিজার্ভ ওয়ার্কস্পেসের চ্যাটে ----------
+    private var reportBusy = false
+
+    /** ওয়ার্কস্পেস-সাইটের জন্য কোনো নিয়ম (কোডে বা রিপোর ফাইলে) নেই হলে রিজার্ভকে জানায় */
+    private fun checkNewSite(t: Tab) {
+        val sid = t.site ?: return
+        val s = Sites.all(this).firstOrNull { it.id == sid } ?: return
+        if (Sites.isReserve(this, s) || AgentBus.agentOf(s) != null) return
+        val host = AutoLogin.hostOf(t.web.url ?: t.url)
+        if (host.isBlank() || host == "accounts.google.com" || host == "gds.google.com" || RemoteRules.agentForHost(host) != null) return
+        reportToReserve(t, "new", "এই সাইটের জন্য অটো-ক্লিকের কোনো নিয়ম নেই (নতুন ওয়ার্কস্পেস)")
+    }
+
+    private fun shotB64(t: Tab): String = try {
+        val w = t.web.width; val h = t.web.height
+        if (w <= 0 || h <= 0) "" else {
+            val sc = minOf(1f, 720f / w)
+            val b = Bitmap.createBitmap(maxOf(1, (w * sc).toInt()), maxOf(1, (h * sc).toInt()), Bitmap.Config.RGB_565)
+            val c = Canvas(b); c.drawColor(Color.WHITE); c.scale(sc, sc); t.web.draw(c)
+            val bo = java.io.ByteArrayOutputStream()
+            b.compress(Bitmap.CompressFormat.JPEG, 60, bo); b.recycle()
+            android.util.Base64.encodeToString(bo.toByteArray(), android.util.Base64.NO_WRAP)
+        }
+    } catch (_: Exception) { "" }
+
+    /** সব রিপোর্ট শুধু রিজার্ভের চ্যাটে (ব্যক্তিগত); GitHub-এ স্ক্রিনশট যায় না। একই সাইট ৩ ঘণ্টায় একবার, সব মিলিয়ে ৫ মিনিটে একবার */
+    private fun reportToReserve(t: Tab, kind: String, reason: String) {
+        try {
+            if (!clickOn() || reportBusy) return
+            val rs = Sites.reserve(this) ?: return
+            if (t.site == null || t.site == rs.id) return
+            val url = t.web.url ?: t.url
+            val host = AutoLogin.hostOf(url)
+            if (host.isBlank() || !url.startsWith("http")) return
+            val p = Store.prefs(this); val now = System.currentTimeMillis()
+            val key = "rep_${kind}_$host"
+            if (now - p.getLong(key, 0L) < 3 * 3600 * 1000L || now - p.getLong("rep_last", 0L) < 5 * 60 * 1000L) return
+            p.edit().putLong(key, now).putLong("rep_last", now).apply()
+            reportBusy = true
+            handler.postDelayed({ reportBusy = false }, 90000L)   // কোনো কারণে আটকে গেলেও ফ্ল্যাগ ছেড়ে দেয়
+            val shot = shotB64(t)
+            val ag = agentOfTab(t) ?: "generic"
+            t.web.evaluateJavascript(AutoClick.REPORT_JS) { raw ->
+                val dom = Sites.unquote(raw).take(6000)
+                val msg = buildString {
+                    append("🛠 Daily-Browser অটো-ক্লিক রিপোর্ট (").append(if (kind == "new") "নতুন সাইট" else "ব্যর্থতা").append(")\n")
+                    append("সাইট: ").append(url).append("\nপ্রোফাইল: ").append(ag).append("\nনিয়ম-সংস্করণ: ").append(RemoteRules.version).append("\nকারণ: ").append(reason).append("\n\n")
+                    append("পাতার দৃশ্যমান ঘর ও বোতাম:\n").append(dom).append("\n\n")
+                    append("তোমার কাজ (তুমি Daily-Browser-এর রিজার্ভ এজেন্ট):\n")
+                    append("১) রিপো alamgirabdullahgh/Daily-Browser সেশনে যোগ করো; AGENT_NOTES.md-র 'রিজার্ভ এজেন্ট' অংশ পড়ো।\n")
+                    append("২) সংযুক্ত স্ক্রিনশট (না থাকলে শুধু উপরের তালিকা) দেখে বের করো কোন ঘরে লেখা বসবে ও কোন বোতাম চাপলে যাবে।\n")
+                    append("৩) শুধু autoclick-rules.json ঠিক করো (profiles / hosts), version ১ বাড়াও। অন্য কোনো ফাইল ছোঁবে না।\n")
+                    append("৪) main-এ commit ও push করো, তারপর বাংলায় সংক্ষেপে জানাও কী বদলালে ও কেন। পাসওয়ার্ড/টোকেন কোথাও লিখবে না।")
+                }
+                deliverReport(rs, msg, shot)
+            }
+        } catch (_: Exception) { reportBusy = false }
+    }
+
+    private fun attachShotJs(b64: String) = """(function(b){try{var s=atob(b),u=new Uint8Array(s.length);for(var i=0;i<s.length;i++)u[i]=s.charCodeAt(i);
+var f=new File([u],'screenshot.jpg',{type:'image/jpeg'});var dt=new DataTransfer();dt.items.add(f);
+var el=document.querySelector('div.ProseMirror[contenteditable="true"]')||document.querySelector('[contenteditable="true"]')||document.querySelector('textarea');
+if(!el)return 'no';el.focus();el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true}));return 'ok'}catch(e){return 'err'}})(${org.json.JSONObject.quote(b64)})"""
+
+    /** রিজার্ভের নতুন চ্যাটে লেখা বসায়, স্ক্রিনশট জোড়ে, তারপর পাঠায় */
+    private fun deliverReport(rs: Site, msg: String, shot: String) {
+        val tab = openSite(rs.id, true, rs.url)
+        if (tab == null) { reportBusy = false; return }
+        Toast.makeText(this, "অটো-ক্লিক রিপোর্ট রিজার্ভে পাঠানো হচ্ছে…", Toast.LENGTH_LONG).show()
+        fillInput(tab, msg, 0, false, onFilled = {
+            if (shot.isNotEmpty() && tabs.contains(tab)) tab.web.evaluateJavascript(attachShotJs(shot), null)
+            handler.postDelayed({
+                if (tabs.contains(tab) && clickOn()) sendInput(tab, 0, msg, 0)
+                reportBusy = false
+            }, if (shot.isNotEmpty()) 6000L else 500L)
+        })
+    }
+
     /** নতুন অ্যাকাউন্টেই লিমিট পাওয়া গেলে (বা পাঠানো আটকে গেলে) আবার পরের অ্যাকাউন্টে নেয়; ওয়াচার আগেই ধরে থাকলে দ্বিতীয়বার নয় */
     private fun cascadeLimit(t: Tab, hit: String) {
         val now = System.currentTimeMillis()
@@ -2120,7 +2209,7 @@ class MainActivity : Activity() {
         t.web.evaluateJavascript(Sites.LIMIT_JS) { lr ->
             val hit = Sites.unquote(lr)
             if (hit.isNotBlank() && t.site != null) cascadeLimit(t, hit)
-            else Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+            else { Toast.makeText(this, msg, Toast.LENGTH_LONG).show(); reportToReserve(t, "failure", msg) }
         }
     }
 
@@ -2294,7 +2383,7 @@ class MainActivity : Activity() {
         val hub = tabs.filter { it.url.startsWith(AGENT) }
         if (hub.isEmpty()) return
         val arr = org.json.JSONArray()
-        AgentBus.agentsIn(Sites.all(this)).forEach { id ->
+        AgentBus.agentsIn(Sites.all(this).filter { !Sites.isReserve(this, it) }).forEach { id ->
             arr.put(org.json.JSONObject().put("id", id).put("label", AgentBus.label(id)).put("cat", AgentBus.groupOf(id)).put("catLabel", AgentBus.groupLabel(AgentBus.groupOf(id))).put("ver", Store.prefs(this).getString("agver_$id", "") ?: ""))
         }
         hub.forEach { it.web.evaluateJavascript("if(window.setAgents)setAgents($arr)", null) }

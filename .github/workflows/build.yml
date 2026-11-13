@@ -3,6 +3,7 @@ name: Build APK
 on:
   push:
     branches: [main]
+    paths-ignore: ["autoclick-rules.json"]   # রিজার্ভের নিয়ম-পুশে নতুন APK বানানো হয় না
   workflow_dispatch:
 
 permissions:

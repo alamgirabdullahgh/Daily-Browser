@@ -121,7 +121,9 @@ draw();
     fun html(c: Context): String {
         val ready = Runner.installed(c) && Runner.hasPermission(c)
         val cmds = Store.all(c)
-        val sites = Sites.all(c)
+        val sites0 = Sites.all(c)
+        val rsv = sites0.firstOrNull { Sites.isReserve(c, it) }
+        val sites = sites0.filter { it !== rsv }
         val cards = cmds.joinToString("") { d ->
             "<div class=card><a class=run href='termux://run/${d.id}'><span class=mo>${mono(d.title)}</span><span class=nm>${esc(d.title)}</span></a>" +
                 "<a class=ed href='termux://edit/${d.id}'>✎</a></div>"
@@ -148,6 +150,7 @@ draw();
             if (rest.isNotEmpty()) b.append("<details class=cat open><summary>${if (rest.size == sites.size) "ওয়ার্কস্পেস" else "অন্যান্য ওয়ার্কস্পেস"}<span class=m>${rest.size}</span></summary><div class=g>${rest.joinToString("") { siteCard(it) }}</div></details>")
             b.toString()
         }
+        val rsvRow = if (rsv == null) "" else "<div class=rsv><a class=run href='termux://site/${rsv.id}'><span class='mo w'>র</span><span class=nm>রিজার্ভ</span><span class=m>অটো-ক্লিক মেরামত</span></a><a class=ed href='termux://siteedit/${rsv.id}'>✎</a></div>"
         val setupBtn = "<a class=add href='termux://setup'>⚡ এক চাপে সেটআপ</a>"
         val bm = Bookmarks.all(c).take(12)
         val bmSection = if (bm.isEmpty()) "" else "<h2>বুকমার্ক</h2><div class=g>" + bm.joinToString("") { b ->
@@ -190,6 +193,7 @@ details.cat h3 .m{margin-left:6px}
 .mo.w{background:linear-gradient(135deg,#0ea5e9,#6366f1)}.mo.b{background:linear-gradient(135deg,#f59e0b,#f97316)}
 .nm{font-size:13.5px;font-weight:600;line-height:1.3;overflow-wrap:anywhere}
 .ed{position:absolute;top:2px;right:2px;padding:6px 9px;color:var(--mu);text-decoration:none;font-size:12px;opacity:.7}
+.rsv{position:relative;background:var(--card);border:1px solid var(--ln);border-radius:16px;box-shadow:var(--sh);margin-top:16px}.rsv .run{min-height:48px;padding-top:6px;padding-bottom:6px}.rsv .nm{flex:none}.rsv .m{margin-left:auto;font-size:11.5px}
 .add{display:flex;align-items:center;justify-content:center;gap:6px;padding:13px;background:var(--card);color:#4f46e5;border:1.5px dashed #a5b4fc;border-radius:14px;text-decoration:none;font-size:13.5px;font-weight:700}
 .warn{background:#fffbeb;color:#78350f;border:1px solid #fde68a;border-radius:16px;padding:14px;margin:14px 0 0;font-size:13px;line-height:1.5}
 .warn b{display:block;font-size:14px;margin-bottom:3px}.warn span{display:block;margin-bottom:10px}
@@ -206,7 +210,7 @@ details.cat h3 .m{margin-left:6px}
 <div class=hero><h1>Daily Browser</h1><p>আপনার কাজের জন্য তৈরি ব্রাউজার</p>
 <div class=stats><div class=stat><b>${sites.size}</b>ওয়ার্কস্পেস</div><div class=stat><b>${cmds.size}</b>কমান্ড</div><div class=stat><b>${Jobs.list.count { it.status == "running" }}</b>চলছে</div></div></div>
 $warn
-$bmSection$siteSection<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
+$rsvRow$bmSection$siteSection<a class=add href='termux://siteedit/new'>＋ নতুন ওয়ার্কস্পেস</a>
 <details class=cat id=tcmd><summary>Termux Command<span class=m>${cmds.size}</span></summary><div class=g>$cards</div><div class=ib><a class=add href='termux://edit/new'>＋ নতুন কমান্ড</a><a class=add href='termux://chain/x'>▶ কয়েকটা কমান্ড ক্রমানুসারে চালান</a></div></details>
 <h2>কাজ <a class=clr href='termux://clear/all'>শেষ হওয়াগুলো মুছুন</a></h2><div id=jobs>${jobsHtml()}</div>
 </body></html>"""

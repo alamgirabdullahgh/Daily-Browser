@@ -170,11 +170,26 @@ setInterval(scan,1000);scan();
 }catch(e){}})();"""
 
     // ───────────────────────── ৫) প্রবেশদ্বার ─────────────────────────
-    fun profileFor(agent: String?): Profile = when (agent) {
-        "claude" -> CLAUDE; "gemini" -> GEMINI; "grok" -> GROK
-        "image" -> IMAGE; "audio" -> AUDIO; "video" -> VIDEO
-        else -> GENERIC
+    fun profileFor(agent: String?): Profile {
+        val base = when (agent) {
+            "claude" -> CLAUDE; "gemini" -> GEMINI; "grok" -> GROK
+            "image" -> IMAGE; "audio" -> AUDIO; "video" -> VIDEO
+            else -> GENERIC
+        }
+        // রিপোর autoclick-rules.json-এর নিয়ম (থাকলে) কোডের নিয়মের উপরে বসে
+        return RemoteRules.apply(agent ?: "generic", base)
     }
+
+    /** রিজার্ভ এজেন্টকে পাঠানোর রিপোর্টের জন্য: পাতার দৃশ্যমান ঘর ও বোতামের তালিকা (লেখা, aria-label, id, class ইত্যাদি) */
+    const val REPORT_JS = """(function(){try{
+function vis(e){var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'}
+function d(e){var a=[e.tagName.toLowerCase()];['id','role','type','name','placeholder','aria-label','data-testid','title','class'].forEach(function(k){var v=e.getAttribute(k);if(v)a.push(k+'="'+String(v).replace(/\s+/g,' ').slice(0,70)+'"')});
+var t=(e.innerText||e.value||'').replace(/\s+/g,' ').trim().slice(0,40);if(t)a.push('text="'+t+'"');return a.join(' ')}
+var out=[],ins=document.querySelectorAll('textarea,input:not([type=hidden]),[contenteditable="true"],[role=textbox]'),i;
+for(i=0;i<ins.length&&out.length<12;i++)if(vis(ins[i]))out.push('INPUT: '+d(ins[i]));
+var bs=document.querySelectorAll('button,[role=button],a[href],input[type=submit]'),n=0;
+for(i=0;i<bs.length&&n<35;i++)if(vis(bs[i])){out.push('BTN: '+d(bs[i]));n++}
+return location.href.slice(0,140)+'\n'+out.join('\n')}catch(e){return 'dom-error '+e}})()"""
 
     private fun arr(l: List<String>) = JSONArray(l).toString()
 

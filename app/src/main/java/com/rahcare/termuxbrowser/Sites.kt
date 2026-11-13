@@ -31,6 +31,29 @@ object Sites {
         sp(c).edit().putString("list", a.toString()).apply()
     }
 
+    // ───────── রিজার্ভ ওয়ার্কস্পেস: অটো সুইচ/কাজ পাঠানোর বাইরে; শুধু অন্য ওয়ার্কস্পেসের অটো-ক্লিক সমস্যা মেরামত করে ─────────
+    const val RESERVE_EMAIL = "alamgirabdullahmail@gmail.com"
+    const val RESERVE_URL = "https://claude.ai/code"
+
+    /** রিজার্ভ কিনা: জোড়া ইমেইল বা নাম (লগইনের পর নাম ইমেইল হয়ে যায়) মিললে */
+    fun isReserve(c: Context, s: Site): Boolean =
+        AutoLogin.emailOf(c, s.id).equals(RESERVE_EMAIL, true) || s.name.trim().equals(RESERVE_EMAIL, true) || s.name.trim() == "রিজার্ভ"
+
+    fun reserve(c: Context): Site? = all(c).firstOrNull { isReserve(c, it) }
+
+    /** একবার: রিজার্ভ ওয়ার্কস্পেস না থাকলে তালিকার একদম উপরে বানায় (মুছে ফেললে আর নিজে ফেরে না) */
+    fun ensureReserve(c: Context) {
+        val p = Store.prefs(c)
+        if (p.getBoolean("reserve_made", false)) return
+        val list = all(c)
+        if (list.none { isReserve(c, it) }) {
+            val s = Site("s${System.currentTimeMillis()}", "রিজার্ভ", RESERVE_URL)
+            list.add(0, s); save(c, list)
+            AutoLogin.setEmail(c, s.id, RESERVE_EMAIL)
+        }
+        p.edit().putBoolean("reserve_made", true).apply()
+    }
+
     /** প্রতিটি ওয়ার্কস্পেসের নিজস্ব WebView-প্রোফাইলের নাম (কুকি, লগইন, স্টোরেজ আলাদা থাকে) */
     fun profile(id: String) = "p_" + id.filter { it.isLetterOrDigit() || it == '_' }
 
