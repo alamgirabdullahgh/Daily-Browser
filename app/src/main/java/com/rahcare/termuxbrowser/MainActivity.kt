@@ -1623,6 +1623,8 @@ class MainActivity : Activity() {
     private var gcBack = ""
     private var gcLogins = 0
     private var gcInstalled = false
+    private var gcInstallClicks = 0      // 'Install on GitHub' কতবার চাপা হয়েছে (সর্বোচ্চ ৩)
+    private var gcRepoDone = false       // GitHub-এ All repositories সেভ হয়ে গেছে কিনা
     private var gcConnectClicks = 0
     private var gcPending: String? = null   // switch-er por box-e boshano lekha; connect check er por abar boshiye pathano hobe
     private var gcPendSend = false
@@ -1653,7 +1655,7 @@ class MainActivity : Activity() {
         gcReloads = 0; gcWrong = 0; gcLastLoad = nowB
         gcTab = t; gcStartAt = System.currentTimeMillis(); gcLastRun = gcStartAt
         gcBack = (t.web.url ?: t.url).takeIf { it.contains("/chat/") || it.contains("/code") } ?: t.chatUrl
-        gcLogins = 0; gcInstalled = false; gcConnectClicks = 0
+        gcLogins = 0; gcInstalled = false; gcInstallClicks = 0; gcRepoDone = false; gcConnectClicks = 0
         gcPending = pending; gcPendSend = pendSend; gcCodeTries = 0; gcAskedNotif = false
         if (!back.isNullOrBlank()) gcBack = back
         Toast.makeText(this, "Claude-এ GitHub কানেক্ট নেই — নিজে কানেক্ট করা হচ্ছে…", Toast.LENGTH_LONG).show()
@@ -1716,7 +1718,7 @@ class MainActivity : Activity() {
                                 "manual" -> gcFinish(t, false, "GitHub ২-ধাপ যাচাই/ক্যাপচা চাইছে — এই পাতায় আপনি হাতে শেষ করুন")
                                 "nocred" -> gcFinish(t, false, "GitHub ইমেইল/পাসওয়ার্ড দেওয়া নেই — মেনু থেকে দিন")
                                 // রিপোজিটরি অ্যাক্সেস: Only select → All → Save হয়ে গেছে; claude.ai-তে ফিরে কানেক্ট যাচাই
-                                "repodone" -> { gcLastRun = System.currentTimeMillis(); Toast.makeText(this@MainActivity, "All repositories সেভ হয়েছে — কানেক্ট যাচাই হচ্ছে…", Toast.LENGTH_SHORT).show(); t.web.loadUrl(GitConnect.CONNECTORS) }
+                                "repodone" -> { gcRepoDone = true; gcLastRun = System.currentTimeMillis(); Toast.makeText(this@MainActivity, "All repositories সেভ হয়েছে — কানেক্ট যাচাই হচ্ছে…", Toast.LENGTH_SHORT).show(); t.web.loadUrl(GitConnect.CONNECTORS) }
                                 else -> if (r.startsWith("clicked:")) { gcLastRun = System.currentTimeMillis() }
                             }
                         }
@@ -1730,10 +1732,10 @@ class MainActivity : Activity() {
                                 gcLastLoad = nw; t.web.loadUrl(GitConnect.CONNECTORS)
                             }
                         }
-                        else t.web.evaluateJavascript(GitConnect.claudeJs(!gcInstalled)) { raw ->
+                        else t.web.evaluateJavascript(GitConnect.claudeJs(!gcRepoDone && gcInstallClicks < 3)) { raw ->
                             val r = Sites.unquote(raw)
                             if (r == "wrongpage" && ++gcWrong > 3) { gcFinish(t, false, "ভুল পাতায় আছি — অটো-কানেক্ট থামানো হলো, হাতে করুন"); return@evaluateJavascript }
-                            if (r == "clicked:Install") gcInstalled = true
+                            if (r == "clicked:Install") { gcInstalled = true; gcInstallClicks++ }
                             if (r == "clicked:Connect" && ++gcConnectClicks > 4) gcFinish(t, false, "GitHub Connect বারবার চেপেও হয়নি — হাতে করুন")
                             else if (r == "connected") gcFinish(t, true, "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি")
                         }
@@ -2066,6 +2068,20 @@ class MainActivity : Activity() {
         if (n >= 12) { if (send) giveUp(t, "ঘরে বসানো যায়নি — চ্যাট ক্লিপবোর্ডে আছে, পেস্ট করে পাঠান"); onFilled?.invoke(); return }
         handler.postDelayed({
             if (!tabs.contains(t) || ep != autoEpoch) return@postDelayed
+            // কানেক্টর/সেটিংস পাতায় চ্যাটের ঘর নেই: ওখানে খুঁজে ব্যর্থ না হয়ে আগে চ্যাট পাতায় ফিরি (প্রতি ৪ চেষ্টায় একবার লোড, মাঝে অপেক্ষা)
+            val curUrl = t.web.url ?: ""
+            if (gcTab == null && Regex("claude\\.ai/customize").containsMatchIn(curUrl)) {
+                if (n % 4 == 0) {
+                    val back = when {
+                        gcBack.startsWith("http") && !gcBack.contains("/customize") -> gcBack
+                        t.chatUrl.isNotBlank() -> t.chatUrl
+                        else -> "https://claude.ai/new"
+                    }
+                    t.web.loadUrl(back)
+                }
+                fillInput(t, text, n + 1, send, onFilled, ep)
+                return@postDelayed
+            }
             // লিমিট/আপগ্রেড পপআপ ঘর ঢেকে রাখলে আগে সরাই
             if (clickOn()) t.web.evaluateJavascript(Sites.DISMISS_JS, null)
             t.web.evaluateJavascript(AutoClick.fillJs(agentOfTab(t), text)) { r ->
