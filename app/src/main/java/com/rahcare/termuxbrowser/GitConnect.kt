@@ -56,6 +56,8 @@ object GitCred {
  */
 object GitConnect {
     const val CONNECTORS = "https://claude.ai/customize/connectors/integration-github"
+    /** claude.ai-র নতুন ঠিকানা-কাঠামো (yours/id/…); পুরনোটা না খুললে ফের-চেষ্টায় এটা ব্যবহার হয় */
+    const val CONNECTORS_ALT = "https://claude.ai/customize/connectors/yours/id/integration-github"
 
     /** শেষ উত্তরে (Claude-এর নিজের লেখায়) GitHub টুল/কানেকশন নেই বোঝালে লেখাটা ফেরত দেয়, নইলে '' */
     const val DETECT_JS = """(function(){try{
@@ -73,14 +75,19 @@ var m=s.match(re);return m?s.slice(Math.max(0,m.index-20),m.index+160):'';
 var PP=location.pathname;if(PP.indexOf('/customize/connectors')!==0||PP.indexOf('github')<0)return 'wrongpage';
 function vis(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0}
 function tx(e){return(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim()}
-var root=document.querySelector('main')||document.body;
-var bs=[].slice.call(root.querySelectorAll('button,[role=button]')).filter(vis);
-function by(re){for(var i=0;i<bs.length;i++){var t=tx(bs[i]);if(t.length<40&&re.test(t)&&!bs[i].disabled)return bs[i]}return null}
-var dis=by(/^(disconnect|disconnect github)${'$'}/i);
-var conn=by(/^(connect|connect github|install github account|connect account)${'$'}/i);
+/* Settings অনেক সময় মডাল (role=dialog) হয়ে চ্যাটের উপরে আসে, <main>-এর বাইরে; তাই আগে dialog, পরে main, কিছু না পেলে পুরো body */
+function scan(r){var b=[].slice.call(r.querySelectorAll('button,[role=button]')).filter(vis);
+ function by(re){for(var i=0;i<b.length;i++){var t=tx(b[i]);if(t.length<40&&re.test(t)&&!b[i].disabled)return b[i]}return null}
+ return {dis:by(/^(disconnect|disconnect github)${'$'}/i),conn:by(/^(connect|connect github|install github account|connect account)${'$'}/i),ins:by(/^(install on github|install github app|install claude github app|install)${'$'}/i)}}
+var root=document.querySelector('[role="dialog"]')||document.querySelector('main')||document.body;
+var sc=scan(root);if(!sc.dis&&!sc.conn&&!sc.ins&&root!==document.body)sc=scan(document.body);
+var dis=sc.dis,conn=sc.conn,ins=sc.ins;
 if(conn){conn.click();return 'clicked:Connect'}
-var ins=by(/^(install on github|install github app|install claude github app|install)${'$'}/i);
-if(dis&&ins&&$allowInstall){ins.click();return 'clicked:Install'}
+if(dis&&ins&&$allowInstall){
+ /* Install on GitHub নতুন উইন্ডো খোলে; অটো-কানেক্ট একই ট্যাবে চলে, তাই ক্লিকের ঠিক আগে window.open-কে এই ট্যাবেই নেভিগেট করাই */
+ try{var oo=window.open;window.open=function(u){try{if(u)location.href=String(u)}catch(e){}return null};setTimeout(function(){try{window.open=oo}catch(e){}},20000)}catch(e){}
+ try{if(ins.tagName==='A')ins.removeAttribute('target')}catch(e){}
+ ins.click();return 'clicked:Install'}
 if(dis)return 'connected';
 return 'waiting'}catch(x){return 'err'}})()"""
 

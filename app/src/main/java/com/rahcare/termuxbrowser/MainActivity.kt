@@ -711,6 +711,8 @@ class MainActivity : Activity() {
                 // পপআপ/নতুন উইন্ডো যে ট্যাব থেকে খুলল তার ডেস্কটপ-অবস্থা পাবে (আগে সাধারণ সুইচ থেকে আসত, তাই ডেস্কটপ হারিয়ে যেত); লোড শুরুর আগেই বসে
                 if (n.desk != t.desk) { n.desk = t.desk; applyDesktop(n) }
                 n.deskAuto = t.deskAuto; n.deskReport = t.desk
+                // GitHub অটো-কানেক্ট চলার সময় (যেমন Install on GitHub) নতুন উইন্ডো খুললে অটোমেশন ওটাই চালাবে, নইলে GitHub-এর পাতায় কেউ ক্লিক করত না
+                if (gcTab === t) { gcOrigin = t; gcTab = n; gcLastRun = System.currentTimeMillis() }
                 (m.obj as WebView.WebViewTransport).webView = n.web; m.sendToTarget(); return true
             }
             override fun onCloseWindow(v: WebView) { closeTab(t) }
@@ -1617,6 +1619,7 @@ class MainActivity : Activity() {
 
     // ---------- GitHub অটো-কানেক্ট ----------
     private var gcTab: Tab? = null
+    private var gcOrigin: Tab? = null    // Install-এ নতুন উইন্ডো খুললে মূল (কানেক্টর-পাতার) ট্যাব; শেষে এটাকে চ্যাটে ফেরানো হয়
     private var gcStartAt = 0L
     private var gcLastRun = 0L
     private var gcLastHit = ""
@@ -1653,7 +1656,7 @@ class MainActivity : Activity() {
             gcStarts.add(nowB)
         }
         gcReloads = 0; gcWrong = 0; gcLastLoad = nowB
-        gcTab = t; gcStartAt = System.currentTimeMillis(); gcLastRun = gcStartAt
+        gcTab = t; gcOrigin = null; gcStartAt = System.currentTimeMillis(); gcLastRun = gcStartAt
         gcBack = (t.web.url ?: t.url).takeIf { it.contains("/chat/") || it.contains("/code") } ?: t.chatUrl
         gcLogins = 0; gcInstalled = false; gcInstallClicks = 0; gcRepoDone = false; gcConnectClicks = 0
         gcPending = pending; gcPendSend = pendSend; gcCodeTries = 0; gcAskedNotif = false
@@ -1667,7 +1670,7 @@ class MainActivity : Activity() {
     private fun gcStop(reason: String) {
         if (gcTab == null) return
         handler.removeCallbacks(gcTick)
-        gcTab = null; gcPending = null; gcPendSend = false
+        gcTab = null; gcOrigin = null; gcPending = null; gcPendSend = false
         gcLastRun = System.currentTimeMillis(); gcCoolUntil = gcLastRun + 2 * 3600000L
         Toast.makeText(this, reason, Toast.LENGTH_LONG).show()
     }
@@ -1685,15 +1688,22 @@ class MainActivity : Activity() {
         if (!ok) gcCoolUntil = gcLastRun + 2 * 3600000L
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
         val pend = gcPending; val ps = gcPendSend; gcPending = null; gcPendSend = false
+        // কখনও কানেক্টর/সেটিংস পাতায় আটকে রাখা নয়: ফেরার ঠিকানা না থাকলে শেষ চ্যাট, তাও না থাকলে নতুন চ্যাট
+        val backUrl = gcBack.takeIf { it.startsWith("http") && !it.contains("/customize") }
+            ?: t.chatUrl.takeIf { it.startsWith("http") && !it.contains("/customize") }
+            ?: "https://claude.ai/new"
+        // Install-এর নতুন উইন্ডো খুলে থাকলে মূল ট্যাবটা কানেক্টর পাতায় পড়ে থাকে; ওটাকেও চ্যাটে ফেরাই
+        val org = gcOrigin; gcOrigin = null
+        if (org != null && org !== t && tabs.contains(org) && (org.web.url ?: "").contains("/customize")) org.web.loadUrl(backUrl)
         if (pend != null) {
             //  workspace switch flow: chat-e fire giye lekha abar boshao; GitHub connected hole (ok) tobei send
             if (tabs.contains(t)) {
-                t.web.loadUrl(if (gcBack.startsWith("http")) gcBack else "https://claude.ai/new")
+                t.web.loadUrl(backUrl)
                 fillInput(t, pend, 0, ps)   // কানেক্ট ব্যর্থ/সময় শেষ হলেও পাঠাই — নইলে মেসেজ বসে থাকত, সেন্ড হতো না
             }
-        } else if (ok && gcBack.startsWith("http") && tabs.contains(t)) {
-            t.web.loadUrl(gcBack)
-            fillInput(t, "GitHub এখন কানেক্ট হয়েছে। এই চ্যাটে আগের কাজটা GitHub টুল দিয়ে চালিয়ে যাও।", 0, true)
+        } else if (ok && tabs.contains(t)) {
+            t.web.loadUrl(backUrl)
+            if (gcBack.startsWith("http")) fillInput(t, "GitHub এখন কানেক্ট হয়েছে। এই চ্যাটে আগের কাজটা GitHub টুল দিয়ে চালিয়ে যাও।", 0, true)
         }
     }
 
@@ -1701,7 +1711,13 @@ class MainActivity : Activity() {
         override fun run() {
             val t = gcTab ?: return
             try {
-                if (!tabs.contains(t)) { gcTab = null; return }
+                if (!tabs.contains(t)) {
+                    // GitHub-এর নতুন উইন্ডো নিজে বন্ধ হলে (ইনস্টল শেষে) মূল ট্যাবে ফিরে কানেক্ট যাচাই; না থাকলে থামি (finally পরের টিক বসায়)
+                    val o = gcOrigin
+                    if (o != null && tabs.contains(o)) { gcOrigin = null; gcTab = o; gcRepoDone = true; select(o); o.web.loadUrl(GitConnect.CONNECTORS) }
+                    else gcTab = null
+                    return
+                }
                 if (System.currentTimeMillis() - gcStartAt > 3 * 60000L) { gcFinish(t, false, "GitHub কানেক্ট: সময় শেষ — হাতে শেষ করুন"); return }
                 val u = t.web.url ?: ""
                 val uri = Uri.parse(u); val host = uri.host ?: ""; val path = uri.path ?: ""
@@ -1729,7 +1745,7 @@ class MainActivity : Activity() {
                             // Claude পাতা বদলালে (যেমন Plugins-এ পাঠিয়ে দিলে) অনন্ত রিলোড নয়: সর্বোচ্চ ২ বার ফের চেষ্টা, তারপর থেমে আপনাকে জানায়
                             if (nw - gcStartAt > 8000L && nw - gcLastLoad > 12000L) {
                                 if (++gcReloads > 2) { gcFinish(t, false, "Claude-এর GitHub কানেক্টর পাতা খোলা যায়নি (পাতা বদলে গেছে?) — হাতে GitHub কানেক্ট করুন"); return }
-                                gcLastLoad = nw; t.web.loadUrl(GitConnect.CONNECTORS)
+                                gcLastLoad = nw; t.web.loadUrl(if (gcReloads % 2 == 1) GitConnect.CONNECTORS_ALT else GitConnect.CONNECTORS)
                             }
                         }
                         else t.web.evaluateJavascript(GitConnect.claudeJs(!gcRepoDone && gcInstallClicks < 3)) { raw ->
