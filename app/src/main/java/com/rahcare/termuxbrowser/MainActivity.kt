@@ -1995,7 +1995,7 @@ class MainActivity : Activity() {
             fun deliver(repo: String, cands: List<String>) {
                 // সংরক্ষিত GitHub টোকেন শুধু তখনই যায় যখন কাজটা GitHub/Claude Code-সংক্রান্ত (রিপো জানা আছে বা চ্যাটে github আছে)
                 val tok = Secret.get(this)
-                val useTok = tok.isNotBlank() && (isCode || repo.isNotBlank() || Sites.looksGit(chat))
+                val useTok = tok.isNotBlank()   // ওয়ার্কস্পেস সুইচে টোকেন সবসময় যায় (কাজ GitHub-সংক্রান্ত মনে হোক বা না হোক)
                 val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat, repo, if (useTok) tok else "", if (useTok) cands else emptyList())
                 if (payload.isNotEmpty()) {
                     val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -2026,7 +2026,7 @@ class MainActivity : Activity() {
             val saved = prefs.getString("gitrepo", "")?.trim().orEmpty()
             fun proceed(repo: String) {
                 val tok = Secret.get(this)
-                if (repo.isBlank() && gitRelated && tok.isNotBlank()) {
+                if (repo.isBlank() && tok.isNotBlank()) {
                     Thread { val c = Sites.recentRepos(tok); runOnUiThread { deliver("", c) } }.start()
                 } else deliver(repo, emptyList())
             }
@@ -2034,8 +2034,7 @@ class MainActivity : Activity() {
             when {
                 fromChat.isNotEmpty() -> proceed(fromChat)
                 isCode -> from.web.evaluateJavascript(Sites.REPO_JS) { r -> proceed(Sites.unquote(r).trim().ifEmpty { saved }) }
-                gitRelated -> proceed(saved)
-                else -> proceed("")
+                else -> proceed(saved)
             }
         }
     }
@@ -2206,6 +2205,8 @@ class MainActivity : Activity() {
                     append("২) সংযুক্ত স্ক্রিনশট (না থাকলে শুধু উপরের তালিকা) দেখে বের করো কোন ঘরে লেখা বসবে ও কোন বোতাম চাপলে যাবে।\n")
                     append("৩) শুধু autoclick-rules.json ঠিক করো (profiles / hosts), version ১ বাড়াও। অন্য কোনো ফাইল ছোঁবে না।\n")
                     append("৪) main-এ commit ও push করো, তারপর বাংলায় সংক্ষেপে জানাও কী বদলালে ও কেন। পাসওয়ার্ড/টোকেন কোথাও লিখবে না।")
+                    val rtk = Secret.get(this@MainActivity)
+                    if (rtk.isNotBlank()) append("\n[GitHub টোকেন (আমার নিজের, এই কাজের জন্যই): ").append(rtk).append(" — clone/push-এ ব্যবহার করো (https://x-access-token:টোকেন@github.com/মালিক/রিপো.git)। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে লিখবে না, remote URL-এও রাখবে না।]")
                 }
                 deliverReport(rs, msg, shot)
             }

@@ -50,6 +50,12 @@ object Sites {
             val l0 = all(c)
             if (l0.any { it.name.trim() == "রিজার্ভ" }) save(c, l0.map { if (it.name.trim() == "রিজার্ভ") it.copy(name = RESERVE_NAME) else it })
         }
+        // রিজার্ভ ওয়ার্কস্পেসে জোড়া ইমেইল সবসময় RESERVE_EMAIL-ই থাকবে (আগে অন্য ইমেইল বসানো থাকলে প্রতিবার চালুর সময় ঠিক করে দেয়)
+        run {
+            val l1 = all(c)
+            val r = l1.firstOrNull { it.name.trim().equals(RESERVE_NAME, true) || it.name.trim() == "রিজার্ভ" || it.name.trim().equals(RESERVE_EMAIL, true) }
+            if (r != null && !AutoLogin.emailOf(c, r.id).equals(RESERVE_EMAIL, true)) AutoLogin.setEmail(c, r.id, RESERVE_EMAIL)
+        }
         if (p.getBoolean("reserve_made", false)) return
         val list = all(c)
         if (list.none { isReserve(c, it) }) {
