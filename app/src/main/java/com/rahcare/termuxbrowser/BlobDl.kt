@@ -24,6 +24,13 @@ import java.util.concurrent.ConcurrentHashMap
  * নিরাপত্তা: ব্রিজের মেথড (chunk/done/fail) শুধু এই অ্যাপের বানানো এক-বারের টোকেন নিয়ে কাজ করে।
  * টোকেন ছাড়া ডাকলে কিছুই হয় না, তাই অন্য কোনো সাইট নিজে থেকে ফাইল লেখাতে পারে না।
  */
+/**
+ * সব সাইটের জন্য একটাই সমাধান: পেজ blob বানানোর মুহূর্তেই (createObjectURL) অবজেক্টটা ধরে রাখা।
+ * ফলে সাইট পরে URL revoke করে দিলেও (AI Studio ইত্যাদি) ডাউনলোড পড়া যায়, আর fetch/CSP-এর ওপর নির্ভর করতে হয় না।
+ */
+const val BLOB_HOOK_JS = "(function(){try{if(window.__dlHook)return;window.__dlHook=1;var M=window.__dlBlobs={},K=[];var c=URL.createObjectURL;" +
+    "URL.createObjectURL=function(o){var u=c.apply(this,arguments);try{if(o instanceof Blob){M[u]=o;K.push(u);while(K.length>12){delete M[K.shift()]}}}catch(e){}return u}}catch(e){}})()"
+
 class BlobBridge(private val ctx: Context, private val onMain: (() -> Unit) -> Unit) {
 
     private class Job(val tmp: File, val out: FileOutputStream, var name: String, val born: Long) { var bytes = 0L }
@@ -59,7 +66,7 @@ class BlobBridge(private val ctx: Context, private val onMain: (() -> Unit) -> U
         catch (e: Exception) { toast("ডাউনলোড ব্যর্থ"); return }
         val js = "(function(T,U){var D=window.DailyDl;function F(m){try{D.fail(T,String(m))}catch(e){}}" +
             "try{var A=document.querySelectorAll('a[download]'),k;for(k=0;k<A.length;k++){if(A[k].href===U&&A[k].getAttribute('download')){try{D.name(T,A[k].getAttribute('download'))}catch(e){}break}}}catch(e){}" +
-            "try{fetch(U).then(function(r){return r.blob()}).then(function(b){var C=393216,i=0;" +
+            "try{(function(){var m=window.__dlBlobs&&window.__dlBlobs[U];return m?Promise.resolve(m):fetch(U).then(function(r){return r.blob()})})().then(function(b){var C=393216,i=0;" +
             "function next(){if(i>=b.size){D.done(T,b.type||'');return}" +
             "var rd=new FileReader();" +
             "rd.onload=function(){var s=String(rd.result),k=s.indexOf(',');D.chunk(T,s.substring(k+1));i+=C;next()};" +
@@ -101,7 +108,7 @@ class BlobBridge(private val ctx: Context, private val onMain: (() -> Unit) -> U
     }
 
     @JavascriptInterface
-    fun fail(tok: String, msg: String?) { abort(tok, "ডাউনলোড ব্যর্থ — পেজটি ফাইল পড়তে দেয়নি") }
+    fun fail(tok: String, msg: String?) { abort(tok, "ডাউনলোড ব্যর্থ — পেজটি ফাইল পড়তে দেয়নি" + (if (msg.isNullOrBlank()) "" else " (" + msg.take(60) + ")")) }
 
     // ---------- ভেতরের সাহায্যকারী ----------
 

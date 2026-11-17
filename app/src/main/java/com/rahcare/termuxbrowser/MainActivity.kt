@@ -616,6 +616,7 @@ class MainActivity : Activity() {
         // ব্যাকগ্রাউন্ডে গেলেও ওয়েব-রেন্ডারার "গুরুত্বপূর্ণ" থাকে, যাতে সাইটের কাজ/স্ট্রিম থামে না
         if (android.os.Build.VERSION.SDK_INT >= 26) try { w.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false) } catch (_: Exception) {}
         try { if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) WebViewCompat.addDocumentStartJavaScript(w, Browse.KEEP_JS, setOf("*")) } catch (_: Exception) {}
+        try { if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) WebViewCompat.addDocumentStartJavaScript(w, BLOB_HOOK_JS, setOf("*")) } catch (_: Exception) {}
         w.setFindListener { idx, n, _ -> if (t === cur) findCount.text = if (n == 0) "০" else "${idx + 1}/$n" }
         w.setOnLongClickListener { _ -> handleLongPress(t) }
         w.webViewClient = object : WebViewClient() {
