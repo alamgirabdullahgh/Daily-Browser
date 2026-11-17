@@ -1469,7 +1469,35 @@ class MainActivity : Activity() {
         emailOk.add(sid)
         val list = Sites.all(this)
         val s = list.firstOrNull { it.id == sid } ?: return
+        if (Sites.isReserve(this, s) && !em.equals(Sites.RESERVE_EMAIL, true)) {
+            // রিজার্ভে ভুল অ্যাকাউন্ট লগইন: নাম অন্য ইমেইল হতে দিই না; একবার জিজ্ঞেস করে লগআউট করে সঠিকটায় লগইন
+            if (s.name != Sites.RESERVE_NAME) { s.name = Sites.RESERVE_NAME; Sites.save(this, list); refreshHomes() }
+            askFixReserve(sid, em); return
+        }
         if (s.name != em) { s.name = em; Sites.save(this, list); refreshHomes() }
+    }
+
+    private var reserveAsked = false
+    private fun askFixReserve(sid: String, wrong: String) {
+        if (reserveAsked) return
+        reserveAsked = true
+        try {
+            AlertDialog.Builder(this).setTitle("Reserve-এ ভুল অ্যাকাউন্ট")
+                .setMessage("Reserve-এ এখন $wrong লগইন আছে, কিন্তু Reserve হওয়ার কথা ${Sites.RESERVE_EMAIL}। লগআউট করে সঠিকটায় লগইন করব? (শুধু Reserve-এর সেশন মুছবে, অন্য ওয়ার্কস্পেস নয়)")
+                .setPositiveButton("হ্যাঁ, বদলাও") { _, _ -> resetReserveAccount(sid) }
+                .setNegativeButton("পরে", null).show()
+        } catch (_: Exception) { reserveAsked = false }
+    }
+
+    private fun resetReserveAccount(sid: String) {
+        tabs.filter { it.site == sid }.forEach { closeTab(it) }
+        try { ProfileStore.getInstance().deleteProfile(Sites.profile(sid)) } catch (_: Exception) {}
+        AutoLogin.setEmail(this, sid, Sites.RESERVE_EMAIL); AutoLogin.reset(sid)
+        emailOk.remove(sid); emailTries.remove(sid)
+        val list = Sites.all(this)
+        list.firstOrNull { it.id == sid }?.let { it.name = Sites.RESERVE_NAME; Sites.save(this, list) }
+        refreshHomes(); loginOpen(sid)
+        Toast.makeText(this, "Reserve-এ ${Sites.RESERVE_EMAIL} দিয়ে লগইন করুন (পাসওয়ার্ড সংরক্ষিত থাকলে নিজে বসবে)", Toast.LENGTH_LONG).show()
     }
 
     /** ওয়ার্কস্পেস খোলে (আগে খোলা থাকলে সেটাতেই যায়); fresh=true হলে নতুন চ্যাট লোড করে */
@@ -1994,9 +2022,11 @@ class MainActivity : Activity() {
             val chat = Sites.unquote(raw).trim()
             fun deliver(repo: String, cands: List<String>) {
                 // সংরক্ষিত GitHub টোকেন শুধু তখনই যায় যখন কাজটা GitHub/Claude Code-সংক্রান্ত (রিপো জানা আছে বা চ্যাটে github আছে)
+                // টোকেন + GitHub ইমেইল/পাসওয়ার্ড (যা সংরক্ষিত আছে) প্রতিটি সুইচে সবসময় যায়: চ্যাট GitHub-সংক্রান্ত মনে হোক বা না হোক, চ্যাটের লেখা না পাওয়া গেলেও
                 val tok = Secret.get(this)
-                val useTok = tok.isNotBlank()   // ওয়ার্কস্পেস সুইচে টোকেন সবসময় যায় (কাজ GitHub-সংক্রান্ত মনে হোক বা না হোক)
-                val payload = if (chat.isBlank()) "" else Sites.handoffText(fromName, chat, repo, if (useTok) tok else "", if (useTok) cands else emptyList())
+                val cred = GitCred.get(this)
+                val useTok = tok.isNotBlank() || cred != null
+                val payload = if (chat.isBlank() && !useTok) "" else Sites.handoffText(fromName, chat, repo, tok, cands, cred)
                 if (payload.isNotEmpty()) {
                     val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     val clip = android.content.ClipData.newPlainText("chat", payload)
@@ -2021,7 +2051,6 @@ class MainActivity : Activity() {
                 }
             }
             // রিপো কোনটা: ১) চ্যাটের লেখায় উল্লেখ ২) (Claude Code পেজে) পাতার GitHub লিংক ৩) মেনুর ডিফল্ট। কিছুই না মিললে (কিন্তু কাজটা GitHub-সংক্রান্ত ও টোকেন আছে) GitHub থেকে সাম্প্রতিক রিপোর তালিকা এনে বার্তায় দেয়
-            val gitRelated = isCode || Sites.looksGit(chat)
             val prefs = Store.prefs(this)
             val saved = prefs.getString("gitrepo", "")?.trim().orEmpty()
             fun proceed(repo: String) {
@@ -2205,8 +2234,7 @@ class MainActivity : Activity() {
                     append("২) সংযুক্ত স্ক্রিনশট (না থাকলে শুধু উপরের তালিকা) দেখে বের করো কোন ঘরে লেখা বসবে ও কোন বোতাম চাপলে যাবে।\n")
                     append("৩) শুধু autoclick-rules.json ঠিক করো (profiles / hosts), version ১ বাড়াও। অন্য কোনো ফাইল ছোঁবে না।\n")
                     append("৪) main-এ commit ও push করো, তারপর বাংলায় সংক্ষেপে জানাও কী বদলালে ও কেন। পাসওয়ার্ড/টোকেন কোথাও লিখবে না।")
-                    val rtk = Secret.get(this@MainActivity)
-                    if (rtk.isNotBlank()) append("\n[GitHub টোকেন (আমার নিজের, এই কাজের জন্যই): ").append(rtk).append(" — clone/push-এ ব্যবহার করো (https://x-access-token:টোকেন@github.com/মালিক/রিপো.git)। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে লিখবে না, remote URL-এও রাখবে না।]")
+                    append(Sites.secretsBlock(this@MainActivity))
                 }
                 deliverReport(rs, msg, shot)
             }

@@ -27,7 +27,12 @@ object AutoLogin {
 
     private fun pref(c: Context) = Store.prefs(c)
     fun emailOf(c: Context, siteId: String): String = pref(c).getString("al_$siteId", "") ?: ""
-    fun setEmail(c: Context, siteId: String, email: String) { pref(c).edit().putString("al_$siteId", email.trim()).apply() }
+    fun setEmail(c: Context, siteId: String, email: String) {
+        // রিজার্ভ ওয়ার্কস্পেসের ইমেইল সবসময় Sites.RESERVE_EMAIL; অন্য কিছু বসানো যায় না
+        val rid = Store.prefs(c).getString("reserve_id", "").orEmpty()
+        val em = if (rid.isNotEmpty() && siteId == rid) Sites.RESERVE_EMAIL else email.trim()
+        pref(c).edit().putString("al_$siteId", em).apply()
+    }
 
     fun hostOf(u: String) = (Uri.parse(if (u.contains("://")) u else "https://$u").host ?: "").lowercase().removePrefix("www.")
 

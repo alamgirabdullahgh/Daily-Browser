@@ -38,7 +38,7 @@ object Sites {
 
     /** রিজার্ভ কিনা: জোড়া ইমেইল বা নাম (লগইনের পর নাম ইমেইল হয়ে যায়) মিললে */
     fun isReserve(c: Context, s: Site): Boolean =
-        AutoLogin.emailOf(c, s.id).equals(RESERVE_EMAIL, true) || s.name.trim().equals(RESERVE_EMAIL, true) || s.name.trim().equals(RESERVE_NAME, true) || s.name.trim() == "রিজার্ভ"
+        (Store.prefs(c).getString("reserve_id", "").orEmpty().let { it.isNotEmpty() && it == s.id }) || AutoLogin.emailOf(c, s.id).equals(RESERVE_EMAIL, true) || s.name.trim().equals(RESERVE_EMAIL, true) || s.name.trim().equals(RESERVE_NAME, true) || s.name.trim() == "রিজার্ভ"
 
     fun reserve(c: Context): Site? = all(c).firstOrNull { isReserve(c, it) }
 
@@ -50,21 +50,29 @@ object Sites {
             val l0 = all(c)
             if (l0.any { it.name.trim() == "রিজার্ভ" }) save(c, l0.map { if (it.name.trim() == "রিজার্ভ") it.copy(name = RESERVE_NAME) else it })
         }
-        // রিজার্ভ ওয়ার্কস্পেসে জোড়া ইমেইল সবসময় RESERVE_EMAIL-ই থাকবে (আগে অন্য ইমেইল বসানো থাকলে প্রতিবার চালুর সময় ঠিক করে দেয়)
-        run {
-            val l1 = all(c)
-            val r = l1.firstOrNull { it.name.trim().equals(RESERVE_NAME, true) || it.name.trim() == "রিজার্ভ" || it.name.trim().equals(RESERVE_EMAIL, true) }
-            if (r != null && !AutoLogin.emailOf(c, r.id).equals(RESERVE_EMAIL, true)) AutoLogin.setEmail(c, r.id, RESERVE_EMAIL)
-        }
-        if (p.getBoolean("reserve_made", false)) return
-        val list = all(c)
-        if (list.none { isReserve(c, it) }) {
+        var rs = reserve(c)
+        if (rs == null && !p.getBoolean("reserve_made", false)) {
+            val list = all(c)
             val s = Site("s${System.currentTimeMillis()}", RESERVE_NAME, RESERVE_URL)
-            list.add(0, s); save(c, list)
-            AutoLogin.setEmail(c, s.id, RESERVE_EMAIL)
+            list.add(0, s); save(c, list); rs = s
         }
         p.edit().putBoolean("reserve_made", true).apply()
+        val r = rs
+        if (r != null) {
+            // প্রতিবার চালুতে: রিজার্ভের আইডি মনে রাখা, জোড়া ইমেইল সবসময় RESERVE_EMAIL, আর অন্য কোনো ইমেইল-নাম (যেমন ভুল অ্যাকাউন্টের) থাকলে "Reserve"
+            p.edit().putString("reserve_id", r.id).apply()
+            AutoLogin.setEmail(c, r.id, RESERVE_EMAIL)
+            if (r.name.contains("@") && !r.name.trim().equals(RESERVE_EMAIL, true)) {
+                val l1 = all(c); l1.firstOrNull { it.id == r.id }?.let { it.name = RESERVE_NAME; save(c, l1) }
+            }
+        }
     }
+
+    // ───────── গোপন তথ্য (টোকেন + GitHub ইমেইল/পাসওয়ার্ড): ওয়ার্কস্পেস সুইচ ও রিজার্ভ-রিপোর্টে সবসময় যায় ─────────
+    fun tokenLine(token: String): String = if (token.isBlank()) "" else "\n[GitHub টোকেন (আমার নিজের, এই কাজের জন্যই): $token — রিপো clone/pull/push করতে এটা ব্যবহার করো (যেমন https://x-access-token:টোকেন@github.com/মালিক/রিপো.git)। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে কখনো লিখবে না, রিপোর remote URL-এও রেখে দেবে না। কাজ শেষ হলে আমাকে জানাবে যেন আমি টোকেনটা বাতিল করি।]"
+    fun loginLine(cred: Pair<String, String>?): String = if (cred == null) "" else "\n[GitHub লগইন (আমার নিজের, এই কাজের জন্যই): ইমেইল: ${cred.first} / পাসওয়ার্ড: ${cred.second} — শুধু GitHub বা Claude-এ লগইন দরকার হলে ব্যবহার করো। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে কখনো লিখবে না।]"
+    fun secretsBlock(c: Context): String = tokenLine(Secret.get(c)) + loginLine(GitCred.get(c))
+    private fun stripSecretLines(chat: String): String = chat.lines().filterNot { val t = it.trimStart(); t.startsWith("[GitHub টোকেন") || t.startsWith("[GitHub লগইন") }.joinToString("\n").trim()
 
     /** প্রতিটি ওয়ার্কস্পেসের নিজস্ব WebView-প্রোফাইলের নাম (কুকি, লগইন, স্টোরেজ আলাদা থাকে) */
     fun profile(id: String) = "p_" + id.filter { it.isLetterOrDigit() || it == '_' }
@@ -174,15 +182,15 @@ return ''}catch(e){return ''}})()"""
     } catch (_: Exception) { emptyList() }
 
     /** repo জানা থাকলে বার্তায় রিপোর নাম যায়; জানা না থাকলে (কিন্তু টোকেন আছে) cands-এর সাম্প্রতিক রিপোর তালিকা যায়, যাতে নতুন সেশন নিজেই ঠিক রিপোটা বেছে নেয় */
-    fun handoffText(from: String, chat: String, repo: String = "", token: String = "", cands: List<String> = emptyList()): String {
+    fun handoffText(from: String, chat: String, repo: String = "", token: String = "", cands: List<String> = emptyList(), cred: Pair<String, String>? = null): String {
         val head = "[এটা আগের কথোপকথন ($from থেকে নেওয়া)। এটা পড়ে কাজ যেখানে থেমেছিল সেখান থেকেই চালিয়ে যাও। আমার সর্বশেষ প্রশ্নের উত্তর যদি না পেয়ে থাকি, সেটারই উত্তর দাও।]"
         val gh = when {
             repo.isNotBlank() -> "\n[GitHub রিপো: $repo — এই কাজ এই রিপোতেই। এই সেশনে রিপোটা যোগ (add_repo) করে ক্লোন করে নাও, তারপর কাজ চালাও।]"
             cands.isNotEmpty() -> "\n[GitHub রিপো নির্দিষ্ট করা নেই। আমার সাম্প্রতিক পুশ-করা রিপো (নতুন থেকে পুরনো): ${cands.joinToString(", ")} — চ্যাটের কাজ যে রিপোর, সেটা এখান থেকে বেছে নিয়ে ক্লোন করো; মিল না পেলে আমাকে জিজ্ঞেস করো।]"
             else -> ""
         }
-        val tk = if (token.isBlank()) "" else "\n[GitHub টোকেন (আমার নিজের, এই কাজের জন্যই): $token — রিপো clone/pull/push করতে এটা ব্যবহার করো (যেমন https://x-access-token:টোকেন@github.com/মালিক/রিপো.git)। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে কখনো লিখবে না, রিপোর remote URL-এও রেখে দেবে না। কাজ শেষ হলে আমাকে জানাবে যেন আমি টোকেনটা বাতিল করি।]"
-        return "$head$gh$tk\n\n$chat"
+        val body = stripSecretLines(chat).ifBlank { "[আগের চ্যাটের লেখা কপি করা যায়নি — আমার কাছ থেকে জেনে নাও কাজ কোথায় থেমেছিল।]" }
+        return "$head$gh${tokenLine(token)}${loginLine(cred)}\n\n$body"
     }
 
     /** আগের ট্যাবটা Claude Code চ্যাট (ঠিকানার পথ /code দিয়ে শুরু) এবং গন্তব্য একই সাইটের (যেমন claude.ai) অন্য ওয়ার্কস্পেস কিনা */
