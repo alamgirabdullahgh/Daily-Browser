@@ -50,4 +50,27 @@ object Secret {
     } catch (_: Exception) { "" }
 
     fun has(c: Context) = Store.prefs(c).getString(PREF, null).isNullOrEmpty().not()
+
+    /** নামযুক্ত গোপন মান (যেমন প্রতিটি API এজেন্টের key): একই Keystore চাবি, আলাদা সেটিংস-কী। খালি দিলে মুছে ফেলে */
+    fun putFor(c: Context, name: String, value: String): Boolean = try {
+        val sp = Store.prefs(c)
+        val pk = "apik_" + name
+        if (value.isBlank()) { sp.edit().remove(pk).apply(); true }
+        else {
+            val ci = Cipher.getInstance("AES/GCM/NoPadding"); ci.init(Cipher.ENCRYPT_MODE, key())
+            val ct = ci.doFinal(value.trim().toByteArray(Charsets.UTF_8))
+            sp.edit().putString(pk, Base64.encodeToString(ci.iv, Base64.NO_WRAP) + ":" + Base64.encodeToString(ct, Base64.NO_WRAP)).apply()
+            true
+        }
+    } catch (_: Exception) { false }
+
+    fun getFor(c: Context, name: String): String = try {
+        val raw = Store.prefs(c).getString("apik_" + name, null) ?: ""
+        if (raw.isEmpty()) "" else {
+            val parts = raw.split(":")
+            val ci = Cipher.getInstance("AES/GCM/NoPadding")
+            ci.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)))
+            String(ci.doFinal(Base64.decode(parts[1], Base64.NO_WRAP)), Charsets.UTF_8)
+        }
+    } catch (_: Exception) { "" }
 }

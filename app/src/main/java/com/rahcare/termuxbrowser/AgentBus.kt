@@ -95,6 +95,7 @@ object AgentBus {
 
     /** সাইট কোন এজেন্ট/ক্যাটাগরি: হাতে বাছা থাকলে সেটা, নইলে নাম/হোস্ট থেকে অডিও/ইমেজ/ভিডিও, তারপর claude / gemini / grok; না মিললে null */
     fun agentOf(s: Site): String? {
+        if (s.url.startsWith(ApiAgent.PREFIX)) return null
         val ov = try { catOverride(s.id) } catch (_: Exception) { null }
         if (!ov.isNullOrEmpty()) return if (ov == "none") null else ov
         // আগে শুধু নাম দেখে মিলানো হয় (ব্যবহারকারীর নিজের দেওয়া নামই আসল কথা বলে)।

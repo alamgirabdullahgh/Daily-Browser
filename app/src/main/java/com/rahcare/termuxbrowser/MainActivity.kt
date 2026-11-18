@@ -928,6 +928,7 @@ class MainActivity : Activity() {
         del.forEach { s ->
             try { ProfileStore.getInstance().deleteProfile(Sites.profile(s.id)) } catch (_: Exception) {}
             AutoLogin.reset(s.id)
+            ApiAgent.forget(this, s.id)
         }
         refreshHomes()
         return del.size
@@ -1504,6 +1505,7 @@ class MainActivity : Activity() {
     /** ওয়ার্কস্পেস খোলে (আগে খোলা থাকলে সেটাতেই যায়); fresh=true হলে নতুন চ্যাট লোড করে */
     private fun openSite(id: String, fresh: Boolean = false, url: String? = null): Tab? {
         val site = Sites.all(this).firstOrNull { it.id == id } ?: return null
+        if (ApiAgent.isApiSite(site)) { ApiAgent.show(this, site); return null }
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
             AlertDialog.Builder(this).setTitle("আলাদা লগইন চালু করা যাচ্ছে না")
                 .setMessage("এই ফোনের Android System WebView পুরনো। Play Store থেকে \"Android System WebView\" (ও Chrome) আপডেট করে আবার চেষ্টা করুন। নইলে সব সাইটের লগইন মিশে যেত, তাই খোলা হচ্ছে না।")
@@ -1538,6 +1540,7 @@ class MainActivity : Activity() {
 
     /** আগে-থেকে-বানানো ওয়ার্কস্পেসে লগইনের জন্য: খোলা থাকলে রিলোড (যাতে অটো-লগইন চলে), না থাকলে নতুন ট্যাবে খোলে */
     fun loginOpen(id: String) {
+        if (Sites.all(this).firstOrNull { it.id == id }?.let { ApiAgent.isApiSite(it) } == true) return
         AutoLogin.reset(id)
         val had = tabs.firstOrNull { it.site == id }
         val t = openSite(id) ?: return
@@ -1561,7 +1564,7 @@ class MainActivity : Activity() {
         val list = Sites.all(this)
         val l = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(8), dp(20), 0) }
         val n = EditText(this).apply { hint = "নাম (খালি রাখলে লগইন করা জিমেইল নিজে বসবে)"; setText(site?.name ?: "") }
-        val u = EditText(this).apply { hint = "ওয়েবসাইট (যেমন claude.ai)"; setText(site?.url ?: ""); inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI }
+        val u = EditText(this).apply { hint = "ওয়েবসাইট (যেমন claude.ai) — বা Gemini API key (AIza…) দিলে API এজেন্ট হবে"; setText(site?.url ?: ""); inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI }
         val catKeys = listOf("", "audio", "image", "video", "none")
         val catSp = android.widget.Spinner(this).apply {
             adapter = android.widget.ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
@@ -1571,22 +1574,27 @@ class MainActivity : Activity() {
         l.addView(n); l.addView(u); l.addView(catSp)
         val d = AlertDialog.Builder(this).setTitle(if (site == null) "নতুন ওয়ার্কস্পেস" else "ওয়ার্কস্পেস সম্পাদনা").setView(l)
             .setPositiveButton("সেভ") { _, _ ->
-                val typed = n.text.toString().trim(); val url = Sites.normalizeUrl(u.text.toString())
+                val typed = n.text.toString().trim(); val rawU = u.text.toString().trim()
+                if (ApiAgent.isOtherKey(rawU)) { Toast.makeText(this, "এখনো শুধু Gemini API key (AIza… দিয়ে শুরু) সমর্থিত", Toast.LENGTH_LONG).show(); return@setPositiveButton }
+                val newId = "s${System.currentTimeMillis()}"
+                val apiKey = ApiAgent.isKey(rawU)
+                val url = if (apiKey) ApiAgent.store(this, if (site == null) newId else site.id, rawU)
+                    else if (rawU.startsWith(ApiAgent.PREFIX)) rawU else Sites.normalizeUrl(rawU)
                 if (url.isEmpty()) return@setPositiveButton
                 val sp = Store.prefs(this)
                 val catKey = catKeys[catSp.selectedItemPosition]
                 if (site == null) {
-                    val id = "s${System.currentTimeMillis()}"
-                    val host = (Uri.parse(url).host ?: url).removePrefix("www.")
+                    val id = newId
+                    val host = if (apiKey) ApiAgent.DEFAULT_NAME else (Uri.parse(url).host ?: url).removePrefix("www.")
                     val ns = Site(id, typed.ifEmpty { host }, url); list.add(ns)
-                    sp.edit().putBoolean("autoname_$id", typed.isEmpty()).apply()
+                    sp.edit().putBoolean("autoname_$id", typed.isEmpty() && !apiKey).apply()
                     sp.edit().putString("agcat_$id", catKey).apply()
                     AgentBus.agentOf(ns)?.let { ag -> Toast.makeText(this, "${AgentBus.label(ag)} এজেন্ট হিসেবে ধরা হয়েছে — হোমে “${AgentBus.label(ag)}” হেডিংয়ের নিচে দেখাবে", Toast.LENGTH_LONG).show() }
                 } else list.firstOrNull { it.id == site.id }?.let { s ->
                     sp.edit().putString("agcat_${s.id}", catKey).apply()
                     // নতুন নাম লিখলে সেটাই থাকবে (আর জিমেইল বসবে না); খালি রাখলে আবার জিমেইল বসবে
                     if (typed.isNotEmpty() && typed != s.name) { s.name = typed; sp.edit().putBoolean("autoname_${s.id}", false).apply() }
-                    else if (typed.isEmpty()) { sp.edit().putBoolean("autoname_${s.id}", true).apply(); emailOk.remove(s.id); emailTries.remove(s.id) }
+                    else if (typed.isEmpty() && !url.startsWith(ApiAgent.PREFIX)) { sp.edit().putBoolean("autoname_${s.id}", true).apply(); emailOk.remove(s.id); emailTries.remove(s.id) }
                     s.url = url
                 }
                 Sites.save(this, list); refreshHomes()
@@ -1598,6 +1606,7 @@ class MainActivity : Activity() {
                     tabs.filter { it.site == site.id }.forEach { closeTab(it) }
                     list.removeAll { it.id == site.id }; Sites.save(this, list)
                     try { ProfileStore.getInstance().deleteProfile(Sites.profile(site.id)) } catch (_: Exception) {}
+                    ApiAgent.forget(this, site.id)
                     refreshHomes()
                 }.setNegativeButton("না", null).show()
         }

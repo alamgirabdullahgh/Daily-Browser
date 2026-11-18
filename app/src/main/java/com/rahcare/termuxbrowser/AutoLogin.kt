@@ -166,6 +166,16 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         val base = System.currentTimeMillis()
         items.forEachIndexed { i, it ->
             if (it.url.isBlank()) return@forEachIndexed
+            if (ApiAgent.isKey(it.url)) {
+                // লিংকের জায়গায় API key: ওয়েবসাইট নয়, API এজেন্ট। নাম = হাতে লেখা নাম, নইলে ইমেইল (দেওয়া থাকলে), নইলে "Gemini API"
+                val sid = "s${base + i}"
+                val nm = if (useNames && it.name.isNotBlank()) it.name else if (it.email.isNotBlank()) it.email else ApiAgent.DEFAULT_NAME
+                val sk = Site(sid, nm, ApiAgent.store(c, sid, it.url))
+                list.add(sk); made.add(sk)
+                Store.prefs(c).edit().putBoolean("autoname_$sid", false).apply()
+                if (it.email.isNotBlank()) setEmail(c, sid, it.email)
+                return@forEachIndexed
+            }
             val url = Sites.normalizeUrl(it.url)
             // এজেন্ট/AI নাম ঠিক করে দেয় না: হাতে বানানোর মতোই নাম = সাইটের হোস্ট, লগইন করা জিমেইল এলে সেটাই নাম হয়ে যায়।
             // শুধু ব্যবহারকারী নিজে হাতে নাম লিখলে (একসাথে-বানান ডায়ালগ, useNames = true) সেটা থাকে ও জিমেইল আর বসে না
