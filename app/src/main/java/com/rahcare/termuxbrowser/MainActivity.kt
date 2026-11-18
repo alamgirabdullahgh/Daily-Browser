@@ -2526,7 +2526,9 @@ return 'terms-wait'}
 var ok=find([/^(got it|accept|i agree|agree|agree and continue)${'$'}/i]);
 if(ok){clk(ok);return R('ok',ok)}
 if(p.indexOf('/welcome')===0){var gs=find([/get started/i]);if(gs){clk(gs);return R('start',gs)}return 'welcome-wait'}
-if(p.indexOf('/apikey')!==0){
+var bd0=((document.body&&document.body.innerText)||'');
+var onKey=/api-?keys?/i.test(p)||(/Create API key/i.test(bd0)&&/API Keys/.test(bd0));
+if(!onKey){
 var n=0;try{n=parseInt(sessionStorage.getItem('gk_nav')||'0')||0}catch(e){}
 if(n<3){try{sessionStorage.setItem('gk_nav',''+(n+1))}catch(e){}location.href='https://aistudio.google.com/apikey';return 'nav'}
 var key=find([/api key/i],'button,[role=button],a');
