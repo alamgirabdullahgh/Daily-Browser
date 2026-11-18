@@ -2501,6 +2501,40 @@ if(!el)return 'no';el.focus();el.dispatchEvent(new ClipboardEvent('paste',{clipb
         "for(var w=0;w<want.length;w++){for(var i=0;i<els.length;i++){var t=((els[i].innerText||els[i].getAttribute('aria-label')||'')+'').trim().toLowerCase();" +
         "if(t.indexOf(want[w])>=0&&!els[i].disabled){els[i].click();return t}}}return ''}catch(e){return ''}})()"
 
+    private val GRAB_STEP_JS = """(function(){try{
+var h=location.hostname,p=location.pathname;
+if(!/(^|\.)google\.com$/.test(h))return 'other';
+function vis(e){var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'}
+function tx(e){return ((e.innerText||e.textContent||'')+'').replace(/\s+/g,' ').trim()||((e.getAttribute('aria-label')||'')+'').trim()}
+function clk(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatchEvent(new MouseEvent('mousedown',o));b.dispatchEvent(new MouseEvent('mouseup',o))}catch(e){}try{b.click()}catch(e){}}
+function find(res,sel){var l=document.querySelectorAll(sel||'button,[role=button],a,[role=option],[role=menuitem],[tabindex]');for(var k=0;k<res.length;k++){for(var i=0;i<l.length;i++){var e=l[i];if(e.disabled||!vis(e))continue;var t=tx(e);if(t.length<60&&res[k].test(t))return e}}return null}
+var W=window.__gk=window.__gk||{l:0,cr:0};
+var sk=find([/^skip${'$'}/i,/^not now${'$'}/i,/^no thanks${'$'}/i,/^maybe later${'$'}/i]);
+if(sk){clk(sk);return 'skip'}
+if(h==='accounts.google.com')return 'acc';
+if(h!=='aistudio.google.com')return 'wait';
+var ok=find([/^(got it|accept|i agree|agree|agree and continue)${'$'}/i]);
+if(ok){clk(ok);return 'ok'}
+if(p.indexOf('/welcome')===0){var gs=find([/get started/i]);if(gs){clk(gs);return 'start'}return 'welcome-wait'}
+if(p.indexOf('/apikey')!==0){
+var n=0;try{n=parseInt(sessionStorage.getItem('gk_nav')||'0')||0}catch(e){}
+if(n<3){try{sessionStorage.setItem('gk_nav',''+(n+1))}catch(e){}location.href='https://aistudio.google.com/apikey';return 'nav'}
+var key=find([/api key/i],'button,[role=button],a');
+if(key){clk(key);return 'keyicon'}
+var bs=[].slice.call(document.querySelectorAll('button,[role=button]')).filter(vis).sort(function(a,b){var x=a.getBoundingClientRect(),y=b.getBoundingClientRect();return (x.top+x.left)-(y.top+y.left)});
+if(bs[0]){clk(bs[0]);return 'menu'}
+return 'nomenu'}
+var dlg=document.querySelector('[role=dialog],mat-dialog-container,.mat-mdc-dialog-container');
+if(dlg){var op=find([/./],'[role=option]');if(op){clk(op);return 'opt'}
+var cb=dlg.querySelector('[role=combobox],mat-select');if(cb&&/select|choose/i.test(tx(cb))&&!W.cb){W.cb=1;clk(cb);return 'combo'}}
+var cr=find([/^create key${'$'}/i,/create api key in new project/i]);
+if(cr&&W.cr<6){W.cr++;clk(cr);return 'create-confirm'}
+var link=find([/^\.\.\.[A-Za-z0-9_-]{3,6}${'$'}/]);
+if(link&&W.l<3){W.l++;clk(link);return 'open-key'}
+var c2=find([/^create api key${'$'}/i,/create api key/i]);
+if(c2&&W.cr<6){W.cr++;clk(c2);return 'create'}
+return 'idle'}catch(e){return 'err'}})()"""
+
     fun grabKeys(ids: List<String>) {
         ids.forEach { if (!grabQ.contains(it)) grabQ.add(it) }
         Toast.makeText(this, "AI Studio থেকে API key নেওয়া শুরু — ওয়ার্কস্পেসের ট্যাব খুলবে (লগইন না থাকলে অটো-লগইন চলবে)", Toast.LENGTH_LONG).show()
@@ -2519,7 +2553,7 @@ if(!el)return 'no';el.focus();el.dispatchEvent(new ClipboardEvent('paste',{clipb
     }
 
     private fun grabPoll(site: Site, t: Tab, n: Int) {
-        if (n > 60) {
+        if (n > 90) {
             Toast.makeText(this, "“${site.name}”: key পাওয়া গেল না — লগইন/পাতা দেখে আবার চেষ্টা করুন", Toast.LENGTH_LONG).show()
             grabNext(); return
         }
@@ -2530,7 +2564,7 @@ if(!el)return 'no';el.focus();el.dispatchEvent(new ClipboardEvent('paste',{clipb
                     if (found.isNotEmpty()) {
                         grabTry(site, found)
                     } else {
-                        if (n >= 2 && n % 3 == 2 && (t.web.url ?: "").contains("aistudio.google.com")) t.web.evaluateJavascript(GRAB_CLICK_JS) { _ -> }
+                        t.web.evaluateJavascript(GRAB_STEP_JS) { _ -> }
                         grabPoll(site, t, n + 1)
                     }
                 }
