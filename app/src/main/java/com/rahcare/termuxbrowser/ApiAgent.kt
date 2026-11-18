@@ -68,6 +68,9 @@ object ApiAgent {
         } finally { cn.disconnect() }
     }
 
+    /** key চালু আছে কিনা (মডেল তালিকা আনতে পারলে হ্যাঁ) — ব্যাকগ্রাউন্ড থ্রেডে ডাকুন */
+    fun check(key: String): Boolean = try { http("GET", BASE + "models?pageSize=1", key.trim(), null, 20000).first in 200..299 } catch (_: Exception) { false }
+
     private fun errMsg(txt: String): String = try {
         JSONObject(txt).optJSONObject("error")?.optString("message", txt) ?: txt
     } catch (_: Exception) { txt.take(300) }

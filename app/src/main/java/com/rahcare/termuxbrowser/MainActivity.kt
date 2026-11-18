@@ -2485,6 +2485,91 @@ if(!el)return 'no';el.focus();el.dispatchEvent(new ClipboardEvent('paste',{clipb
         select(t)
     }
 
+    // ───────── AI Studio ওয়ার্কস্পেস থেকে API key তুলে API এজেন্ট বানানো ─────────
+    // ওয়ার্কস্পেসে Gmail লগইন আগে থেকেই হয়; সেই লগইনে aistudio.google.com/apikey খুলে পাতায় থাকা (বা "Create API key" চেপে আসা) key ধরে,
+    // চালু কিনা যাচাই করে, লগইন-ইমেইলের নামে API এজেন্ট ওয়ার্কস্পেস বানায়। একই ওয়ার্কস্পেস আবার চালালে ওই এজেন্টের key নতুন করে।
+    private fun isStudio(s: Site): Boolean = AutoLogin.hostOf(s.url) == "aistudio.google.com"
+    private val grabQ = mutableListOf<String>()
+    private var grabBusy = false
+    private val grabBad = HashSet<String>()
+    private val GRAB_FIND_JS = "(function(){try{var a=[];function add(x){if(x&&a.indexOf(x)<0)a.push(x)}" +
+        "var re=/AIza[0-9A-Za-z_\\-]{35}/g;var t=(document.body&&document.body.innerText)||'';(t.match(re)||[]).forEach(add);" +
+        "[].slice.call(document.querySelectorAll('input,textarea')).forEach(function(e){((e.value||'').match(re)||[]).forEach(add)});" +
+        "(document.documentElement.outerHTML.match(re)||[]).forEach(add);return a.join(',')}catch(e){return ''}})()"
+    private val GRAB_CLICK_JS = "(function(){try{var want=['create api key in new project','create api key','create key'];" +
+        "var els=[].slice.call(document.querySelectorAll('button,[role=button],a'));" +
+        "for(var w=0;w<want.length;w++){for(var i=0;i<els.length;i++){var t=((els[i].innerText||els[i].getAttribute('aria-label')||'')+'').trim().toLowerCase();" +
+        "if(t.indexOf(want[w])>=0&&!els[i].disabled){els[i].click();return t}}}return ''}catch(e){return ''}})()"
+
+    fun grabKeys(ids: List<String>) {
+        ids.forEach { if (!grabQ.contains(it)) grabQ.add(it) }
+        Toast.makeText(this, "AI Studio থেকে API key নেওয়া শুরু — ওয়ার্কস্পেসের ট্যাব খুলবে (লগইন না থাকলে অটো-লগইন চলবে)", Toast.LENGTH_LONG).show()
+        if (!grabBusy) grabNext()
+    }
+
+    private fun grabNext() {
+        if (grabQ.isEmpty()) { grabBusy = false; return }
+        grabBusy = true
+        val id = grabQ.removeAt(0)
+        val site = Sites.all(this).firstOrNull { it.id == id }
+        if (site == null || !isStudio(site)) { grabNext(); return }
+        val t = openSite(id, true, "https://aistudio.google.com/apikey")
+        if (t == null) { grabNext(); return }
+        grabPoll(site, t, 0)
+    }
+
+    private fun grabPoll(site: Site, t: Tab, n: Int) {
+        if (n > 60) {
+            Toast.makeText(this, "“${site.name}”: key পাওয়া গেল না — লগইন/পাতা দেখে আবার চেষ্টা করুন", Toast.LENGTH_LONG).show()
+            grabNext(); return
+        }
+        handler.postDelayed({
+            try {
+                t.web.evaluateJavascript(GRAB_FIND_JS) { raw ->
+                    val found = Sites.unquote(raw ?: "").split(",").map { it.trim() }.filter { ApiAgent.isKey(it) && it !in grabBad }
+                    if (found.isNotEmpty()) {
+                        grabTry(site, found)
+                    } else {
+                        if (n >= 2 && n % 3 == 2 && (t.web.url ?: "").contains("aistudio.google.com")) t.web.evaluateJavascript(GRAB_CLICK_JS) { _ -> }
+                        grabPoll(site, t, n + 1)
+                    }
+                }
+            } catch (_: Exception) { grabNext() }
+        }, 3000L)
+    }
+
+    /** পাওয়া প্রার্থী key-গুলো একে একে যাচাই (পাতায় Google-এর নিজের অন্য AIza… মানও থাকতে পারে); প্রথম চালু key-টাই নেয় */
+    private fun grabTry(site: Site, cands: List<String>) {
+        Thread {
+            var good = ""
+            for (k in cands) { if (ApiAgent.check(k)) { good = k; break } else grabBad.add(k) }
+            runOnUiThread {
+                if (good.isEmpty()) {
+                    val t = tabs.firstOrNull { it.site == site.id }
+                    if (t != null) grabPoll(site, t, 20) else grabNext()
+                } else {
+                    val sp = Store.prefs(this)
+                    val list = Sites.all(this)
+                    val em = AutoLogin.emailOf(this, site.id)
+                    val nm = if (em.isNotBlank()) em else ApiAgent.DEFAULT_NAME
+                    val ex = list.firstOrNull { ApiAgent.isApiSite(it) && sp.getString("apisrc_${it.id}", "") == site.id }
+                    if (ex != null) {
+                        ApiAgent.store(this, ex.id, good)
+                        Toast.makeText(this, "“${ex.name}”-এর API key নতুন করা হলো", Toast.LENGTH_LONG).show()
+                    } else {
+                        val id = "s${System.currentTimeMillis()}"
+                        list.add(Site(id, nm, ApiAgent.store(this, id, good)))
+                        sp.edit().putString("apisrc_$id", site.id).putBoolean("autoname_$id", false).apply()
+                        Sites.save(this, list)
+                        Toast.makeText(this, "API এজেন্ট তৈরি হয়েছে: $nm", Toast.LENGTH_LONG).show()
+                    }
+                    refreshHomes()
+                    grabNext()
+                }
+            }
+        }.start()
+    }
+
     // ---------- মেনু ----------
     private fun menu(anchor: View) {
         val m = SheetMenu()
@@ -2507,6 +2592,8 @@ if(!el)return 'no';el.focus();el.dispatchEvent(new ClipboardEvent('paste',{clipb
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
         cur?.takeIf { it.site == null && it.jobKey == null && !it.isHome && it.url.startsWith("http") }?.let { m.menu.add(0, 11, 1, "🌐 এই সাইটকে ওয়ার্কস্পেস বানান (আলাদা লগইন)") }
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 14, 9, "🔍 লিমিট শনাক্তকরণ পরীক্ষা") }
+        cur?.site?.let { sid -> Sites.all(this).firstOrNull { it.id == sid }?.takeIf { isStudio(it) }?.let { m.menu.add(0, 80, 1, "🔑 এই AI Studio থেকে API key নিয়ে এজেন্ট বানান") } }
+        if (Sites.all(this).count { isStudio(it) } > 1) m.menu.add(0, 81, 1, "🔑 সব AI Studio ওয়ার্কস্পেস থেকে API key নিয়ে এজেন্ট বানান")
         m.menu.add(0, 45, 0, "🛑 সব অটো-কাজ এখনই থামান")
         m.menu.add(0, 44, 7, "🖱 অটো-ক্লিক (পপআপ বন্ধ, অনুমতি-কার্ড, পাঠানো)").apply { isCheckable = true; isChecked = clickOn() }
         if (gcTab != null) m.menu.add(0, 43, 0, "⛔ GitHub অটো-কানেক্ট এখনই থামান")
@@ -2564,6 +2651,8 @@ if(!el)return 'no';el.focus();el.dispatchEvent(new ClipboardEvent('paste',{clipb
                 14 -> cur?.let { t -> t.web.evaluateJavascript(Sites.LIMIT_DEBUG_JS) { raw ->
                     AlertDialog.Builder(this).setTitle("লিমিট শনাক্তকরণ").setMessage(Sites.unquote(raw).ifBlank { "উত্তর পাওয়া যায়নি" }).setPositiveButton("ঠিক আছে", null).show() } }
                 11 -> cur?.let { t -> makeWorkspace(t) }
+                80 -> cur?.site?.let { grabKeys(listOf(it)) }
+                81 -> grabKeys(Sites.all(this).filter { isStudio(it) }.map { it.id })
                 43 -> gcStop("GitHub অটো-কানেক্ট থামানো হলো")
                 45 -> { autoStopAll("সব অটো-কাজ থামানো হলো"); handler.removeCallbacks(gcTick); Toast.makeText(this, "চলমান সব অটো-ক্লিক/পাঠানো/কানেক্ট থামানো হলো", Toast.LENGTH_LONG).show() }
                 44 -> { val on = !clickOn(); Store.prefs(this).edit().putBoolean("auto_click", on).apply(); if (!on) autoStopAll("অটো-ক্লিক বন্ধ")
