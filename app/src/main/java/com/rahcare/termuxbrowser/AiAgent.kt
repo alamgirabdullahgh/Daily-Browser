@@ -75,6 +75,7 @@ object AiAgent {
         "1) ACT, don't interrogate. Call list_workspaces first to see every workspace (number n, name, site, assigned email, open or not, and a login-state guess: login_page / logged_in / unknown). Never ask the user which site or which email when the message or the tools already tell you; the user does not need to name sites for existing workspaces. " +
         "2) Passwords: the app already saved the user's email/password pairs securely. You only ever see emails, never passwords; never ask for or repeat a password. " +
         "3) To log in existing workspaces call login_workspaces with assignments [{workspace: n or exact name, email}]. If the user gave several emails give each workspace a DIFFERENT email, in order; if only one email, use it for all chosen workspaces. When the user says the remaining / বাকিগুলো / not-logged-in ones, choose workspaces with state login_page first, then unknown ones (if you need more), never ones with state logged_in. When the user says all / সবগুলো / প্রত্যেকটা, include all. If there are more workspaces than emails, log in as many as there are emails and say how many are left. Not-open workspaces are fine: the app opens them itself. " +
+        "3b) Google AI Studio (aistudio.google.com) workspaces: login_workspaces ALSO makes the browser fetch each one's Gemini API key automatically (it clicks Get started/Skip/Create API key by itself, checks the key and creates an API-agent workspace named after the Gmail). So for \"create N AI Studio workspaces, log in with these emails, then get the API keys\" do: create_workspace (count=N, url aistudio.google.com), then login_workspaces, and that is the whole job. If the user later only asks to (re)take API keys for already existing AI Studio workspaces, call grab_api_keys. NEVER tell the user that API keys cannot be created automatically; each key takes about 3-4 minutes, one workspace after another, so report that it has STARTED and that the new API agents will appear on the home screen. " +
         "4) After starting logins call wait(25) once or twice and list_workspaces again to verify, then report honestly (logged in, still on login page, needs the user e.g. 2-step verification / captcha). Page-state is only a guess; say so when unsure. " +
         "5) For normal questions, chat, explanations, writing, translation just answer yourself. " +
         "5b) CREATING many: if the user wants N new workspaces, call create_workspace ONCE with count=N (never loop N single calls), never pass a name, then call list_workspaces and compare the real number with N; if fewer exist, create the missing difference and report honestly. DELETING: when the user asks to delete/remove workspaces, use delete_workspaces (all=true for everything, only_site to filter) — you DO have this tool, never say you cannot. DESKTOP: set_desktop_mode toggles desktop-site for one workspace only. " +
@@ -104,6 +105,8 @@ object AiAgent {
                     JSONObject().put("type", "object").put("properties", JSONObject().put("workspace", str(ref)).put("email", str("email address"))).put("required", JSONArray(listOf("workspace", "email"))))), listOf("assignments")))
             .put(fn("create_workspace", "Create one or MANY NEW workspaces for a website and open them (only when the user wants new ones). The app names them itself (site host, later the logged-in Gmail): NEVER invent or pass a name. If the user wants N workspaces, call this ONCE with count=N, not N times.",
                 JSONObject().put("url", str("site address. If the user gave a link or named a specific page/tool, give that exact page WITH its path (Google AI Studio text-to-speech = aistudio.google.com/generate-speech); otherwise the host, e.g. gemini.google.com")).put("count", JSONObject().put("type", "integer").put("description", "how many workspaces to create, 1 to 100 (default 1)")).put("email", str("optional email (only valid with count=1)")), listOf("url")))
+            .put(fn("grab_api_keys", "For Google AI Studio workspaces: log in if needed, open the API Keys page, take (or create) the Gemini API key, verify it and create an API-agent workspace named after the Gmail. Runs in the background, about 3-4 minutes per workspace, one after another. Give workspaces to limit it, or omit to do all AI Studio workspaces.",
+                JSONObject().put("workspaces", JSONObject().put("type", "array").put("items", JSONObject().put("type", "string")).put("description", "$ref, one per item; omit for all AI Studio workspaces")), emptyList()))
             .put(fn("delete_workspaces", "PERMANENTLY delete workspaces together with their saved login/session. Use when the user asks to delete/remove/clean workspaces. Give either all=true (every workspace) or a list of workspace refs.",
                 JSONObject().put("workspaces", JSONObject().put("type", "array").put("items", JSONObject().put("type", "string")).put("description", "$ref, one per item")).put("all", JSONObject().put("type", "boolean").put("description", "true = delete every workspace")).put("only_site", str("optional: with all=true delete only workspaces whose site contains this text, e.g. aistudio.google.com")), emptyList()))
             .put(fn("set_desktop_mode", "Turn desktop-site mode on or off for ONE workspace tab only (other tabs unchanged); reloads it.",
@@ -172,10 +175,24 @@ object AiAgent {
                     if (Creds.get(act, em).isEmpty()) noPw.add(em)
                     if (s.id !in ids) { ids.add(s.id); done.add(s to em) }
                 }
-                act.runOnUiThread { m.agOpenMany(ids, true, 6000L) }
-                return JSONObject().put("started", ids.size).put("seconds_needed_approx", ids.size * 6 + 10)
+                val studioIds = ids.filter { id -> all.firstOrNull { it.id == id }?.let { AutoLogin.hostOf(it.url) == "aistudio.google.com" } == true }
+                val restIds = ids.filter { it !in studioIds }
+                act.runOnUiThread {
+                    if (studioIds.isNotEmpty()) { studioIds.forEach { AutoLogin.reset(it) }; m.grabKeys(studioIds) }
+                    if (restIds.isNotEmpty()) m.agOpenMany(restIds, true, 6000L)
+                }
+                return JSONObject().put("api_keys_auto", studioIds.size).put("note_keys", if (studioIds.isEmpty()) "" else "AI Studio: লগইনের পর key নিয়ে API এজেন্ট বানানো নিজে চলবে, প্রতিটিতে ৩-৪ মিনিট, একটার পর একটা").put("started", ids.size).put("seconds_needed_approx", ids.size * 6 + 10)
                     .put("assigned", JSONArray(done.map { it.first.name + " → " + it.second }))
                     .put("workspace_not_found", JSONArray(bad)).put("emails_without_saved_password", JSONArray(noPw.toList()))
+            }
+            "grab_api_keys" -> {
+                val refs = args.optJSONArray("workspaces") ?: JSONArray()
+                val ids = mutableListOf<String>()
+                if (refs.length() == 0) all.filter { AutoLogin.hostOf(it.url) == "aistudio.google.com" }.forEach { ids.add(it.id) }
+                else for (i in 0 until refs.length()) { val s = find(all, refs.optString(i)); if (s != null && AutoLogin.hostOf(s.url) == "aistudio.google.com") ids.add(s.id) }
+                if (ids.isEmpty()) return JSONObject().put("started", 0).put("note", "কোনো AI Studio ওয়ার্কস্পেস মেলেনি")
+                act.runOnUiThread { ids.forEach { AutoLogin.reset(it) }; m.grabKeys(ids.distinct()) }
+                return JSONObject().put("started", ids.distinct().size).put("note", "প্রতিটিতে ৩-৪ মিনিট, একটার পর একটা; শেষে নতুন API এজেন্ট হোমে আসবে")
             }
             "create_workspace" -> {
                 val n = args.optInt("count", 1).coerceIn(1, 100)

@@ -303,8 +303,18 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         return LoginPlan(pairs, pw, red)
     }
 
+    private val RE_KEYWORD = Regex("(?i)(api\\s?key|এপিআই\\s?কি|এ\\s?পি\\s?আই\\s?কি|এপিআই\\s?কী)")
+    private val RE_KEYDO = Regex("(?i)(বের|তৈরি|বানা|নাও|নিয়ে|তোল|grab|create|get|fetch|চেষ্টা)")
+    /** "এপিআই কি তৈরি/বের করো" — আগে-থেকে-থাকা AI Studio ওয়ার্কস্পেসগুলোর জন্য */
+    fun parseGrab(c: Context, text: String): List<Site>? {
+        if (text.length > 400 || !RE_KEYWORD.containsMatchIn(text) || !RE_KEYDO.containsMatchIn(text) || RE_CODEY.containsMatchIn(text)) return null
+        if (RE_MAIL.containsMatchIn(text) && RE_LOGIN.containsMatchIn(text)) return null
+        val st = Sites.all(c).filter { !ApiAgent.isApiSite(it) && hostOf(it.url) == "aistudio.google.com" }
+        return st.takeIf { it.isNotEmpty() }
+    }
+
     /** ব্রাউজার নিজে যে কাজ করে (এজেন্ট/কোডিং-এজেন্টকে নয়) */
-    fun isBrowserTask(c: Context, text: String): Boolean = parseLoginExisting(c, text) != null || parseChat(c, text) != null
+    fun isBrowserTask(c: Context, text: String): Boolean = parseLoginExisting(c, text) != null || parseGrab(c, text) != null || parseChat(c, text) != null
 
     /** পাসওয়ার্ড Keystore-এ রাখে, প্রতিটি ওয়ার্কস্পেসে আলাদা ইমেইল জোড়ে, তারপর একে একে খুলে/রিলোড করে — অটো-লগইন ইমেইল ও পাসওয়ার্ড আলাদা ঘরে বসায় */
     fun applyLogin(act: Activity, plan: LoginPlan) {
@@ -516,6 +526,23 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
             val id = o.optInt("id")
             if (o.optString("status") != "queued" || id.toString() in seen) continue
             if (onlyIds != null && id.toString() !in onlyIds) continue
+            val gs = parseGrab(act, o.optString("text"))
+            if (gs != null) {
+                seen.add(id.toString()); pref(act).edit().putStringSet("al_task_done", seen).apply()
+                val gids = gs.map { it.id }
+                act.runOnUiThread { gids.forEach { reset(it) }; (act as? MainActivity)?.grabKeys(gids) }
+                AgentBus.mutate(tok, "grab done") { dd ->
+                    val a = dd.optJSONArray("tasks") ?: return@mutate false
+                    var ch = false
+                    for (i in 0 until a.length()) {
+                        val oo = a.getJSONObject(i); if (oo.optInt("id") != id || oo.optString("status") != "queued") continue
+                        oo.put("status", "done").put("agent", "browser").put("progress", 100).put("updated", AgentBus.now()).put("note", "ব্রাউজার ${gids.size}টি AI Studio ওয়ার্কস্পেস থেকে API key নেওয়া শুরু করেছে (প্রতিটিতে ৩-৪ মিনিট)")
+                        AgentBus.ev(dd, "টাস্ক #$id: API key নেওয়া ব্রাউজারই চালাল"); ch = true
+                    }
+                    ch
+                }
+                continue
+            }
             val lp = parseLoginExisting(act, o.optString("text"))
             if (lp != null) { lhits.add(id to lp); continue }
             val p = parseChat(act, o.optString("text")) ?: continue
