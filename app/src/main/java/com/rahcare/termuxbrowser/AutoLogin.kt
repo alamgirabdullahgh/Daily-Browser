@@ -224,7 +224,10 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
             act.runOnUiThread {
                 val made = create(act, items)
                 Toast.makeText(act, "এজেন্ট কমান্ড: ${made.size}টি ওয়ার্কস্পেস তৈরি হয়েছে", Toast.LENGTH_LONG).show()
-                made.forEachIndexed { i, s -> act.window.decorView.postDelayed({ open(s) }, 4000L * (i + 1)) }
+                val withMail = made.filter { hostOf(it.url) == "aistudio.google.com" && emailOf(act, it.id).isNotBlank() }
+                val others = made.filter { it !in withMail }
+                others.forEachIndexed { i, s -> act.window.decorView.postDelayed({ open(s) }, 4000L * (i + 1)) }
+                if (withMail.isNotEmpty()) (act as? MainActivity)?.grabKeys(withMail.map { it.id })
             }
         }
         val ids = todo.map { it.optString("id") }.toSet()
@@ -309,9 +312,19 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         plan.pairs.forEach { (s, em) -> setEmail(act, s.id, em) }
         val m = act as? MainActivity ?: return
         val ids = plan.pairs.map { it.first.id }
+        val studio = plan.pairs.map { it.first }.filter { hostOf(it.url) == "aistudio.google.com" }.map { it.id }
         act.runOnUiThread {
-            Toast.makeText(act, "${ids.size}টি ওয়ার্কস্পেসে লগইন শুরু — একটা করে খুলবে (প্রায় ${ids.size * 8} সেকেন্ড)", Toast.LENGTH_LONG).show()
-            m.agOpenMany(ids, true, 8000L)
+            if (studio.isNotEmpty()) {
+                // AI Studio: লগইন + API key নেওয়া একসাথে — /apikey খুললে লগইন না থাকলে গুগল-লগইনে যায়, অটো-লগইন ইমেইল/পাসওয়ার্ড বসায়, ফিরে এসে key ধরে এজেন্ট বানায়
+                studio.forEach { reset(it) }
+                Toast.makeText(act, "${studio.size}টি AI Studio ওয়ার্কস্পেস: লগইন ও API key নেওয়া একটার পর একটা চলবে", Toast.LENGTH_LONG).show()
+                m.grabKeys(studio)
+                val rest = ids.filter { it !in studio }
+                if (rest.isNotEmpty()) m.agOpenMany(rest, true, 8000L)
+            } else {
+                Toast.makeText(act, "${ids.size}টি ওয়ার্কস্পেসে লগইন শুরু — একটা করে খুলবে (প্রায় ${ids.size * 8} সেকেন্ড)", Toast.LENGTH_LONG).show()
+                m.agOpenMany(ids, true, 8000L)
+            }
         }
     }
 
@@ -533,7 +546,10 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
             act.runOnUiThread {
                 val made = create(act, p.items)
                 Toast.makeText(act, "হাব-কমান্ড: ${made.size}টি ওয়ার্কস্পেস তৈরি — একে একে খুলে লগইন হবে" + (if (p.savedPw) "\nপাসওয়ার্ড ফোনে সংরক্ষিত; GitHub ইতিহাসে থাকতে পারে — ভবিষ্যতে মেনুতে দিন" else ""), Toast.LENGTH_LONG).show()
-                made.forEachIndexed { i, s -> act.window.decorView.postDelayed({ open(s) }, 4000L * (i + 1)) }
+                val withMail = made.filter { hostOf(it.url) == "aistudio.google.com" && emailOf(act, it.id).isNotBlank() }
+                val others = made.filter { it !in withMail }
+                others.forEachIndexed { i, s -> act.window.decorView.postDelayed({ open(s) }, 4000L * (i + 1)) }
+                if (withMail.isNotEmpty()) (act as? MainActivity)?.grabKeys(withMail.map { it.id })
             }
         }
         if (hits.isEmpty()) return
