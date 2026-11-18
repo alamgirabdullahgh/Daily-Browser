@@ -2506,43 +2506,45 @@ var h=location.hostname,p=location.pathname;
 if(!/(^|\.)google\.com$/.test(h))return 'other';
 function vis(e){var r=e.getBoundingClientRect();if(r.width<=0||r.height<=0)return false;var s=getComputedStyle(e);return s.visibility!=='hidden'&&s.display!=='none'}
 function tx(e){return ((e.innerText||e.textContent||'')+'').replace(/\s+/g,' ').trim()||((e.getAttribute('aria-label')||'')+'').trim()}
+function R(a,e){try{var o={a:a,b:((document.body&&document.body.innerText)||'').replace(/\s+/g,' ').slice(0,90)};if(e){var r=e.getBoundingClientRect(),v=window.visualViewport||{};o.x=r.left+r.width/2;o.y=r.top+r.height/2;o.vx=v.offsetLeft||0;o.vy=v.offsetTop||0}return JSON.stringify(o)}catch(x){return a}}
 function clk(b){try{var o={bubbles:true,cancelable:true,view:window};b.dispatchEvent(new MouseEvent('mousedown',o));b.dispatchEvent(new MouseEvent('mouseup',o))}catch(e){}try{b.click()}catch(e){}}
 function find(res,sel){var l=document.querySelectorAll(sel||'button,[role=button],a,[role=option],[role=menuitem],[tabindex],div,span');for(var k=0;k<res.length;k++){for(var i=0;i<l.length;i++){var e=l[i];if(e.disabled||!vis(e))continue;var t=tx(e);if(t.length<60&&res[k].test(t))return e}}return null}
 var W=window.__gk=window.__gk||{l:0,cr:0};
 var sk=find([/^skip${'$'}/i,/^not now${'$'}/i,/^no thanks${'$'}/i,/^maybe later${'$'}/i]);
-if(sk){clk(sk);return 'skip'}
+if(sk){clk(sk);return R('skip',sk)}
 if(h==='accounts.google.com')return 'acc';
 if(h!=='aistudio.google.com')return 'wait';
 if(/I acknowledge that I am at least 18/i.test((document.body&&document.body.innerText)||'')){
 var cbs=[].slice.call(document.querySelectorAll('input[type=checkbox],[role=checkbox]'));
 var f0=cbs[0];
 if(f0){var on=f0.checked===true||f0.getAttribute('aria-checked')==='true';
-if(!on&&(W.t||0)<4){W.t=(W.t||0)+1;clk(f0.closest('label,mat-checkbox')||f0);return 'tick'}}
-else if(!W.t2){var ls=document.querySelectorAll('label,span,div,p');for(var q=0;q<ls.length;q++){var x=ls[q];if(vis(x)&&/^\*?\s*I acknowledge that I am at least 18/i.test(tx(x))&&tx(x).length<250){W.t2=1;clk(x);return 'tick2'}}}
+if(!on&&(W.t||0)<4){W.t=(W.t||0)+1;clk(f0.closest('label,mat-checkbox')||f0);return R('tick',f0.closest('label,mat-checkbox')||f0)}}
+else if(!W.t2){var ls=document.querySelectorAll('label,span,div,p');for(var q=0;q<ls.length;q++){var x=ls[q];if(vis(x)&&/^\*?\s*I acknowledge that I am at least 18/i.test(tx(x))&&tx(x).length<250){W.t2=1;clk(x);return R('tick2',x)}}}
 var ct=find([/^continue/i]);
-if(ct){clk(ct);return 'continue'}
+if(ct){clk(ct);return R('continue',ct)}
 return 'terms-wait'}
 var ok=find([/^(got it|accept|i agree|agree|agree and continue)${'$'}/i]);
-if(ok){clk(ok);return 'ok'}
-if(p.indexOf('/welcome')===0){var gs=find([/get started/i]);if(gs){clk(gs);return 'start'}return 'welcome-wait'}
+if(ok){clk(ok);return R('ok',ok)}
+if(p.indexOf('/welcome')===0){var gs=find([/get started/i]);if(gs){clk(gs);return R('start',gs)}return 'welcome-wait'}
 if(p.indexOf('/apikey')!==0){
 var n=0;try{n=parseInt(sessionStorage.getItem('gk_nav')||'0')||0}catch(e){}
 if(n<3){try{sessionStorage.setItem('gk_nav',''+(n+1))}catch(e){}location.href='https://aistudio.google.com/apikey';return 'nav'}
 var key=find([/api key/i],'button,[role=button],a');
-if(key){clk(key);return 'keyicon'}
+if(key){clk(key);return R('keyicon',key)}
 var bs=[].slice.call(document.querySelectorAll('button,[role=button]')).filter(vis).sort(function(a,b){var x=a.getBoundingClientRect(),y=b.getBoundingClientRect();return (x.top+x.left)-(y.top+y.left)});
-if(bs[0]){clk(bs[0]);return 'menu'}
+if(bs[0]){clk(bs[0]);return R('menu',bs[0])}
 return 'nomenu'}
 var dlg=document.querySelector('[role=dialog],mat-dialog-container,.mat-mdc-dialog-container');
-if(dlg){var op=find([/./],'[role=option]');if(op){clk(op);return 'opt'}
-var cb=dlg.querySelector('[role=combobox],mat-select');if(cb&&/select|choose/i.test(tx(cb))&&!W.cb){W.cb=1;clk(cb);return 'combo'}}
+if(dlg){var op=find([/./],'[role=option]');if(op){clk(op);return R('opt',op)}
+var cb=dlg.querySelector('[role=combobox],mat-select');if(cb&&/select|choose/i.test(tx(cb))&&!W.cb){W.cb=1;clk(cb);return R('combo',cb)}}
 var cr=find([/^create key${'$'}/i,/create api key in new project/i]);
-if(cr&&W.cr<10){W.cr++;clk(cr);return 'create-confirm'}
+if(cr&&W.cr<10){W.cr++;clk(cr);return R('create-confirm',cr)}
+var cp=find([/copy/i],'button,[role=button]');if(cp&&(W.cp||0)<3){W.cp=(W.cp||0)+1;clk(cp);return R('copy',cp)}
 var link=find([/^\.\.\.[A-Za-z0-9_-]{3,6}${'$'}/]);
-if(link&&W.l<3){W.l++;clk(link);return 'open-key'}
+if(link&&W.l<3){W.l++;clk(link);return R('open-key',link)}
 var c2=find([/^create api key${'$'}/i,/create api key/i]);
-if(c2&&W.cr<10){W.cr++;clk(c2);return 'create'}
-return 'idle'}catch(e){return 'err'}})()"""
+if(c2&&W.cr<10){W.cr++;clk(c2);return R('create',c2)}
+return R('idle',null)}catch(e){return 'err'}})()"""
 
     fun grabKeys(ids: List<String>) {
         ids.forEach { if (!grabQ.contains(it)) grabQ.add(it) }
@@ -2561,6 +2563,9 @@ return 'idle'}catch(e){return 'err'}})()"""
         grabPoll(site, t, 0)
     }
 
+    private val grabLast = HashMap<String, String>()
+    private val grabRep = HashMap<String, Int>()
+
     private fun grabPoll(site: Site, t: Tab, n: Int) {
         if (n > 90) {
             Toast.makeText(this, "“${site.name}”: key পাওয়া গেল না — লগইন/পাতা দেখে আবার চেষ্টা করুন", Toast.LENGTH_LONG).show()
@@ -2573,12 +2578,51 @@ return 'idle'}catch(e){return 'err'}})()"""
                     if (found.isNotEmpty()) {
                         grabTry(site, found)
                     } else {
-                        t.web.evaluateJavascript(GRAB_STEP_JS) { _ -> }
-                        grabPoll(site, t, n + 1)
+                        t.web.evaluateJavascript(GRAB_STEP_JS) { r2 ->
+                            try { grabAct(site, t, Sites.unquote(r2 ?: "")) } catch (_: Exception) {}
+                            grabPoll(site, t, n + 1)
+                        }
                     }
                 }
             } catch (_: Exception) { grabNext() }
         }, 3000L)
+    }
+
+    /** ধাপের ফল দেখায়; একই ধাপ ২য় বার এলে (জেএস-ক্লিকে কাজ হয়নি) আসল স্পর্শ পাঠায়; কপি-আইকনে চেপে ক্লিপবোর্ড থেকে key পড়ে */
+    private fun grabAct(site: Site, t: Tab, r: String) {
+        var a = r; var o: JSONObject? = null
+        if (r.startsWith("{")) { try { o = JSONObject(r); a = o.optString("a") } catch (_: Exception) {} }
+        val k = site.id
+        val rep = if (grabLast[k] == a) (grabRep[k] ?: 0) + 1 else 0
+        grabLast[k] = a; grabRep[k] = rep
+        if (a.isEmpty()) return
+        if (rep == 0 || (a == "idle" && rep % 5 == 4)) {
+            val b = if (a == "idle") " — পাতা: " + (o?.optString("b") ?: "") else ""
+            Toast.makeText(this, "“${site.name}”: ধাপ $a$b", Toast.LENGTH_SHORT).show()
+        }
+        val tapActs = setOf("open-key", "create", "create-confirm", "opt", "combo", "copy", "continue", "tick", "tick2", "start", "skip", "ok", "keyicon", "menu")
+        if (o == null || a !in tapActs || !o.has("x")) return
+        if (!(rep >= 1 || a == "copy")) return
+        val web = t.web
+        @Suppress("DEPRECATION") val sc = web.scale
+        val px = ((o.optDouble("x") - o.optDouble("vx", 0.0)) * sc).toFloat()
+        val py = ((o.optDouble("y") - o.optDouble("vy", 0.0)) * sc).toFloat()
+        val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        if (a == "copy") try { cm.setPrimaryClip(android.content.ClipData.newPlainText("", "")) } catch (_: Exception) {}
+        val t0 = android.os.SystemClock.uptimeMillis()
+        val d = android.view.MotionEvent.obtain(t0, t0, android.view.MotionEvent.ACTION_DOWN, px, py, 0)
+        web.dispatchTouchEvent(d)
+        handler.postDelayed({
+            val u = android.view.MotionEvent.obtain(t0, android.os.SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, px, py, 0)
+            web.dispatchTouchEvent(u); d.recycle(); u.recycle()
+        }, 70L)
+        if (a == "copy") handler.postDelayed({
+            try {
+                val txt = cm.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString() ?: ""
+                val keys = Regex("AIza[0-9A-Za-z_\\-]{35}").findAll(txt).map { it.value }.filter { it !in grabBad }.toList()
+                if (keys.isNotEmpty()) grabTry(site, keys)
+            } catch (_: Exception) {}
+        }, 900L)
     }
 
     /** পাওয়া প্রার্থী key-গুলো একে একে যাচাই (পাতায় Google-এর নিজের অন্য AIza… মানও থাকতে পারে); প্রথম চালু key-টাই নেয় */
