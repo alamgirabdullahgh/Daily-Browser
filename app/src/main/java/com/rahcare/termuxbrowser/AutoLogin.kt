@@ -244,7 +244,8 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
     private val RE_LOGIN = Regex("(?i)(লগইন|লগ\\s?ইন|login|log\\s?in|sign\\s?in)")
     private val RE_TRIGGER = Regex("(?i)(ওয়ার্ক\\s?স্পেস|workspace|work\\s?space)")
     private val KNOWN = mapOf("gemini" to "gemini.google.com", "জেমিনি" to "gemini.google.com", "chatgpt" to "chatgpt.com", "claude" to "claude.ai",
-        "ক্লদ" to "claude.ai", "grok" to "grok.com", "perplexity" to "perplexity.ai", "deepseek" to "chat.deepseek.com", "github" to "github.com")
+        "ক্লদ" to "claude.ai", "grok" to "grok.com", "perplexity" to "perplexity.ai", "deepseek" to "chat.deepseek.com", "github" to "github.com",
+        "ai studio" to "aistudio.google.com", "aistudio" to "aistudio.google.com", "এআই স্টুডিও" to "aistudio.google.com", "এ আই স্টুডিও" to "aistudio.google.com", "এ.আই. স্টুডিও" to "aistudio.google.com")
 
     private val BN_DIGITS = "০১২৩৪৫৬৭৮৯"
     private val WORDS = mapOf("এক" to 1, "দুই" to 2, "দুটি" to 2, "তিন" to 3, "চার" to 4, "পাঁচ" to 5, "ছয়" to 6, "সাত" to 7, "আট" to 8, "নয়" to 9, "দশ" to 10,
@@ -259,6 +260,59 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         val digits = w.map { ch -> val i = BN_DIGITS.indexOf(ch); if (i >= 0) ('0' + i) else ch }.joinToString("")
         digits.toIntOrNull()?.let { return it.coerceIn(0, 100) }
         return WORDS[w] ?: 0
+    }
+
+    // ───────────── আগে-থেকে-থাকা ওয়ার্কস্পেসে "এই ইমেইল-পাসওয়ার্ড দিয়ে লগইন কর" (লিংক ছাড়া) ─────────────
+    private val RE_STUDIO = Regex("(?i)(ai\\s?studio|এ\\s?আই\\s?স্টুডিও|এআই\\s?স্টুডিও|aistudio)")
+    private val RE_MAKE = Regex("(?i)(তৈরি|বানা|create|make|নতুন|\\bnew\\b)")
+    private val RE_CODEY = Regex("(?i)(repo|github\\.com/|commit|কমিট|কোড|\\bcode\\b|\\bpush\\b|রিপো)")
+    private val RE_PAIR = Regex("([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,})\\s*[:|,;/]\\s*(\\S+)")
+
+    class LoginPlan(val pairs: List<Pair<Site, String>>, val pw: Map<String, String>, val redacted: String)
+
+    /** null = এটা এই ধরনের কাজ নয়। পাসওয়ার্ড/ওয়ার্কস্পেস কিছুই বদলায় না (বারবার ডাকা নিরাপদ) */
+    fun parseLoginExisting(c: Context, text: String): LoginPlan? {
+        if (text.length > 600 || !RE_LOGIN.containsMatchIn(text) || RE_MAKE.containsMatchIn(text) || RE_CODEY.containsMatchIn(text)) return null
+        val ms = RE_MAIL.findAll(text).map { it.value }.distinct().toList()
+        if (ms.isEmpty()) return null
+        val studio = RE_STUDIO.containsMatchIn(text)
+        val hasPw = RE_PW.containsMatchIn(text) || RE_PAIR.containsMatchIn(text)
+        if (!studio && !RE_TRIGGER.containsMatchIn(text) && !hasPw) return null
+        val all = Sites.all(c).filter { !ApiAgent.isApiSite(it) }
+        val pool0 = if (studio) all.filter { hostOf(it.url) == "aistudio.google.com" }
+                    else all.filter { hostOf(it.url).endsWith("google.com") }
+        if (pool0.isEmpty()) return null
+        val blank = pool0.filter { emailOf(c, it.id).isBlank() }
+        // একটাই ইমেইল হলে ফাঁকা (ইমেইল-ছাড়া) ওয়ার্কস্পেসগুলো, না থাকলে সব; একাধিক হলে ফাঁকাগুলো আগে, ইমেইলের সংখ্যা পর্যন্ত, একটা করে আলাদা
+        val order = blank + pool0.filter { it !in blank }
+        val chosen = if (ms.size > 1) order.take(ms.size) else if (blank.isNotEmpty()) blank else pool0
+        val pairs = chosen.mapIndexed { i, s -> s to (if (ms.size > 1) ms[i] else ms[0]) }
+        val pw = mutableMapOf<String, String>()
+        for ((k, v) in pwByEmail(text)) pw[k] = v
+        for (m in RE_PAIR.findAll(text)) {
+            val v = m.groupValues[2].trim('.', ',', '।')
+            if (v.isNotEmpty() && v != "***" && v.none { it in '\u0980'..'\u09FF' }) pw.putIfAbsent(m.groupValues[1].lowercase(), v)
+        }
+        val g = chatPw(text)
+        if (g.isNotEmpty()) for (e in ms) pw.putIfAbsent(e.lowercase(), g)
+        var red = stripPw(text)
+        for (m in RE_PAIR.findAll(red).toList().reversed()) red = red.replaceRange(m.groups[2]!!.range, "***")
+        return LoginPlan(pairs, pw, red)
+    }
+
+    /** ব্রাউজার নিজে যে কাজ করে (এজেন্ট/কোডিং-এজেন্টকে নয়) */
+    fun isBrowserTask(c: Context, text: String): Boolean = parseLoginExisting(c, text) != null || parseChat(c, text) != null
+
+    /** পাসওয়ার্ড Keystore-এ রাখে, প্রতিটি ওয়ার্কস্পেসে আলাদা ইমেইল জোড়ে, তারপর একে একে খুলে/রিলোড করে — অটো-লগইন ইমেইল ও পাসওয়ার্ড আলাদা ঘরে বসায় */
+    fun applyLogin(act: Activity, plan: LoginPlan) {
+        for ((em, pw) in plan.pw) if (pw.isNotEmpty()) Creds.put(act, em, pw)
+        plan.pairs.forEach { (s, em) -> setEmail(act, s.id, em) }
+        val m = act as? MainActivity ?: return
+        val ids = plan.pairs.map { it.first.id }
+        act.runOnUiThread {
+            Toast.makeText(act, "${ids.size}টি ওয়ার্কস্পেসে লগইন শুরু — একটা করে খুলবে (প্রায় ${ids.size * 8} সেকেন্ড)", Toast.LENGTH_LONG).show()
+            m.agOpenMany(ids, true, 8000L)
+        }
     }
 
     class Parsed(val items: List<Item>, val redacted: String, val savedPw: Boolean, val note: String)
@@ -283,7 +337,7 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
                 if (urls.size == 1) name = scan.substring(0, u.range.first).trim().trimEnd(':', '-', '=', '|', '–').trim().takeIf { it.length in 1..30 && !RE_TRIGGER.containsMatchIn(it) } ?: ""
                 out.add(Item(name, u.value, em, p))
             }
-            if (urls.isEmpty()) for ((k, v) in KNOWN) if (scan.contains(k, ignoreCase = true) && !RE_TRIGGER.matches(scan.trim())) out.add(Item(k, v, em, p))
+            if (urls.isEmpty()) { val usedH = HashSet<String>(); for ((k, v) in KNOWN) if (scan.contains(k, ignoreCase = true) && !RE_TRIGGER.matches(scan.trim()) && usedH.add(v)) out.add(Item(k, v, em, p)) }
         }
         val uniq0 = out.distinctBy { hostOf(it.url) + "|" + it.name + "|" + it.email }
         if (uniq0.isEmpty()) return null
@@ -443,13 +497,36 @@ return 'started'}catch(x){return 'err'}})(${JSONObject.quote(email)},${JSONObjec
         val arr = d.optJSONArray("tasks") ?: return
         val seen = pref(act).getStringSet("al_task_done", emptySet())!!.toMutableSet()
         val hits = mutableListOf<Pair<Int, Parsed>>()
+        val lhits = mutableListOf<Pair<Int, LoginPlan>>()
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
             val id = o.optInt("id")
             if (o.optString("status") != "queued" || id.toString() in seen) continue
             if (onlyIds != null && id.toString() !in onlyIds) continue
+            val lp = parseLoginExisting(act, o.optString("text"))
+            if (lp != null) { lhits.add(id to lp); continue }
             val p = parseChat(act, o.optString("text")) ?: continue
             hits.add(id to p)
+        }
+        for ((id, lp) in lhits) {
+            seen.add(id.toString()); pref(act).edit().putStringSet("al_task_done", seen).apply()
+            applyLogin(act, lp)
+        }
+        if (lhits.isNotEmpty()) {
+            val byL = lhits.toMap()
+            AgentBus.mutate(tok, "ws login done") { dd ->
+                val a = dd.optJSONArray("tasks") ?: return@mutate false
+                var ch = false
+                for (i in 0 until a.length()) {
+                    val o = a.getJSONObject(i); val lp = byL[o.optInt("id")] ?: continue
+                    if (o.optString("status") != "queued") continue
+                    o.put("status", "done").put("agent", "browser").put("progress", 100).put("updated", AgentBus.now())
+                        .put("text", lp.redacted).put("note", "ব্রাউজার নিজে ${lp.pairs.size}টি ওয়ার্কস্পেসে লগইন শুরু করেছে: " + lp.pairs.joinToString { it.first.name + " → " + it.second })
+                    AgentBus.ev(dd, "টাস্ক #${o.optInt("id")}: লগইন ব্রাউজারই চালাল (${lp.pairs.size}টি)")
+                    ch = true
+                }
+                ch
+            }
         }
         for ((id, p) in hits) {
             seen.add(id.toString()); pref(act).edit().putStringSet("al_task_done", seen).apply()

@@ -1929,7 +1929,7 @@ class MainActivity : Activity() {
                 var pickX: Triple<Tab, Site, String>? = null
                 for (tk0 in AgentBus.queuedAll(d)) {
                     val id0 = tk0.optInt("id")
-                    if (AutoLogin.parseChat(this, tk0.optString("text")) != null) continue   // ব্রাউজারের কাজ — এজেন্টকে নয়
+                    if (AutoLogin.isBrowserTask(this, tk0.optString("text"))) continue   // ব্রাউজারের কাজ — এজেন্টকে নয়
                     if (AutoLogin.aiPending(this, id0)) continue   // AI এখনো কাজটা দেখেনি — আগে সে ঠিক করুক
                     // একই কাজ ১০ মিনিটের মধ্যে আবার নয়; একই কাজে সর্বোচ্চ ৩ বার (এজেন্ট না ধরলে অনন্ত পাঠানো এড়াতে)
                     if (now - (agSent[id0] ?: 0L) < 600000L || (agTries[id0] ?: 0) >= 3) return@Thread
