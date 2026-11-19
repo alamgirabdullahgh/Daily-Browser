@@ -72,7 +72,9 @@ object Sites {
     fun tokenLine(token: String): String = if (token.isBlank()) "" else "\n[GitHub টোকেন (আমার নিজের, এই কাজের জন্যই): $token — রিপো clone/pull/push করতে এটা ব্যবহার করো (যেমন https://x-access-token:টোকেন@github.com/মালিক/রিপো.git)। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে কখনো লিখবে না, রিপোর remote URL-এও রেখে দেবে না। কাজ শেষ হলে আমাকে জানাবে যেন আমি টোকেনটা বাতিল করি।]"
     fun loginLine(cred: Pair<String, String>?): String = if (cred == null) "" else "\n[GitHub লগইন (আমার নিজের, এই কাজের জন্যই): ইমেইল: ${cred.first} / পাসওয়ার্ড: ${cred.second} — শুধু GitHub বা Claude-এ লগইন দরকার হলে ব্যবহার করো। এটা গোপন: কোনো ফাইল, কমিট, লগ বা উত্তরে কখনো লিখবে না।]"
     fun secretsBlock(c: Context): String = tokenLine(Secret.get(c)) + loginLine(GitCred.get(c))
-    private fun stripSecretLines(chat: String): String = chat.lines().filterNot { val t = it.trimStart(); t.startsWith("[GitHub টোকেন") || t.startsWith("[GitHub লগইন") }.joinToString("\n").trim()
+    /** ওয়ার্কস্পেস সুইচে নতুন সেশন যেন কাজ হারিয়ে না ফেলে: গিটই স্মৃতি। রিপোতে CLAUDE.md / tools/handoff থাকলে সেটাই আসল নির্দেশ */
+    const val RULES_LINE = "\n[কাজের নিয়ম (এই কাজ চালানোর সময় মানবে): ১) রিপো ক্লোন করে সবার আগে মূল ফোল্ডারের CLAUDE.md পড়ো (থাকলে) এবং tools/handoff/start.sh চালিয়ে কাজের খাতা ও অসমাপ্ত কাজ (wip ব্রাঞ্চ) নামাও; আগে কী কতটুকু হয়েছে সেটা ওখান থেকে বুঝে নাও, আমাকে আবার বর্ণনা করতে বোলো না। ২) প্রতিটি ধাপ শেষে tools/handoff/log.sh চালিয়ে খাতায় লেখো ও অসমাপ্ত কাজ জমা রাখো (ওই ফাইল না থাকলে অন্তত wip নামে ব্রাঞ্চে কমিট+পুশ করো)। ৩) কাজ কনটেইনারে অকমিট ফেলে থামবে না; শেষ হলে যাচাই করে main-এ কমিট ও পুশ করো।]"
+    private fun stripSecretLines(chat: String): String = chat.lines().filterNot { val t = it.trimStart(); t.startsWith("[GitHub টোকেন") || t.startsWith("[GitHub লগইন") || t.startsWith("[কাজের নিয়ম") }.joinToString("\n").trim()
 
     /** প্রতিটি ওয়ার্কস্পেসের নিজস্ব WebView-প্রোফাইলের নাম (কুকি, লগইন, স্টোরেজ আলাদা থাকে) */
     fun profile(id: String) = "p_" + id.filter { it.isLetterOrDigit() || it == '_' }
@@ -190,7 +192,8 @@ return ''}catch(e){return ''}})()"""
             else -> ""
         }
         val body = stripSecretLines(chat).ifBlank { "[আগের চ্যাটের লেখা কপি করা যায়নি — আমার কাছ থেকে জেনে নাও কাজ কোথায় থেমেছিল।]" }
-        return "$head$gh${tokenLine(token)}${loginLine(cred)}\n\n$body"
+        val rules = if (repo.isNotBlank() || cands.isNotEmpty() || token.isNotBlank()) RULES_LINE else ""
+        return "$head$gh$rules${tokenLine(token)}${loginLine(cred)}\n\n$body"
     }
 
     /** আগের ট্যাবটা Claude Code চ্যাট (ঠিকানার পথ /code দিয়ে শুরু) এবং গন্তব্য একই সাইটের (যেমন claude.ai) অন্য ওয়ার্কস্পেস কিনা */
