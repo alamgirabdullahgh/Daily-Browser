@@ -71,23 +71,33 @@ var m=s.match(re);return m?s.slice(Math.max(0,m.index-20),m.index+160):'';
 
     /** claude.ai-এর GitHub Integration পাতায়: কানেক্ট আছে কিনা দেখে, না থাকলে Connect, পরে Install on GitHub চাপে */
     fun claudeJs(allowInstall: Boolean) = """(function(){try{
-/* নিরাপত্তা: শুধু GitHub কানেক্টর পাতায় চলে। Plugins/অন্য পাতায় (যেখানে অন্য জিনিসের Install/Connect বোতাম থাকে) কিছুই চাপে না */
-var PP=location.pathname;if(PP.indexOf('/customize/connectors')!==0||PP.indexOf('github')<0)return 'wrongpage';
+/* নিরাপত্তা: শুধু GitHub-এর কানেক্টর/প্লাগিন পাতায় চলে। পাতার নাম বদলায় (Connectors → Plugins), ঠিকানাও UUID হয়ে যায়; তাই ঠিকানার 'github' শব্দ নয়, পাতার ভেতরের লেখা দেখে চিনি:
+   শিরোনাম (h1/h2) GitHub, অথবা পাতায় "Claude GitHub App"/"GitHub account" লেখা। অন্য প্লাগিনের পাতায় বা তালিকায় কিছুই চাপে না */
+var PP=location.pathname;if(PP.indexOf('/customize')!==0)return 'wrongpage';
+var BT=(document.body.innerText||'').slice(0,8000),HH='';try{var hs=document.querySelectorAll('h1,h2');for(var hi=0;hi<hs.length&&hi<3;hi++)HH+=' '+(hs[hi].innerText||'')}catch(e){}
+if(!(/^\s*github\b/i.test(HH.trim())||/claude github app|github account (connected|not connected)/i.test(BT)))return 'wrongpage';
 function vis(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0}
-function tx(e){return(e.innerText||e.textContent||'').replace(/\s+/g,' ').trim()}
+function tx(e){return(e.innerText||e.textContent||'').replace(/\s+/g,' ').replace(/[\s\u2197\u2192\u203a\u00bb]+${'$'}/,'').trim()}
+function dsb(e){return e.disabled||e.getAttribute('aria-disabled')==='true'}
+function sv(e){try{e.scrollIntoView({block:'center'})}catch(x){}}
 /* Settings অনেক সময় মডাল (role=dialog) হয়ে চ্যাটের উপরে আসে, <main>-এর বাইরে; তাই আগে dialog, পরে main, কিছু না পেলে পুরো body */
-function scan(r){var b=[].slice.call(r.querySelectorAll('button,[role=button]')).filter(vis);
- function by(re){for(var i=0;i<b.length;i++){var t=tx(b[i]);if(t.length<40&&re.test(t)&&!b[i].disabled)return b[i]}return null}
+function scan(r){var b=[].slice.call(r.querySelectorAll('button,[role=button],a[href]')).filter(vis);
+ function by(re){for(var i=0;i<b.length;i++){var t=tx(b[i]);if(t.length<40&&re.test(t)&&!dsb(b[i]))return b[i]}return null}
  return {dis:by(/^(disconnect|disconnect github)${'$'}/i),conn:by(/^(connect|connect github|install github account|connect account)${'$'}/i),ins:by(/^(install on github|install github app|install claude github app|install)${'$'}/i)}}
 var root=document.querySelector('[role="dialog"]')||document.querySelector('main')||document.body;
 var sc=scan(root);if(!sc.dis&&!sc.conn&&!sc.ins&&root!==document.body)sc=scan(document.body);
 var dis=sc.dis,conn=sc.conn,ins=sc.ins;
-if(conn){conn.click();return 'clicked:Connect'}
+if(conn){sv(conn);conn.click();return 'clicked:Connect'}
 if(dis&&ins&&$allowInstall){
  /* Install on GitHub নতুন উইন্ডো খোলে; অটো-কানেক্ট একই ট্যাবে চলে, তাই ক্লিকের ঠিক আগে window.open-কে এই ট্যাবেই নেভিগেট করাই */
  try{var oo=window.open;window.open=function(u){try{if(u)location.href=String(u)}catch(e){}return null};setTimeout(function(){try{window.open=oo}catch(e){}},20000)}catch(e){}
  try{if(ins.tagName==='A')ins.removeAttribute('target')}catch(e){}
- ins.click();return 'clicked:Install'}
+ sv(ins);ins.click();return 'clicked:Install'}
+if(dis&&$allowInstall&&!ins){
+ /* Install নিচের কার্ডে থাকে; আগে নিচে স্ক্রল করে ৩ টিক (~৯ সেকেন্ড) খুঁজি, তারপর 'connected' ধরি */
+ window.__gcN=(window.__gcN||0)+1;
+ try{[].slice.call(document.querySelectorAll('main,div,section')).forEach(function(e){if(e.scrollHeight>e.clientHeight+40&&/(auto|scroll)/.test(getComputedStyle(e).overflowY))e.scrollTop=e.scrollHeight});window.scrollTo(0,document.body.scrollHeight)}catch(e){}
+ if(window.__gcN<4)return 'waiting'}
 if(dis)return 'connected';
 return 'waiting'}catch(x){return 'err'}})()"""
 

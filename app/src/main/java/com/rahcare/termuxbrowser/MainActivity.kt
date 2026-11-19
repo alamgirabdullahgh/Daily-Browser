@@ -1778,7 +1778,8 @@ class MainActivity : Activity() {
                         }
                     }
                     host == "claude.ai" || host == "www.claude.ai" -> {
-                        if (!path.startsWith("/customize/connectors") || !path.contains("github")) {
+                        // পাতার নাম/ঠিকানা বদলায় (connectors/github ↔ plugins/UUID): /customize-এর যেকোনো পাতায় JS ভেতরের লেখা দেখে GitHub চিনে নেয়
+                        if (!path.startsWith("/customize")) {
                             val nw = System.currentTimeMillis()
                             // Claude পাতা বদলালে (যেমন Plugins-এ পাঠিয়ে দিলে) অনন্ত রিলোড নয়: সর্বোচ্চ ২ বার ফের চেষ্টা, তারপর থেমে আপনাকে জানায়
                             if (nw - gcStartAt > 8000L && nw - gcLastLoad > 12000L) {
@@ -1788,7 +1789,13 @@ class MainActivity : Activity() {
                         }
                         else t.web.evaluateJavascript(GitConnect.claudeJs(!gcRepoDone && gcInstallClicks < 3)) { raw ->
                             val r = Sites.unquote(raw)
-                            if (r == "wrongpage" && ++gcWrong > 3) { gcFinish(t, false, "ভুল পাতায় আছি — অটো-কানেক্ট থামানো হলো, হাতে করুন"); return@evaluateJavascript }
+                            if (r == "wrongpage") {
+                                // GitHub-এর পাতা নয় (যেমন Plugins-এর তালিকা): GitHub কানেক্টর ঠিকানায় যাই; তবু না মিললে থামি
+                                if (++gcWrong > 4) { gcFinish(t, false, "ভুল পাতায় আছি — অটো-কানেক্ট থামানো হলো, হাতে করুন"); return@evaluateJavascript }
+                                val nw2 = System.currentTimeMillis()
+                                if (nw2 - gcLastLoad > 6000L) { gcLastLoad = nw2; t.web.loadUrl(if (gcWrong % 2 == 1) GitConnect.CONNECTORS else GitConnect.CONNECTORS_ALT) }
+                                return@evaluateJavascript
+                            }
                             if (r == "clicked:Install") { gcInstalled = true; gcInstallClicks++ }
                             if (r == "clicked:Connect" && ++gcConnectClicks > 4) gcFinish(t, false, "GitHub Connect বারবার চেপেও হয়নি — হাতে করুন")
                             else if (r == "connected") gcFinish(t, true, "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি")
