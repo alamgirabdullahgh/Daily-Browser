@@ -320,6 +320,7 @@ class VoiceBridge(private val act: Activity, private val ok: () -> Boolean, priv
     /** সরাসরি প্রশ্ন (GitHub বাস না ঘুরে)। অনলাইনে Gemini, নইলে/ব্যর্থ হলে অফলাইন মস্তিষ্ক। উত্তর onVoice("answer"|"handoff"|"ai_err") */
     @JavascriptInterface fun ask(text: String) {
         act.runOnUiThread { if (!ok()) return@runOnUiThread
+            Macro.command(act, text)?.let { r -> sink("mode", "offline"); sink("answer", r); return@runOnUiThread }   // "চালাও <কাজের নাম>"
             Thread {
                 var type = "answer"; var body = ""; var mode = "online"
                 try {

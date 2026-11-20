@@ -85,6 +85,10 @@ class MainActivity : Activity() {
     private var updTxt = ""
     private lateinit var banner: TextView
     private lateinit var swipe: androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    private val macroHost = object : Macro.Host {
+        override fun web(): WebView? = cur?.takeIf { !it.url.startsWith(AGENT) && !it.isHome }?.web
+        override fun open(url: String): WebView? = try { newTab(url).web } catch (_: Exception) { null }
+    }
     private var fileCb: ValueCallback<Array<Uri>>? = null     // ওয়েবসাইটের "ফাইল বাছুন" অনুরোধ
     private var pendingWebPerm: PermissionRequest? = null     // ক্যামেরা/মাইকের অনুরোধ (Android অনুমতির অপেক্ষায়)
 
@@ -331,6 +335,7 @@ class MainActivity : Activity() {
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(rc: Int, res: Int, data: Intent?) {
         super.onActivityResult(rc, res, data)
+        if (Macro.onResult(this, rc, res, data)) return
         if (rc == LocalBrain.PICK_CODE) { if (res == RESULT_OK) data?.data?.let { LocalBrain.importModel(this, it) }; return }
         if (rc == 4711) {
             val cb = fileCb; fileCb = null
@@ -600,6 +605,7 @@ class MainActivity : Activity() {
         }
         val t = Tab(w)
         w.addJavascriptInterface(blobBridge, "DailyDl")
+        w.addJavascriptInterface(MacroBridge(this), "DailyMacro"); Macro.host = macroHost   // অটো-রেকর্ডার
         if (url != null && url.startsWith(AGENT)) w.addJavascriptInterface(VoiceBridge(this, { w.url?.startsWith(AGENT) == true }, { js -> w.evaluateJavascript(js, null) }), "DailyVoice")
         t.site = siteOk
         t.profileName = incName
@@ -669,6 +675,7 @@ class MainActivity : Activity() {
                 if (v.title != Browse.ERR_TITLE) t.errUrl = null
                 handler.removeCallbacks(flushRun); handler.postDelayed(flushRun, 4000L)   // পাতা লোডের পর (লগইন সম্ভবত হয়েছে) কুকি ডিস্কে
                 if (u.startsWith("http")) v.evaluateJavascript(Browse.KEEP_JS, null)
+                Macro.onPage(this@MainActivity, v, u)
                 if (t.deskReport && u.startsWith("http")) { t.deskReport = false; reportDesk(t) }
                 // সাইটভেদে অটো-ক্লিক (যেমন claude.ai-এর অনুমতি-কার্ড) — সব AutoClick.kt-তে; স্ক্রিপ্ট নিজেই হোস্ট যাচাই করে
                 if (clickOn()) AutoClick.pageJs(u)?.let { js -> v.evaluateJavascript(js, null) }
@@ -719,6 +726,7 @@ class MainActivity : Activity() {
             override fun onCloseWindow(v: WebView) { closeTab(t) }
             // ছবি/অডিও/ভিডিও/যেকোনো ফাইল আপলোড: ফোনের ফাইল-বাছাইয়ের পর্দা খোলে (accept ও একাধিক-নির্বাচন সাইটের চাওয়া অনুযায়ী)
             override fun onShowFileChooser(v: WebView, cb: ValueCallback<Array<Uri>>, p: FileChooserParams): Boolean {
+                if (Macro.fileChooser(this@MainActivity, cb)) return true   // অটো-রেকর্ডারের রিপ্লে নিজে ফাইল দেয়
                 fileCb?.onReceiveValue(null); fileCb = cb
                 return try { startActivityForResult(p.createIntent(), 4711); true }
                 catch (_: Exception) { fileCb = null; Toast.makeText(this@MainActivity, "ফাইল বাছাইয়ের অ্যাপ পাওয়া যায়নি", Toast.LENGTH_LONG).show(); false }
@@ -2681,6 +2689,7 @@ return R('idle',null)}catch(e){return 'err'}})()"""
         m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
         m.menu.add(0, 63, 3, "AI সহকারী (Gemini কী)")
         m.menu.add(0, 64, 3, "🧠 অফলাইন মস্তিষ্ক (মডেল)")
+        m.menu.add(0, 80, 3, if (Macro.isRecording()) "⏹ অটো-রেকর্ডার (রেকর্ড চলছে)" else "🎬 অটো-রেকর্ডার (ক্লিক শিখুন ও চালান)")
         m.menu.add(0, 4, 3, "Termux কমান্ড ম্যানেজ")
         m.menu.add(0, 5, 4, "Termux সেটআপ ও অবস্থা")
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
@@ -2774,6 +2783,7 @@ return R('idle',null)}catch(e){return 'err'}})()"""
                 62 -> AutoLogin.bulkDialog(this) { st -> openSite(st.id); refreshHomes() }
                 63 -> AiRouter.dialog(this)
                 64 -> LocalBrain.dialog(this)
+                80 -> Macro.dialog(this, cur?.web)
                 4 -> manage()
                 5 -> status()
                 6 -> startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
