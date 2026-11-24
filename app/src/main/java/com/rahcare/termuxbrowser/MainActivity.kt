@@ -1764,7 +1764,18 @@ class MainActivity : Activity() {
                     else gcTab = null
                     return
                 }
-                if (System.currentTimeMillis() - gcStartAt > 3 * 60000L) { gcFinish(t, false, "GitHub কানেক্ট: সময় শেষ — হাতে শেষ করুন"); return }
+                if (System.currentTimeMillis() - gcStartAt > 3 * 60000L) {
+                    val hh = Uri.parse(t.web.url ?: "").host ?: ""
+                    if (hh == "claude.ai" || hh == "www.claude.ai") {
+                        // সময় শেষ হলেও পাতায় 'Connected' দেখালে সফল ধরে চ্যাটে ফিরি (আগে এখানে ব্যর্থ ধরে পাতায় ফেলে রাখা হতো)
+                        gcTab = null
+                        t.web.evaluateJavascript(GitConnect.claudeJs(false, true)) { raw0 ->
+                            if (Sites.unquote(raw0) == "connected") gcFinish(t, true, "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি")
+                            else gcFinish(t, false, "GitHub কানেক্ট: সময় শেষ — হাতে শেষ করুন")
+                        }
+                    } else gcFinish(t, false, "GitHub কানেক্ট: সময় শেষ — হাতে শেষ করুন")
+                    return
+                }
                 val u = t.web.url ?: ""
                 val uri = Uri.parse(u); val host = uri.host ?: ""; val path = uri.path ?: ""
                 when {
@@ -1797,6 +1808,8 @@ class MainActivity : Activity() {
                         }
                         else t.web.evaluateJavascript(GitConnect.claudeJs(!gcRepoDone && gcInstallClicks < 3)) { raw ->
                             val r = Sites.unquote(raw)
+                            if (r == "loading") return@evaluateJavascript
+                            if (r != "wrongpage") gcWrong = 0
                             if (r == "wrongpage") {
                                 // GitHub-এর পাতা নয় (যেমন Plugins-এর তালিকা): GitHub কানেক্টর ঠিকানায় যাই; তবু না মিললে থামি
                                 if (++gcWrong > 4) { gcFinish(t, false, "ভুল পাতায় আছি — অটো-কানেক্ট থামানো হলো, হাতে করুন"); return@evaluateJavascript }
