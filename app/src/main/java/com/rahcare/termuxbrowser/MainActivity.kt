@@ -1723,8 +1723,20 @@ class MainActivity : Activity() {
 
     override fun dispatchTouchEvent(ev: android.view.MotionEvent): Boolean {
         // GitHub অটো-কানেক্ট চলার সময় পর্দায় যেকোনো ট্যাপ = আপনি নিয়ন্ত্রণ নিয়েছেন → অটো-ক্লিক থামে (অটো-ক্লিক নিজে টাচ-ইভেন্ট বানায় না)
-        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && gcTab != null && System.currentTimeMillis() - gcStartAt > 3000L)
-            gcStop("আপনি হাতে নিয়েছেন — GitHub অটো-কানেক্ট থামানো হলো (চ্যাট ক্লিপবোর্ডে আছে)")
+        val gt = gcTab
+        if (ev.actionMasked == android.view.MotionEvent.ACTION_DOWN && gt != null && System.currentTimeMillis() - gcStartAt > 3000L) {
+            val gu = gt.web.url ?: ""
+            val gh = Uri.parse(gu).host ?: ""
+            if ((gh == "claude.ai" || gh == "www.claude.ai") && gu.contains("/customize")) {
+                // কানেক্টর/Plugins পাতায় ট্যাপ: পাতায় 'Connected' দেখালে থেমে না গিয়ে সরাসরি চ্যাটে ফিরি; না হলে আগের মতো থামি
+                gt.web.evaluateJavascript(GitConnect.claudeJs(false, true)) { raw ->
+                    if (gcTab === gt) {
+                        if (Sites.unquote(raw) == "connected") gcFinish(gt, true, "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি")
+                        else gcStop("আপনি হাতে নিয়েছেন — GitHub অটো-কানেক্ট থামানো হলো (চ্যাট ক্লিপবোর্ডে আছে)")
+                    }
+                }
+            } else gcStop("আপনি হাতে নিয়েছেন — GitHub অটো-কানেক্ট থামানো হলো (চ্যাট ক্লিপবোর্ডে আছে)")
+        }
         return super.dispatchTouchEvent(ev)
     }
 
