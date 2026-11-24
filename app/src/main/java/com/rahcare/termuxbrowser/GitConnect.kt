@@ -100,7 +100,7 @@ if(isConn&&$allowInstall&&!ins){
  /* Install নিচের কার্ডে থাকে; আগে নিচে স্ক্রল করে ৩ টিক (~৯ সেকেন্ড) খুঁজি, তারপর 'connected' ধরি */
  window.__gcN=(window.__gcN||0)+1;
  try{[].slice.call(document.querySelectorAll('main,div,section')).forEach(function(e){if(e.scrollHeight>e.clientHeight+40&&/(auto|scroll)/.test(getComputedStyle(e).overflowY))e.scrollTop=e.scrollHeight});window.scrollTo(0,document.body.scrollHeight)}catch(e){}
- if(window.__gcN<4)return 'waiting'}
+ if(window.__gcN<4)return 'waiting:conn'}
 if(isConn)return 'connected';
 return 'waiting'}catch(x){return 'err'}})()"""
 

@@ -1688,6 +1688,7 @@ class MainActivity : Activity() {
     private var gcReloads = 0             // কানেক্টর পাতা ফের লোডের সংখ্যা (সর্বোচ্চ ২)
     private var gcWrong = 0               // ভুল পাতা শনাক্তের সংখ্যা (সর্বোচ্চ ৩)
     private var gcLastLoad = 0L
+    private var gcSawConn = false      // কানেক্টর পাতায় 'Connected' একবার দেখা গেছে (পরে ভুল পাতায় ঘুরলেও লুপ না করে চ্যাটে ফেরা)
     private fun gcAuto() = Store.prefs(this).getBoolean("gc_auto", false)
 
     private fun gcBegin(t: Tab, pending: String? = null, pendSend: Boolean = false, back: String? = null, manual: Boolean = false) {
@@ -1705,6 +1706,7 @@ class MainActivity : Activity() {
         gcTab = t; gcOrigin = null; gcStartAt = System.currentTimeMillis(); gcLastRun = gcStartAt
         gcBack = (t.web.url ?: t.url).takeIf { it.contains("/chat/") || it.contains("/code") } ?: t.chatUrl
         gcLogins = 0; gcInstalled = false; gcInstallClicks = 0; gcRepoDone = false; gcConnectClicks = 0
+        gcSawConn = false
         gcPending = pending; gcPendSend = pendSend; gcCodeTries = 0; gcAskedNotif = false
         if (!back.isNullOrBlank()) gcBack = back
         Toast.makeText(this, "Claude-এ GitHub কানেক্ট নেই — নিজে কানেক্ট করা হচ্ছে…", Toast.LENGTH_LONG).show()
@@ -1809,8 +1811,11 @@ class MainActivity : Activity() {
                         else t.web.evaluateJavascript(GitConnect.claudeJs(!gcRepoDone && gcInstallClicks < 3)) { raw ->
                             val r = Sites.unquote(raw)
                             if (r == "loading") return@evaluateJavascript
+                            if (r == "waiting:conn") gcSawConn = true
                             if (r != "wrongpage") gcWrong = 0
                             if (r == "wrongpage") {
+                                // আগে 'Connected' দেখা গেছে, এখন অন্য পাতায় (যেমন Plugins তালিকা) → কানেক্ট সম্পূর্ণ ধরে চ্যাটে ফিরি, আবার কানেক্টর পাতা খুলে ঘোরা নয়
+                                if (gcSawConn) { gcFinish(t, true, "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি"); return@evaluateJavascript }
                                 // GitHub-এর পাতা নয় (যেমন Plugins-এর তালিকা): GitHub কানেক্টর ঠিকানায় যাই; তবু না মিললে থামি
                                 if (++gcWrong > 4) { gcFinish(t, false, "ভুল পাতায় আছি — অটো-কানেক্ট থামানো হলো, হাতে করুন"); return@evaluateJavascript }
                                 val nw2 = System.currentTimeMillis()
