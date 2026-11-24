@@ -1688,6 +1688,8 @@ class MainActivity : Activity() {
     private var gcReloads = 0             // কানেক্টর পাতা ফের লোডের সংখ্যা (সর্বোচ্চ ২)
     private var gcWrong = 0               // ভুল পাতা শনাক্তের সংখ্যা (সর্বোচ্চ ৩)
     private var gcLastLoad = 0L
+    private var gcSeenPage = false     // আসল GitHub কানেক্টর পাতা অন্তত একবার চিনেছি
+    private var gcLoads = 0            // এই চেষ্টায় কানেক্টর ঠিকানা মোট কতবার লোড করেছি (কখনো শূন্য হয় না)
     private var gcSawConn = false      // কানেক্টর পাতায় 'Connected' একবার দেখা গেছে (পরে ভুল পাতায় ঘুরলেও লুপ না করে চ্যাটে ফেরা)
     private fun gcAuto() = Store.prefs(this).getBoolean("gc_auto", false)
 
@@ -1706,7 +1708,7 @@ class MainActivity : Activity() {
         gcTab = t; gcOrigin = null; gcStartAt = System.currentTimeMillis(); gcLastRun = gcStartAt
         gcBack = (t.web.url ?: t.url).takeIf { it.contains("/chat/") || it.contains("/code") } ?: t.chatUrl
         gcLogins = 0; gcInstalled = false; gcInstallClicks = 0; gcRepoDone = false; gcConnectClicks = 0
-        gcSawConn = false
+        gcSawConn = false; gcSeenPage = false; gcLoads = 0
         gcPending = pending; gcPendSend = pendSend; gcCodeTries = 0; gcAskedNotif = false
         if (!back.isNullOrBlank()) gcBack = back
         Toast.makeText(this, "Claude-এ GitHub কানেক্ট নেই — নিজে কানেক্ট করা হচ্ছে…", Toast.LENGTH_LONG).show()
@@ -1752,6 +1754,9 @@ class MainActivity : Activity() {
         } else if (ok && tabs.contains(t)) {
             t.web.loadUrl(backUrl)
             if (gcBack.startsWith("http")) fillInput(t, "GitHub এখন কানেক্ট হয়েছে। এই চ্যাটে আগের কাজটা GitHub টুল দিয়ে চালিয়ে যাও।", 0, true)
+        } else if (!ok && tabs.contains(t) && (t.web.url ?: "").contains("/customize")) {
+            // ব্যর্থ হলেও কানেক্টর/Plugins পাতায় আটকে রাখি না: চ্যাটে ফিরি (আর নিজে থেকে চেষ্টা ২ ঘণ্টা বন্ধ)
+            t.web.loadUrl(backUrl)
         }
     }
 
@@ -1764,6 +1769,11 @@ class MainActivity : Activity() {
                     val o = gcOrigin
                     if (o != null && tabs.contains(o)) { gcOrigin = null; gcTab = o; gcRepoDone = true; select(o); o.web.loadUrl(GitConnect.CONNECTORS) }
                     else gcTab = null
+                    return
+                }
+                // পাকা বাঁধ: কানেক্টর ঠিকানা মোট ৪ বারের বেশি লোড হলে বা 'Connected' দেখার পর ৪০ সেকেন্ড পেরোলে আর ঘোরা নয়
+                if (gcLoads > 4 || (gcSawConn && System.currentTimeMillis() - gcStartAt > 40000L)) {
+                    gcFinish(t, gcSawConn, if (gcSawConn) "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি" else "অটো-কানেক্ট ঘুরছিল — থামিয়ে চ্যাটে ফিরছি, হাতে করুন")
                     return
                 }
                 if (System.currentTimeMillis() - gcStartAt > 3 * 60000L) {
@@ -1805,21 +1815,21 @@ class MainActivity : Activity() {
                             // Claude পাতা বদলালে (যেমন Plugins-এ পাঠিয়ে দিলে) অনন্ত রিলোড নয়: সর্বোচ্চ ২ বার ফের চেষ্টা, তারপর থেমে আপনাকে জানায়
                             if (nw - gcStartAt > 8000L && nw - gcLastLoad > 12000L) {
                                 if (++gcReloads > 2) { gcFinish(t, false, "Claude-এর GitHub কানেক্টর পাতা খোলা যায়নি (পাতা বদলে গেছে?) — হাতে GitHub কানেক্ট করুন"); return }
-                                gcLastLoad = nw; t.web.loadUrl(if (gcReloads % 2 == 1) GitConnect.CONNECTORS_ALT else GitConnect.CONNECTORS)
+                                gcLastLoad = nw; gcLoads++; t.web.loadUrl(if (gcReloads % 2 == 1) GitConnect.CONNECTORS_ALT else GitConnect.CONNECTORS)
                             }
                         }
                         else t.web.evaluateJavascript(GitConnect.claudeJs(!gcRepoDone && gcInstallClicks < 3)) { raw ->
                             val r = Sites.unquote(raw)
                             if (r == "loading") return@evaluateJavascript
-                            if (r == "waiting:conn") gcSawConn = true
-                            if (r != "wrongpage") gcWrong = 0
+                            if (r == "waiting:conn" || r == "connected") gcSawConn = true
+                            if (r != "wrongpage" && r != "loading") gcSeenPage = true
+                            // (আগে এখানে gcWrong শূন্য হতো — তাই কানেক্টর→Plugins→কানেক্টর ঘুরলে গণনা কখনো বাড়ত না। এখন শূন্য হয় না)
                             if (r == "wrongpage") {
-                                // আগে 'Connected' দেখা গেছে, এখন অন্য পাতায় (যেমন Plugins তালিকা) → কানেক্ট সম্পূর্ণ ধরে চ্যাটে ফিরি, আবার কানেক্টর পাতা খুলে ঘোরা নয়
-                                if (gcSawConn) { gcFinish(t, true, "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি"); return@evaluateJavascript }
-                                // GitHub-এর পাতা নয় (যেমন Plugins-এর তালিকা): GitHub কানেক্টর ঠিকানায় যাই; তবু না মিললে থামি
-                                if (++gcWrong > 4) { gcFinish(t, false, "ভুল পাতায় আছি — অটো-কানেক্ট থামানো হলো, হাতে করুন"); return@evaluateJavascript }
+                                // আগে আসল পাতা চিনে থাকলে, এখন অন্য পাতায় (Plugins তালিকা) গেছি মানে claude.ai নিজে সরিয়েছে → আর কানেক্টর খুলে ঘোরা নয়, চ্যাটে ফিরি
+                                if (gcSawConn || (gcSeenPage && gcConnectClicks == 0 && !gcInstalled)) { gcFinish(t, true, "GitHub কানেক্ট হয়েছে ✔ — চ্যাটে ফিরছি"); return@evaluateJavascript }
+                                if (++gcWrong > 2) { gcFinish(t, false, "ভুল পাতায় আছি — অটো-কানেক্ট থামিয়ে চ্যাটে ফিরছি, হাতে করুন"); return@evaluateJavascript }
                                 val nw2 = System.currentTimeMillis()
-                                if (nw2 - gcLastLoad > 6000L) { gcLastLoad = nw2; t.web.loadUrl(if (gcWrong % 2 == 1) GitConnect.CONNECTORS else GitConnect.CONNECTORS_ALT) }
+                                if (nw2 - gcLastLoad > 6000L) { gcLastLoad = nw2; gcLoads++; t.web.loadUrl(if (gcWrong % 2 == 1) GitConnect.CONNECTORS else GitConnect.CONNECTORS_ALT) }
                                 return@evaluateJavascript
                             }
                             if (r == "clicked:Install") { gcInstalled = true; gcInstallClicks++ }
