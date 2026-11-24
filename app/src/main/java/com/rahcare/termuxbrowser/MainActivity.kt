@@ -1732,6 +1732,26 @@ class MainActivity : Activity() {
         return super.dispatchTouchEvent(ev)
     }
 
+    /**
+     * কানেক্টর/Plugins পাতা থেকে বেরোনো (আপনার বলা সহজ পথ): ১) বাম-উপরের '← Plugins' তীরে চাপি, ২) ফোনের Back-এর মতো goBack (সর্বোচ্চ ৫ বার, /customize থেকে বেরোনো পর্যন্ত),
+     * ৩) তাতেও না হলে সরাসরি চ্যাটের ঠিকানা। শেষে then() চলে (যেমন লেখা বসানো)। /customize-এ না থাকলে সরাসরি backUrl (alwaysLoad=true হলে) বা কিছুই না।
+     */
+    private fun gcLeave(t: Tab, backUrl: String, alwaysLoad: Boolean, then: () -> Unit) {
+        if (!tabs.contains(t)) return
+        if (!(t.web.url ?: "").contains("/customize")) { if (alwaysLoad) t.web.loadUrl(backUrl); then(); return }
+        t.web.evaluateJavascript(GitConnect.BACK_ARROW_JS, null)
+        var n = 0
+        val step = object : Runnable {
+            override fun run() {
+                if (!tabs.contains(t)) return
+                if (!(t.web.url ?: "").contains("/customize")) { then(); return }
+                if (n++ < 5 && t.web.canGoBack()) { t.web.goBack(); handler.postDelayed(this, 1200L) }
+                else { t.web.loadUrl(backUrl); then() }
+            }
+        }
+        handler.postDelayed(step, 1200L)
+    }
+
     private fun gcFinish(t: Tab, ok: Boolean, msg: String) {
         handler.removeCallbacks(gcTick)
         gcTab = null; gcLastRun = System.currentTimeMillis()
@@ -1747,16 +1767,16 @@ class MainActivity : Activity() {
         if (org != null && org !== t && tabs.contains(org) && (org.web.url ?: "").contains("/customize")) org.web.loadUrl(backUrl)
         if (pend != null) {
             //  workspace switch flow: chat-e fire giye lekha abar boshao; GitHub connected hole (ok) tobei send
-            if (tabs.contains(t)) {
-                t.web.loadUrl(backUrl)
+            if (tabs.contains(t)) gcLeave(t, backUrl, true) {
                 fillInput(t, pend, 0, ps)   // কানেক্ট ব্যর্থ/সময় শেষ হলেও পাঠাই — নইলে মেসেজ বসে থাকত, সেন্ড হতো না
             }
         } else if (ok && tabs.contains(t)) {
-            t.web.loadUrl(backUrl)
-            if (gcBack.startsWith("http")) fillInput(t, "GitHub এখন কানেক্ট হয়েছে। এই চ্যাটে আগের কাজটা GitHub টুল দিয়ে চালিয়ে যাও।", 0, true)
+            gcLeave(t, backUrl, true) {
+                if (gcBack.startsWith("http")) fillInput(t, "GitHub এখন কানেক্ট হয়েছে। এই চ্যাটে আগের কাজটা GitHub টুল দিয়ে চালিয়ে যাও।", 0, true)
+            }
         } else if (!ok && tabs.contains(t) && (t.web.url ?: "").contains("/customize")) {
             // ব্যর্থ হলেও কানেক্টর/Plugins পাতায় আটকে রাখি না: চ্যাটে ফিরি (আর নিজে থেকে চেষ্টা ২ ঘণ্টা বন্ধ)
-            t.web.loadUrl(backUrl)
+            gcLeave(t, backUrl, false) {}
         }
     }
 
@@ -1821,6 +1841,7 @@ class MainActivity : Activity() {
                         else t.web.evaluateJavascript(GitConnect.claudeJs(!gcRepoDone && gcInstallClicks < 3)) { raw ->
                             val r = Sites.unquote(raw)
                             if (r == "loading") return@evaluateJavascript
+                            if (r == "listed") { gcSawConn = true; gcFinish(t, true, "GitHub কানেক্ট আছে ✔ — চ্যাটে ফিরছি"); return@evaluateJavascript }
                             if (r == "waiting:conn" || r == "connected") gcSawConn = true
                             if (r != "wrongpage" && r != "loading") gcSeenPage = true
                             // (আগে এখানে gcWrong শূন্য হতো — তাই কানেক্টর→Plugins→কানেক্টর ঘুরলে গণনা কখনো বাড়ত না। এখন শূন্য হয় না)

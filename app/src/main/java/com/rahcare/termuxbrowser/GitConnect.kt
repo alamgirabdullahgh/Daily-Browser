@@ -76,6 +76,8 @@ var m=s.match(re);return m?s.slice(Math.max(0,m.index-20),m.index+160):'';
 var PP=location.pathname;if(PP.indexOf('/customize')!==0)return 'wrongpage';
 var BT=(document.body.innerText||'').slice(0,8000),HH='';try{var hs=document.querySelectorAll('h1,h2,h3,[role=heading]');for(var hi=0;hi<hs.length&&hi<6;hi++)HH+=' '+(hs[hi].innerText||'')}catch(e){}
 if(BT.replace(/\s+/g,' ').trim().length<150)return 'loading'; /* পাতা এখনো আঁকা হয়নি (SPA) — ভুল পাতা ভেবে রিলোড নয় */
+/* Plugins তালিকা পাতা: 'Your plugins'-এ GitHub থাকলে কানেক্টেড ধরি (তালিকা থেকে আর কানেক্টর ঠিকানা খুলে ঘোরা নয়) */
+if(/your plugins/i.test(BT)&&/(^|\n)\s*github\b/i.test((BT.split(/most used/i)[0]||'').split(/your plugins/i)[1]||''))return 'listed';
 if(!(/^\s*github\b/i.test(HH.trim())||/connect your github account|claude github app|github account (connected|not connected)/i.test(BT)))return 'wrongpage';
 function vis(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0}
 function tx(e){return(e.innerText||e.textContent||'').replace(/\s+/g,' ').replace(/[\s\u2197\u2192\u203a\u00bb]+${'$'}/,'').trim()}
@@ -103,6 +105,12 @@ if(isConn&&$allowInstall&&!ins){
  if(window.__gcN<4)return 'waiting:conn'}
 if(isConn)return 'connected';
 return 'waiting'}catch(x){return 'err'}})()"""
+
+    /** Plugins/কানেক্টর পাতার বাম-উপরের '← Plugins' তীরে চাপে (পরে ফোনের Back-এর মতো পিছিয়ে চ্যাটে ফেরা হয়) */
+    const val BACK_ARROW_JS = """(function(){try{
+var c=[].slice.call(document.querySelectorAll('a,button,[role=button]')).filter(function(e){var r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.top<280&&r.left<220});
+for(var i=0;i<c.length;i++){var t=(c[i].innerText||c[i].getAttribute('aria-label')||'').replace(/\s+/g,' ').trim();if(/^(\u2190\s*)?(plugins|connectors|back)/i.test(t)&&t.length<30){c[i].click();return 'back'}}
+return 'none'}catch(x){return 'err'}})()"""
 
     /** github.com পাতায়: লগইন ফর্ম (শুধু cred != null হলে), ২-ধাপ/যাচাই শনাক্ত, Authorize/Install চাপা */
     fun githubJs(email: String?, pass: String?, code: String? = null) = """(function(){try{
