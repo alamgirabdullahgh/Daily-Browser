@@ -2727,8 +2727,6 @@ return R('idle',null)}catch(e){return 'err'}})()"""
     private fun menu(anchor: View) {
         val m = SheetMenu()
         if (upd != null) m.menu.add(0, 8, 0, "⬆ অ্যাপ আপডেট করুন")
-        m.menu.add(0, 1, 0, "নতুন ট্যাব")
-        m.menu.add(0, 2, 1, "রিলোড")
         if (cur?.web?.canGoForward() == true) m.menu.add(0, 12, 1, "এগিয়ে যান →")
         m.menu.add(0, 3, 2, "ডেস্কটপ সাইট (সব ট্যাব)").apply { isCheckable = true; isChecked = desktop }
         cur?.let { ct -> m.menu.add(0, 70, 2, "এই ট্যাবে ডেস্কটপ সাইট (🖥 বোতামেও)").apply { isCheckable = true; isChecked = deskOf(ct) } }
@@ -2738,9 +2736,8 @@ return R('idle',null)}catch(e){return 'err'}})()"""
         m.menu.add(0, 62, 3, "একসাথে ওয়ার্কস্পেস বানান + অটো-লগইন")
         m.menu.add(0, 63, 3, "AI সহকারী (Gemini কী)")
         m.menu.add(0, 64, 3, "🧠 অফলাইন মস্তিষ্ক (মডেল)")
-        m.menu.add(0, 80, 3, if (Macro.isRecording()) "⏹ অটো-রেকর্ডার (রেকর্ড চলছে)" else "🎬 অটো-রেকর্ডার (ক্লিক শিখুন ও চালান)")
-        m.menu.add(0, 4, 3, "Termux কমান্ড ম্যানেজ")
-        m.menu.add(0, 5, 4, "Termux সেটআপ ও অবস্থা")
+        m.menu.add(0, 82, 0, if (Macro.isRecording()) "⏹ রেকর্ড থামান ও সেভ" else "🔴 রেকর্ড শুরু")
+        m.menu.add(0, 83, 0, "▶ সেভ করা রেকর্ড (চালান/দেখুন/মুছুন)")
         m.menu.add(0, 6, 5, "অ্যাপ অনুমতি (সেটিংস)")
         m.menu.add(0, 7, 6, "ব্রাউজিং ডেটা মুছুন")
         cur?.takeIf { it.site != null }?.let { m.menu.add(0, 9, 0, "🔁 এই চ্যাট অন্য ওয়ার্কস্পেসে নিন") }
@@ -2832,7 +2829,8 @@ return R('idle',null)}catch(e){return 'err'}})()"""
                 62 -> AutoLogin.bulkDialog(this) { st -> openSite(st.id); refreshHomes() }
                 63 -> AiRouter.dialog(this)
                 64 -> LocalBrain.dialog(this)
-                80 -> Macro.dialog(this, cur?.web)
+                82 -> if (Macro.isRecording()) Macro.stopRecording(this, cur?.web) else Macro.startRecording(this, cur?.web)
+                83 -> Macro.dialog(this, cur?.web)
                 4 -> manage()
                 5 -> status()
                 6 -> startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
@@ -2874,15 +2872,15 @@ return R('idle',null)}catch(e){return 'err'}})()"""
         val d = android.app.Dialog(this)
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE)
         val groups = listOf(
+            "অটো-রেকর্ডার" to listOf(82, 83),
             "এজেন্ট এবং ওয়ার্কস্পেস" to listOf(50, 51, 9, 11, 10, 15, 14, 17),
-            "পেজ" to listOf(20, 23, 24, 25, 26, 3, 29, 2, 12, 1),
+            "পেজ" to listOf(20, 23, 24, 25, 26, 3, 29, 12),
             "লাইব্রেরি" to listOf(21, 22, 30, 27),
             "লগইন ও AI" to listOf(62, 61, 63, 60),
             "GitHub" to listOf(18, 13, 16, 40, 41, 42),
-            "Termux" to listOf(4, 5),
             "অ্যাপ" to listOf(6, 7)
         )
-        val icons = mapOf(50 to "🤖", 51 to "📤", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹", 60 to "G", 61 to "🔑", 62 to "👥", 63 to "✨")
+        val icons = mapOf(82 to "🔴", 83 to "▶", 50 to "🤖", 51 to "📤", 18 to "🔗", 17 to "🔍", 1 to "＋", 2 to "↻", 12 to "→", 3 to "🖥", 4 to "⌘", 5 to "⚙", 6 to "🛡", 7 to "🧹", 60 to "G", 61 to "🔑", 62 to "👥", 63 to "✨")
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(10), dp(14), dp(22)) }
         fun pick(it: MI) { d.dismiss(); m.click?.invoke(it) }
         m.items.firstOrNull { it.itemId == 8 }?.let { u ->
